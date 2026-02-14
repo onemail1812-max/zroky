@@ -3,7 +3,9 @@ Chief of Staff Brain - Main FastAPI Application
 Multi-tenant • Adaptive • OSS-first • Vertex-powered
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+import logging
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -30,6 +32,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger = logging.getLogger(__name__)
+is_debug = os.getenv("ENVIRONMENT") != "production"
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception: %s", str(exc))
+    
+    content = {
+        "error": {
+            "code": "internal_error", 
+            "message": "Internal server error"
+        }
+    }
+    
+    if is_debug:
+        import traceback
+        content["error"]["message"] = f"Internal server error: {str(exc)}"
+        content["error"]["traceback"] = traceback.format_exc()
+        
+    return JSONResponse(
+        status_code=500,
+        content=content,
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": "http_error", "message": exc.detail}},
+    )
 
 # Initialize components
 orchestrator = ChiefOfStaffOrchestrator()
