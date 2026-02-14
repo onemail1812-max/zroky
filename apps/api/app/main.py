@@ -63,16 +63,22 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", str(exc))
-    import traceback
+    
+    content = {
+        "error": {
+            "code": "internal_error", 
+            "message": "Internal server error"
+        }
+    }
+    
+    if settings.debug:
+        import traceback
+        content["error"]["message"] = f"Internal server error: {str(exc)}"
+        content["error"]["traceback"] = traceback.format_exc()
+        
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "error": {
-                "code": "internal_error", 
-                "message": f"Internal server error: {str(exc)}",
-                "traceback": traceback.format_exc()
-            }
-        },
+        content=content,
     )
 
 

@@ -25,7 +25,7 @@ services:
       - 8000:8000
     environment:
       - DATABASE_URL=sqlite:///./zroky.db
-      - SECRET_KEY=changeme_in_prod
+      - SECRET_KEY=${SECRET_KEY:-changeme_in_dev}
     volumes:
       - ./data:/app/data
       - ./zroky.db:/app/zroky.db
