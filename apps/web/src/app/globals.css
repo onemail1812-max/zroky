@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+:root {
+  /* 
+    PREMIUM MINIMALIST PALETTE (Obsidian & Vapor)
+    A high-contrast, strictly monochrome foundation with highly curated status accents.
+  */
+
+  /* Backgrounds */
+  --appBg: #ffffff; /* Pure white for maximum clarity */
+  --surface: #ffffff;
+  --surfaceElevated: #fafafa; /* Subtle contrast for sidebars */
+  --surfaceHover: #f4f4f5;
+
+  /* Typography - Inter/Geist inspired neutrality */
+  --textPrimary: #0a0a0a; /* Almost black for softer contrast than pure #000 */
+  --textSecondary: #666666; /* Refined grey */
+  --textMuted: #a1a1aa; /* Light metal */
+  --textInverse: #ffffff;
+
+  /* Structure */
+  --borderSubtle: #eaeaea; /* Very light, crisp borders */
+  --borderStrong: #d4d4d8;
+  --focusRing: rgba(0, 0, 0, 0.08); /* Sophisticated focus ring */
+
+  /* Semantic Accents - Punchy & Meaningful */
+  --accentPrimary: #171717; /* Main Brand (Black) */
+  --accentSurface: #f5f5f5;
+
+  /* Status Colors (Jewel Tones) */
+  --successOnline: #059669; /* Emerald */
+  --warningWaiting: #d97706; /* Amber */
+  --infoExecuting: #2563eb; /* Royal Blue */
+  --errorBlocked: #dc2626; /* Crimson */
+
+  /* A11y & Compatibility Map */
+  --background: var(--appBg);
+  --foreground: var(--textPrimary);
+  --card: var(--surface);
+  --card-foreground: var(--textPrimary);
+  --popover: var(--surface);
+  --popover-foreground: var(--textPrimary);
+  --primary: var(--accentPrimary);
+  --primary-foreground: var(--textInverse);
+  --secondary: var(--surfaceElevated);
+  --secondary-foreground: var(--textPrimary);
+  --muted: var(--surfaceElevated);
+  --muted-foreground: var(--textMuted);
+  --accent: var(--accentSurface);
+  --accent-foreground: var(--textPrimary);
+  --destructive: var(--errorBlocked);
+  --destructive-foreground: var(--textInverse);
+  --border: var(--borderSubtle);
+  --input: var(--borderSubtle);
+  --ring: var(--textPrimary);
+
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-appBg: var(--appBg);
+  --color-surface: var(--surface);
+  --color-surfaceElevated: var(--surfaceElevated);
+  --color-surfaceHover: var(--surfaceHover);
+
+  --color-textPrimary: var(--textPrimary);
+  --color-textSecondary: var(--textSecondary);
+  --color-textMuted: var(--textMuted);
+  --color-textInverse: var(--textInverse);
+
+  --color-borderSubtle: var(--borderSubtle);
+  --color-borderStrong: var(--borderStrong);
+  
+  --color-successOnline: var(--successOnline);
+  --color-warningWaiting: var(--warningWaiting);
+  --color-infoExecuting: var(--infoExecuting);
+  --color-errorBlocked: var(--errorBlocked);
+
+  /* Shadcn/Standard Mappings */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: var(--font-plus-jakarta-sans);
+}
+
+* {
+  border-color: var(--borderSubtle);
+}
+
+body {
+  background: var(--appBg);
+  color: var(--textPrimary);
+  font-feature-settings: "ss01", "ss02", "cv01", "cv02"; /* Technical layout features */
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--textPrimary);
+  outline-offset: 2px;
+}
+
+/* 
+  Micro-Animations
+  Refined for subtle, expensive feel.
+*/
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-sheen {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-in {
+  animation: fade-in 0.4s ease-out;
+}
+
+.animate-slide-up {
+  animation: slide-up-fade 0.5s cubic-bezier(0.16, 1, 0.3, 1); /* Apple-esque ease */
+}
+
+.animate-pulse-slow {
+  animation: pulse-sheen 3s infinite ease-in-out;
+}
+
