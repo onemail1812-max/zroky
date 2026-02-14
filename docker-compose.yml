@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - 3000:3000
+    depends_on:
+      - api
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://api:8000
+    networks:
+      - aaliyah-net
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=sqlite:///./zroky.db
+      - SECRET_KEY=changeme_in_prod
+    volumes:
+      - ./data:/app/data
+      - ./zroky.db:/app/zroky.db
+    networks:
+      - aaliyah-net
+
+networks:
+  aaliyah-net:
+    driver: bridge

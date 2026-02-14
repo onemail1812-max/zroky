@@ -1,0 +1,171 @@
+"""
+Aaliyah Core Component
+The central "Mind" of the Executive Assistant.
+This class orchestrates perception, reasoning, and action.
+"""
+
+from typing import Dict, Any, List, Optional
+import logging
+from datetime import datetime
+
+from ...brain.core import Brain
+from ...brain.schemas.models import ModelType
+from ...brain.guardrails import redact_text
+from ..tools.email_manager import EmailManager
+from ..tools.calendar_manager import CalendarManager
+
+
+logger = logging.getLogger(__name__)
+
+class AaliyahCore:
+    def __init__(self, workspace_id: str):
+        self.workspace_id = workspace_id
+        self.logger = logger.getChild(f"Aaliyah.{workspace_id}")
+        self.brain = Brain() # Initialize the Unified Brain
+        # self.memory = Memory(workspace_id)
+        
+        # Initialize Tools Registry
+        self.tools = {
+            "email_manager": EmailManager(),
+            "calendar_manager": CalendarManager()
+        }
+        
+        
+    async def perceive(self, event: Dict[str, Any]) -> None:
+        """
+        Ingest a new event (Email, Calendar update, etc).
+        This is the SENSORY input.
+        """
+        self.logger.info("Perceiving event: %s", redact_text(str(event.get("type"))))
+        
+        # 1. Fast Classification (System 1 - Llama 3)
+        classification = await self.classify_event(event)
+        self.logger.info(f"Classified as: {classification}")
+        
+        # 2. Filter Noise
+        if classification.get("is_noise"):
+             self.logger.info("Ignoring noise event.")
+             return
+
+        # 3. Trigger Thought Loop (System 2 - DeepSeek R1)
+        await self.think(event)
+
+    async def classify_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Uses Fast Model (Llama 3) to categorize the event.
+        Returns: { "is_noise": bool, "category": str, "priority": str }
+        """
+        system_prompt = (
+            "You are a fast email triage agent. "
+            "Analyze the event and output JSON with keys: "
+            "'is_noise' (bool), 'category' (Urgent/Meeting/Newsletter/Spam), 'priority' (High/Medium/Low)."
+        )
+        prompt = f"Event: {event}"
+        
+        try:
+            response = await self.brain.think(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model_override=ModelType.FAST # Use Llama 3
+            )
+            
+            # Robust JSON extraction
+            import json
+            import re
+            content = response.content
+            
+            # Pattern to find { ... } block
+            match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+                return json.loads(json_str)
+            else:
+                return json.loads(content) # Try direct parse if no brackets found (unlikely)
+            
+        except Exception as e:
+            self.logger.error("Classification failed: %s", redact_text(str(e)))
+            return {"is_noise": False, "category": "unknown", "priority": "medium"}
+
+    async def think(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        The Main Cognitive Loop.
+        1. Composes a prompt with current context + tools.
+        2. Queries the Brain (LLM).
+        3. Parses the result into a structured Action.
+        """
+        self.logger.info("Thinking...")
+        
+        # 1. Compose Prompt
+        system_prompt = (
+            "You are Aaliyah, a world-class Executive Assistant. "
+            "Your goal is to be proactive, precise, and reliable. "
+            "You have access to the following tools: "
+            "1. email_manager (Draft, Send, Search emails) "
+            "2. calendar_manager (Check availability, book meetings) "
+            "Analyze the user request and decide the next best action. "
+            "Return a JSON object with 'action', 'tool', and 'params'."
+        )
+        
+        user_prompt = f"Context: {context}. What should I do?"
+        
+        try:
+            # 2. Query Brain
+            response = await self.brain.think(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                model_override=ModelType.REASONING # Use smarter model for decisions
+            )
+            
+            # 3. Parse Result (Naive parsing for now, will add JSON repair later)
+            # In a real impl, we'd use `response_format` or Pydantic output parsers
+            import json
+            decision_content = response.content
+            # Clean markdown if present
+            if "```json" in decision_content:
+                decision_content = decision_content.split("```json")[1].split("```")[0]
+            
+            decision = json.loads(decision_content)
+            self.logger.info("Decision prepared action=%s tool=%s", decision.get("action"), decision.get("tool"))
+            return decision
+            
+        except Exception as e:
+            self.logger.error("Thinking failed: %s", redact_text(str(e)))
+            return {
+                "action": "error",
+                "reasoning": f"I encountered an error while thinking: {str(e)}"
+            }
+
+    async def act(self, decision: Dict[str, Any]) -> Any:
+        """
+        Execute the decision using the appropriate tool.
+        """
+        tool_name = decision.get("tool")
+        params = decision.get("params", {}).copy() # Avoid mutating original
+        
+        # Inject the 'action' into params so tool knows what to do
+        if "action" not in params:
+            params["action"] = decision.get("action")
+        if "workspace_id" not in params:
+            params["workspace_id"] = self.workspace_id
+        
+        self.logger.info("Acting: tool=%s", tool_name)
+        
+        if tool_name in self.tools:
+            tool = self.tools[tool_name]
+            result = await tool.run(params)
+            self.logger.info("Tool execution completed tool=%s", tool_name)
+            return result
+        elif decision.get("action") == "wait":
+             self.logger.info("No action required.")
+             return None
+        else:
+            self.logger.warning(f"Unknown tool requested: {tool_name}")
+            return {"error": "Tool not found"}
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return current state of the agent"""
+        return {
+            "status": "online",
+            "last_active": datetime.now().isoformat(),
+            "mode": "autonomous"  # or "shadow"
+        }

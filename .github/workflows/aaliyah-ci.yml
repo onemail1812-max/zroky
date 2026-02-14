@@ -1,0 +1,50 @@
+name: Aaliyah CI
+
+on:
+  pull_request:
+    branches: ["main", "master"]
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      OPENROUTER_API_KEY: ci-test-key
+      AALIYAH_API_KEY: ci-test-key
+      BRAIN_API_KEY: ci-test-key
+      SECRET_KEY: ci-secret-key
+      OAUTH_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install API dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Secret Scan
+        run: python ../../scripts/secret_scan.py
+      - name: Unit Tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+  web-quality:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Web dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build

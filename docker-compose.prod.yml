@@ -1,0 +1,45 @@
+# FastAPI Prod Compose
+version: "3.8"
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Prod overrides
+      ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/zroky
+      # Secrets (In real prod, inject via platform secrets)
+      SECRET_KEY: ${SECRET_KEY}
+      OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # External URLs
+      FRONTEND_BASE_URL: https://aaliyah.zroky.com
+      PUBLIC_APP_URL: https://aaliyah.zroky.com
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: zroky
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

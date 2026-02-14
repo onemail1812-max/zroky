@@ -1,0 +1,42 @@
+{
+    "name": "@zroky/api",
+    "version": "1.0.0",
+    "description": "Chief of Staff API - Google Gemini-First Architecture",
+    "main": "dist/index.js",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "worker": "tsx src/workers/main.ts",
+        "worker:dev": "tsx watch src/workers/main.ts",
+        "db:migrate": "prisma migrate deploy",
+        "db:generate": "prisma generate",
+        "test": "jest",
+        "lint": "eslint src --ext .ts",
+        "type-check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@google-cloud/vertexai": "^1.7.0",
+        "@hatchet-dev/typescript-sdk": "^0.30.0",
+        "mem0ai": "^0.1.0",
+        "axios": "^1.7.0",
+        "zod": "^3.23.0",
+        "dotenv": "^16.4.0",
+        "@prisma/client": "^5.20.0",
+        "ioredis": "^5.4.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "typescript": "^5.6.0",
+        "tsx": "^4.19.0",
+        "prisma": "^5.20.0",
+        "@typescript-eslint/eslint-plugin": "^7.0.0",
+        "@typescript-eslint/parser": "^7.0.0",
+        "eslint": "^8.57.0",
+        "jest": "^29.7.0",
+        "@types/jest": "^29.5.0"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

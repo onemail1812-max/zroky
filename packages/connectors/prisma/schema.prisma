@@ -1,0 +1,320 @@
+// Aaliyah Unified Connector Platform
+// Prisma Schema - Enterprise Grade Data Model (SQLite Compatible Version)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// CONNECTED ACCOUNTS
+// ============================================
+model ConnectedAccount {
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  userId            String        @map("user_id")
+  provider          String        // Enum mapped to String
+  providerAccountId String        @map("provider_account_id")
+  email             String
+  displayName       String?       @map("display_name")
+  status            String        @default("ACTIVE") // Enum mapped to String
+  enabledScopes     String        @default("[]") @map("enabled_scopes") // Stored as JSON string
+  requestedScopes   String        @default("[]") @map("requested_scopes") // Stored as JSON string
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  lastSyncAt DateTime? @map("last_sync_at")
+
+  // Relations
+  oauthToken OAuthToken?
+  syncState  SyncState?
+  approvals  Approval[]
+  auditLogs  AuditLog[]
+
+  @@unique([tenantId, userId, provider, providerAccountId])
+  @@index([tenantId])
+  @@index([tenantId, userId])
+  @@index([status])
+  @@map("connected_accounts")
+}
+
+// ============================================
+// OAUTH TOKENS (Encrypted at Rest)
+// ============================================
+model OAuthToken {
+  id String @id @default(uuid())
+
+  accountId String @unique @map("account_id")
+
+  // Encrypted fields (envelope encryption with AES-256-GCM)
+  accessTokenEnc  String @map("access_token_enc")
+  refreshTokenEnc String @map("refresh_token_enc")
+
+  // Encryption metadata for key rotation
+  keyVersion      Int    @default(1) @map("key_version")
+  encryptionKeyId String @map("encryption_key_id")
+
+  accessTokenExpiresAt DateTime @map("access_token_expires_at")
+  tokenType            String   @default("Bearer") @map("token_type")
+  scope                String
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accessTokenExpiresAt])
+  @@map("oauth_tokens")
+}
+
+// ============================================
+// SYNC STATE
+// ============================================
+model SyncState {
+  id        String @id @default(uuid())
+  accountId String @unique @map("account_id")
+
+  // Generic history ID (used by sync worker)
+  emailHistoryId    String? @map("email_history_id")
+  calendarSyncToken String? @map("calendar_sync_token")
+
+  // Gmail specific
+  gmailHistoryId   String?   @map("gmail_history_id")
+  gmailWatchExpiry DateTime? @map("gmail_watch_expiry")
+
+  // Microsoft Graph specific
+  mailDeltaLink     String? @map("mail_delta_link")
+  calendarDeltaLink String? @map("calendar_delta_link")
+
+  // Calendar sync tokens
+  googleCalendarSyncToken String? @map("google_calendar_sync_token")
+
+  // Webhook subscription IDs
+  emailSubscriptionId    String?   @map("email_subscription_id")
+  mailSubscriptionId     String?   @map("mail_subscription_id")
+  calendarSubscriptionId String?   @map("calendar_subscription_id")
+  subscriptionExpiry     DateTime? @map("subscription_expiry")
+
+  // Sync timestamps
+  lastEmailSync    DateTime? @map("last_email_sync")
+  lastCalendarSync DateTime? @map("last_calendar_sync")
+
+  // Sync status
+  emailSyncStatus    String? @map("email_sync_status")
+  calendarSyncStatus String? @map("calendar_sync_status")
+  errorMessage       String? @map("error_message")
+
+  // Polling fallback configuration
+  usePolling     Boolean   @default(false) @map("use_polling")
+  lastPollAt     DateTime? @map("last_poll_at")
+  pollErrorCount Int       @default(0) @map("poll_error_count")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("sync_state")
+}
+
+// ============================================
+// APPROVALS (Action Gating)
+// ============================================
+model Approval {
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  userId    String @map("user_id")
+  accountId String @map("account_id")
+
+  actionType String   @map("action_type") // Enum mapped to String
+  status     String   @default("PENDING") // Enum mapped to String
+
+  // Encrypted/serialized action payload
+  actionPayload String @map("action_payload") // JSON string
+
+  // Risk assessment
+  riskLevel  String  @default("MEDIUM") @map("risk_level") // Enum to String
+  riskReason String? @map("risk_reason")
+
+  // Timestamps
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  expiresAt   DateTime  @map("expires_at")
+  decidedAt   DateTime? @map("decided_at")
+  decidedBy   String?   @map("decided_by")
+
+  // Correlation for tracing
+  correlationId String @map("correlation_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  account ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@index([status, expiresAt])
+  @@index([correlationId])
+  @@map("approvals")
+}
+
+// ============================================
+// AUDIT LOG (Append-Only, Immutable)
+// ============================================
+model AuditLog {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  userId    String  @map("user_id")
+  accountId String? @map("account_id")
+
+  action       String @map("action")
+  resourceType String @map("resource_type")
+  resourceId   String? @map("resource_id")
+
+  // Request context
+  correlationId String  @map("correlation_id")
+  ipAddress     String? @map("ip_address")
+  userAgent     String? @map("user_agent")
+
+  // Outcome
+  status    String // Enum to string
+  errorCode String?     @map("error_code")
+
+  // Redacted metadata (PII stripped)
+  metadata String? @map("metadata") // JSON string
+
+  // Performance
+  durationMs Int? @map("duration_ms")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations (optional, for filtering)
+  account ConnectedAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, userId, createdAt])
+  @@index([correlationId])
+  @@index([action, createdAt])
+  @@map("audit_log")
+}
+
+// ============================================
+// PROCESSED EVENTS (Idempotency)
+// ============================================
+model ProcessedEvent {
+  id String @id @default(uuid())
+
+  // Composite idempotency key
+  idempotencyKey String @unique @map("idempotency_key")
+
+  // Event identification
+  eventId   String  @map("event_id")
+  eventType String  @map("event_type")
+  accountId String  @map("account_id")
+  
+  // Optional provider (can be inferred from account)
+  provider  String? // Enum to string
+  payload   String? // JSON string
+
+  processedAt DateTime  @default(now()) @map("processed_at")
+  expiresAt   DateTime  @map("expires_at") // Removed dbgenerated
+
+  @@index([accountId, eventId])
+  @@index([accountId, eventType])
+  @@index([expiresAt])
+  @@map("processed_events")
+}
+
+// ============================================
+// ENCRYPTION KEYS (Tenant-Scoped DEKs)
+// ============================================
+model EncryptionKey {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  version      Int       @default(1)
+  keyEncrypted String    @map("key_encrypted")
+  algorithm    String    @default("aes-256-gcm")
+  status       String    @default("ACTIVE") // Enum to String
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  rotatedAt DateTime? @map("rotated_at")
+  expiresAt DateTime? @map("expires_at")
+
+  @@unique([tenantId, version])
+  @@index([tenantId, status])
+  @@map("encryption_keys")
+}
+
+// ============================================
+// MESSAGE CACHE (Optional - for fast retrieval)
+// ============================================
+model CachedMessage {
+  id        String @id @default(uuid())
+  accountId String @map("account_id")
+
+  providerId        String @map("provider_id")
+  threadId          String @map("thread_id")
+  internetMessageId String @map("internet_message_id")
+
+  fromEmail String  @map("from_email")
+  fromName  String? @map("from_name")
+  subject   String?
+  snippet   String?
+
+  // Minimal metadata only (full body fetched on demand)
+  labels   String // JSON string or comma separated
+  isRead   Boolean  @default(false) @map("is_read")
+  isDraft  Boolean  @default(false) @map("is_draft")
+
+  sentAt     DateTime @map("sent_at")
+  receivedAt DateTime @map("received_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([accountId, providerId])
+  @@index([accountId, threadId])
+  @@index([accountId, sentAt])
+  @@index([accountId, isRead])
+  @@map("cached_messages")
+}
+
+// ============================================
+// CALENDAR CACHE (Optional)
+// ============================================
+model CachedEvent {
+  id        String @id @default(uuid())
+  accountId String @map("account_id")
+
+  providerId String @map("provider_id")
+  calendarId String @map("calendar_id")
+
+  title       String
+  description String?
+  location    String?
+
+  startTime DateTime @map("start_time")
+  endTime   DateTime @map("end_time")
+  isAllDay  Boolean  @default(false) @map("is_all_day")
+  timezone  String?
+
+  organizerEmail String  @map("organizer_email")
+  organizerName  String? @map("organizer_name")
+
+  status     String @default("confirmed")
+  visibility String @default("default")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([accountId, providerId])
+  @@index([accountId, calendarId])
+  @@index([accountId, startTime])
+  @@map("cached_events")
+}

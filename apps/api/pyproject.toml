@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zroky-api"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "sqlalchemy==2.0.23",
+    "alembic==1.13.0",
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "python-dotenv==1.0.0",
+    "python-jose[cryptography]==3.3.0",
+    "passlib[bcrypt]==1.7.4",
+    "cryptography==41.0.7",
+    "requests==2.32.3",
+    "httpx==0.25.1",
+    "redis==5.0.1",
+    "google-api-python-client==2.163.0",
+    "google-auth==2.38.0",
+]
+
+[tool.setuptools]
+packages = ["app"]

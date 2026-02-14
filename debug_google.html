@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zroky Google Auth Diagnostic</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center; max-width: 600px; margin: 0 auto; }
+        .card { border: 1px solid #ccc; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        p { color: #666; line-height: 1.5; }
+        .btn { display: inline-block; background: #4285F4; color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; margin-top: 20px; }
+        .btn:hover { background: #3367D6; }
+        .info { background: #f0f0f0; padding: 15px; border-radius: 8px; margin: 20px 0; font-family: monospace; text-align: left; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Google Auth Diagnostic</h1>
+        <p>This page tests the Google login flow directly, bypassing the React app popup logic.</p>
+        
+        <div class="info">
+            <strong>Client ID:</strong> 592661553992-ski8fv40824emc43hudmvkj4g93jt1dv.apps.googleusercontent.com<br>
+            <strong>Redirect URI:</strong> http://localhost:8000/oauth/google/callback<br>
+            <strong>Scopes:</strong> email, profile, gmail, calendar
+        </div>
+
+        <p><strong>INSTRUCTIONS:</strong></p>
+        <ol style="text-align: left;">
+            <li>Click the button below.</li>
+            <li>If you see a Google Error Screen -> <strong>The issue is in Google Cloud Console.</strong></li>
+            <li>If you connect successfully and land on a white page with specific JSON -> <strong>The Backend is PERFECT. The issue is in the frontend popup.</strong></li>
+        </ol>
+
+        <a id="authLink" href="#" class="btn">Test Google Connection</a>
+    </div>
+
+    <script>
+        // Use the EXACT logic your backend uses to generate the URL
+        const clientId = "592661553992-ski8fv40824emc43hudmvkj4g93jt1dv.apps.googleusercontent.com";
+        const redirectUri = "http://localhost:8000/oauth/google/callback";
+        const scopes = [
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.settings.basic",
+            "https://www.googleapis.com/auth/calendar"
+        ].join(" ");
+        
+        // Mock state similar to backend
+        const state = "diagnostic_mode_test_state";
+        
+        const url = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&state=${state}&access_type=offline&prompt=consent`;
+        
+        document.getElementById('authLink').href = url;
+        console.log("Auth URL:", url);
+    </script>
+</body>
+</html>
