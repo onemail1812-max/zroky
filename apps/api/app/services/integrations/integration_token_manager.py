@@ -55,6 +55,13 @@ class IntegrationTokenManager:
 
         return token
 
+    def refresh_integration_token(self, integration: Integration) -> Optional[Dict[str, Any]]:
+        """Force refresh of the integration token."""
+        token = try_decrypt(integration.token_encrypted)
+        if not token: 
+            return None
+        return self._refresh_token(integration, token)
+
     def _refresh_token(self, integration: Integration, token: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         provider = integration.provider
         refresh_token = token.get("refresh_token")

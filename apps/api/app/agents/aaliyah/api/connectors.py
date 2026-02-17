@@ -19,6 +19,8 @@ from app.services.brain.guardrails import redact_text
 from app.services.integrations.connector_state import encode_state, decode_state
 from app.services.integrations.token_store import encrypt_token
 
+from app.models.workspace import Workspace
+
 router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
 
 
@@ -151,80 +153,12 @@ def _service_type_has_email(service_type: str) -> bool:
     return str(service_type or "").lower() in {"email", "both"}
 
 
-def _freeze_other_email_provider(db: Session, workspace_id: str, provider: str, service_type: str) -> None:
-    if not _service_type_has_email(service_type):
-        return
-
-    provider = provider.lower()
-    if provider == "google":
-        other = (
-            db.query(Integration)
-            .filter(
-                Integration.workspace_id == workspace_id,
-                Integration.provider == IntegrationProvider.OUTLOOK,
-                Integration.status == IntegrationStatus.CONNECTED,
-            )
-            .first()
-        )
-        if other and _outlook_has_email_access(other):
-            other.status = IntegrationStatus.DISCONNECTED
-            other.token_encrypted = None
-        return
-
-    if provider == "microsoft":
-        other = (
-            db.query(Integration)
-            .filter(
-                Integration.workspace_id == workspace_id,
-                Integration.provider == IntegrationProvider.GOOGLE_GMAIL,
-                Integration.status == IntegrationStatus.CONNECTED,
-            )
-            .first()
-        )
-        if other:
-            other.status = IntegrationStatus.DISCONNECTED
-            other.token_encrypted = None
-        return
+# Exclusive provider checks removed
 
 
-def _assert_email_provider_available(db: Session, workspace_id: str, provider: str, service_type: str) -> None:
-    if not _service_type_has_email(service_type):
-        return
 
-    provider = provider.lower()
-    if provider == "google":
-        existing = (
-            db.query(Integration)
-            .filter(
-                Integration.workspace_id == workspace_id,
-                Integration.provider == IntegrationProvider.OUTLOOK,
-                Integration.status == IntegrationStatus.CONNECTED,
-            )
-            .first()
-        )
-        if existing and _outlook_has_email_access(existing):
-            raise HTTPException(
-                status_code=409,
-                detail="Another email provider (Outlook) is already connected. Revoke it before connecting Gmail.",
-            )
-        return
+# Exclusive provider assertion removed
 
-    if provider == "microsoft":
-        existing = (
-            db.query(Integration)
-            .filter(
-                Integration.workspace_id == workspace_id,
-                Integration.provider == IntegrationProvider.GOOGLE_GMAIL,
-                Integration.status == IntegrationStatus.CONNECTED,
-            )
-            .first()
-        )
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail="Another email provider (Gmail) is already connected. Revoke it before connecting Outlook.",
-            )
-        return
 
 
 def _exchange_code(provider: str, code: str, redirect_uri: str, scopes: List[str]) -> Dict[str, Any]:
@@ -364,8 +298,8 @@ def _store_integration(
             db.add(integration)
         last_integration = integration
 
-    # Enforce the "only one email provider connected" invariant.
-    _freeze_other_email_provider(db, workspace_id, provider, service_type)
+    # Dual provider support enabled - no freezing
+    # _freeze_other_email_provider(db, workspace_id, provider, service_type)
 
     db.commit()
     return last_integration
@@ -388,7 +322,7 @@ async def connect_provider(
     user_id = context.user_id
     # _assert_workspace_header_consistency(request, workspace_id) 
 
-    _assert_email_provider_available(db, workspace_id, provider, payload.serviceType)
+    # _assert_email_provider_available(db, workspace_id, provider, payload.serviceType)
 
     state_payload = {
         "workspace_id": workspace_id,
@@ -495,6 +429,10 @@ async def list_accounts(
     workspace_id = context.workspace_id
     # _assert_workspace_header_consistency(request, workspace_id)
     integrations = db.query(Integration).filter(Integration.workspace_id == workspace_id).all()
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    
+    settings_json = getattr(workspace, "settings_json", {}) or {}
+    primary_email = settings_json.get("aaliyah", {}).get("primary_email_provider")
 
     accounts = []
     for integration in integrations:
@@ -530,6 +468,7 @@ async def list_accounts(
                 "status": status,
                 "connectedAt": integration.created_at.isoformat(),
                 "lastSyncAt": None,
+                "isPrimary": (provider == primary_email) and has_email,
             }
         )
 
@@ -557,3 +496,55 @@ async def revoke_account(
     integration.token_encrypted = None
     db.commit()
     return {"status": "revoked"}
+
+
+class SetPrimaryRequest(BaseModel):
+    provider: str  # google or microsoft or none
+
+
+@router.post("/primary/email")
+async def set_primary_email(
+    payload: SetPrimaryRequest,
+    db: Session = Depends(get_db),
+    context: CurrentContext = Depends(get_current_context),
+):
+    """Set the primary email provider for auto-sending."""
+    workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    provider = payload.provider.lower()
+    if provider not in {"google", "microsoft", "none"}:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    # Update settings
+    settings_data = dict(getattr(workspace, "settings_json", {}) or {})
+    if "aaliyah" not in settings_data:
+        settings_data["aaliyah"] = {}
+    
+    # If "none", we clear it
+    if provider == "none":
+        settings_data["aaliyah"].pop("primary_email_provider", None)
+    else:
+        # verify provider is actually connected
+        target_enum = IntegrationProvider.GOOGLE_GMAIL if provider == "google" else IntegrationProvider.OUTLOOK
+        integration = (
+            db.query(Integration)
+            .filter(
+                Integration.workspace_id == context.workspace_id,
+                Integration.provider == target_enum,
+                Integration.status == IntegrationStatus.CONNECTED,
+            )
+            .first()
+        )
+        if not integration:
+             raise HTTPException(status_code=400, detail=f"Provider {provider} is not connected")
+        
+        settings_data["aaliyah"]["primary_email_provider"] = provider
+
+    workspace.settings_json = settings_data
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(workspace, "settings_json")
+    db.commit()
+
+    return {"status": "updated", "primary_email_provider": provider}

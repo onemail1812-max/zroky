@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.logging import setup_logging
+from app.logging_config import setup_logging
 from app.security import get_current_user
 from app.models.user import User
 from app.models.membership import Membership
@@ -19,6 +19,7 @@ from app.agents.aaliyah.api import (
     booking_router,
     knowledge_router,
 )
+from app.api.routes.inbox import router as inbox_router
 from app.routers import oauth
 
 
@@ -84,6 +85,18 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    # 0. Strict Env Validation (Fail Fast)
+    missing_vars = []
+    if not settings.google_client_id: missing_vars.append("GOOGLE_CLIENT_ID")
+    if not settings.google_client_secret: missing_vars.append("GOOGLE_CLIENT_SECRET")
+    if not settings.openrouter_api_key: missing_vars.append("OPENROUTER_API_KEY")
+    
+    if missing_vars:
+        logger.critical(f"🚨 FATAL: Missing critical environment variables: {', '.join(missing_vars)}")
+        logger.critical("Server cannot start without these configurations.")
+        import sys
+        sys.exit(1)
+
     # 1. Security Config Check
     if settings.env == "production":
         if not settings.secret_key or len(settings.secret_key) < 32:
@@ -125,6 +138,7 @@ app.include_router(oauth.router)
 app.include_router(connectors_router)
 app.include_router(booking_router)
 app.include_router(knowledge_router, prefix="/aaliyah", tags=["knowledge"])
+app.include_router(inbox_router)
 
 
 @app.get("/")
@@ -135,6 +149,51 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "api"}
+
+@app.get("/health/providers")
+async def health_check_providers(
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(get_current_user),
+):
+    """
+    Check connectivity and token status for all integrations in the current user's workspace.
+    """
+    from app.models.integration import Integration, IntegrationProvider
+    from app.services.integrations.token_store import decrypt_token
+    import requests
+
+    user_id = token_payload.get("sub")
+    membership = db.query(Membership).filter(Membership.user_id == user_id).first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    integrations = db.query(Integration).filter(Integration.workspace_id == membership.workspace_id).all()
+    results = {}
+    
+    for integ in integrations:
+        status_info = "unknown"
+        try:
+            token_data = decrypt_token(integ.token_encrypted)
+            token = token_data.get("access_token")
+            
+            if integ.provider == IntegrationProvider.GOOGLE_GMAIL:
+                # Ping Google
+                res = requests.get(f"https://www.googleapis.com/oauth2/v1/tokeninfo?access_token={token}")
+                status_info = "active" if res.status_code == 200 else "expired_or_revoked"
+            elif integ.provider == IntegrationProvider.OUTLOOK:
+                # Ping Microsoft
+                # /me is a good check
+                res = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {token}"})
+                status_info = "active" if res.status_code == 200 else "expired_or_revoked"
+            else:
+                 status_info = "unsupported_check"
+                 
+        except Exception as e:
+            status_info = f"error: {str(e)}"
+            
+        results[integ.provider] = status_info
+        
+    return {"status": "ok", "providers": results}
 
 
 @app.get("/version")
@@ -231,7 +290,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        app,
+        "app.main:app",
         host=settings.server_host,
         port=settings.server_port,
         reload=settings.debug,

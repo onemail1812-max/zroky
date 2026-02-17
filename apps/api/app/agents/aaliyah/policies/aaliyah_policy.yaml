@@ -1,0 +1,35 @@
+# Aaliyah V1 Safety Policy
+# Version: 1.0.0
+# Last Updated: 2026-02-16
+
+# This file governs Aaliyah's autonomous behavior.
+# Changes here directly affect what emails are auto-sent.
+
+# Minimum confidence required for ANY autonomous action (0.0 - 1.0)
+confidence_threshold: 0.95
+
+# Categories that are explicitly allowed for auto-sending (Primary Account Only)
+safe_categories:
+  - scheduling_confirmation # e.g. "Tuesday 2pm works"
+  - receipt_acknowledgment  # e.g. "Thanks, received it."
+  - simple_fyi             # e.g. "Will review and get back to you."
+  - newsletter_cleanup     # e.g. "Unsubscribe" or "Archive"
+
+# Categories that are NEVER auto-sent (Always Approval Required)
+risky_categories:
+  - legal_contract         # Words: NDA, agreement, terms, signature, sue, lawsuit
+  - financial_transaction  # Words: invoice, payment, bank, wire, salary, bonus
+  - hiring_hr              # Words: offer, reject, interview, salary, equity
+  - complaint_escalation   # Words: angry, upset, disappointed, escalate, refund
+  - security_alert         # Words: password, reset, suspicious, hack
+  - proposal_sales         # Words: quote, pricing, discount, proposal
+
+# Account-specific defaults
+auto_send_primary: true    # Enable for primary account (if safe)
+auto_send_secondary: false # Secondary accounts are draft-only by default
+
+# Response Templates (Fallbacks)
+templates:
+  ack: "Received, thank you. I'll review this shortly."
+  scheduling_ask: "Could you confirm which time zone you are referring to?"
+  busy: "I am currently in meetings, but will get back to you by EOD."

@@ -1,830 +1,526 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
-import { AnimatePresence, motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import {
-  AlertCircle,
-  ArrowLeft,
-  ArrowRight,
-  CalendarDays,
   Check,
-  Lock,
-  Mail,
+  ChevronRight,
+  ChevronLeft,
+  Plus,
+  X,
   Shield,
+  Lock,
+  Clock,
+  Calendar,
   Sparkles,
-  Tag,
-  Wand2,
+  Zap,
+  Mic,
+  User,
+  Mail,
+  ArrowRight,
+  MessageSquare
 } from "lucide-react"
-
 import { cn } from "@/lib/utils"
-import { updateLabelingPreferences } from "@/lib/aaliyah/api"
-import { connectorService } from "@/services/connector.service"
 
-type StepKey = "autopilot" | "taxonomy" | "email" | "calendar" | "persona" | "safety" | "ready"
+// --- CSS ---
+const STYLE = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 10px;
+  }
+  .glass-card {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    box-shadow: 
+      0 4px 6px -1px rgba(0, 0, 0, 0.01),
+      0 20px 60px -10px rgba(0, 0, 0, 0.05);
+  }
+  .glass-input {
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .glass-input:focus {
+    background: white;
+    border-color: rgba(0, 0, 0, 0.2);
+    box-shadow: 0 5px 15px -5px rgba(0, 0, 0, 0.05);
+  }
+  .charcoal-btn {
+    background: #18181b;
+    transition: all 0.3s ease;
+  }
+  .charcoal-btn:hover {
+    background: #27272a;
+    transform: translateY(-1px);
+  }
+  .charcoal-btn:active {
+    transform: translateY(0px) scale(0.98);
+  }
+  body {
+    background-color: #fcfcfc;
+  }
+`
 
-type Step = {
-  key: StepKey
-  title: string
-  description: string
-  kicker: string
-  icon: React.ReactNode
+// --- Types ---
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7
+
+type OnboardingState = {
+  capabilities: string[]
+  workingHours: { start: string; end: string }
+  meetingDuration: number
+  notesMode: 'manual' | 'auto'
+  draftTone: string
+  signature: string
+  examples: string
+  vips: string[]
+  safeAutoSend: boolean
 }
 
-const STEPS: Step[] = [
-  {
-    key: "autopilot",
-    kicker: "Autopilot",
-    title: "Choose How Aaliyah Helps",
-    description: "Pick what Aaliyah can do automatically. Everything sensitive stays review-first.",
-    icon: <Wand2 className="h-4 w-4" />,
-  },
-  {
-    key: "taxonomy",
-    kicker: "Taxonomy",
-    title: "Define Your Inbox Categories",
-    description: "These labels keep outcomes predictable and explainable.",
-    icon: <Tag className="h-4 w-4" />,
-  },
-  {
-    key: "email",
-    kicker: "Email",
-    title: "Connect Your Mail",
-    description: "Connect Gmail or Outlook. Only one email provider can be active at a time.",
-    icon: <Mail className="h-4 w-4" />,
-  },
-  {
-    key: "calendar",
-    kicker: "Calendar",
-    title: "Sync Your Calendar (Optional)",
-    description: "Aaliyah can read availability and prepare scheduling drafts for review.",
-    icon: <CalendarDays className="h-4 w-4" />,
-  },
-  {
-    key: "persona",
-    kicker: "Persona",
-    title: "Customize Your Assistant",
-    description: "Set the tone and signature for Aaliyah's drafts.",
-    icon: <Sparkles className="h-4 w-4" />,
-  },
-  {
-    key: "safety",
-    kicker: "Safety",
-    title: "Review The Guardrails",
-    description: "No silent sends. No meeting accepts/declines. Undo everywhere.",
-    icon: <Shield className="h-4 w-4" />,
-  },
-  {
-    key: "ready",
-    kicker: "Ready",
-    title: "System Online",
-    description: "Connections are set. Aaliyah is ready to triage and draft, review-first.",
-    icon: <Sparkles className="h-4 w-4" />,
-  },
-]
-
-const DEFAULT_LABELS = ["Urgent", "Newsletter", "Meeting", "FYI", "Awaiting Reply", "High Priority", "Actioned"]
-const OPTIONAL_LABELS: string[] = []
-
-type CapabilityKey = "draftReplies" | "organizeLabels" | "archiveLowPriority" | "manageCalendar"
-
-type Capability = {
-  key: CapabilityKey
-  title: string
-  description: string
-  icon: React.ReactNode
+interface ScreenProps {
+  state: OnboardingState
+  setState: React.Dispatch<React.SetStateAction<OnboardingState>>
+  onNext: () => void
 }
 
-const CAPABILITIES: Capability[] = [
-  {
-    key: "draftReplies",
-    title: "Draft Replies",
-    description: "Prepare drafts for review. Never sends automatically.",
-    icon: <Mail className="h-4 w-4" />,
-  },
-  {
-    key: "organizeLabels",
-    title: "Smart Labels",
-    description: "Apply labels for predictable triage and follow-up.",
-    icon: <Tag className="h-4 w-4" />,
-  },
-  {
-    key: "archiveLowPriority",
-    title: "Filter Noise",
-    description: "Archive low priority messages with undo.",
-    icon: <Sparkles className="h-4 w-4" />,
-  },
-  {
-    key: "manageCalendar",
-    title: "Calendar Assist",
-    description: "Read availability. Draft scheduling replies for review.",
-    icon: <CalendarDays className="h-4 w-4" />,
-  },
-]
-
-function Pill({
-  selected,
-  onClick,
-  children,
-  disabled,
-}: {
-  selected?: boolean
-  onClick?: () => void
-  children: React.ReactNode
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-semibold transition-colors border",
-        selected ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-800 border-zinc-200 hover:border-zinc-300",
-        disabled && "opacity-40 cursor-not-allowed hover:border-zinc-200"
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-
-function ProviderCard({
-  title,
-  subtitle,
-  icon,
-  connected,
-  disabled,
-  connecting,
-  onClick,
-  lockedReason,
-}: {
-  title: string
-  subtitle: string
-  icon: React.ReactNode
-  connected: boolean
-  disabled: boolean
-  connecting: boolean
-  onClick: () => void
-  lockedReason?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || connecting || connected}
-      className={cn(
-        "w-full rounded-2xl border bg-white p-4 text-left transition-colors",
-        connected ? "border-zinc-900/30" : "border-zinc-200 hover:border-zinc-300",
-        disabled && !connected && "opacity-50 cursor-not-allowed hover:border-zinc-200"
-      )}
-    >
-      <div className="flex items-start gap-4">
-        <div
-          className={cn(
-            "h-10 w-10 rounded-xl flex items-center justify-center border bg-zinc-50",
-            connected ? "border-zinc-900/30" : "border-zinc-200"
-          )}
-        >
-          {connecting ? (
-            <div className="h-5 w-5 rounded-full border-2 border-zinc-900/60 border-t-transparent animate-spin" />
-          ) : connected ? (
-            <Check className="h-5 w-5 text-zinc-900" strokeWidth={3} />
-          ) : (
-            icon
-          )}
-        </div>
-
-        <div className="flex-1">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="text-sm font-extrabold tracking-tight text-zinc-900">{title}</div>
-              <div className="mt-1 text-xs font-medium text-zinc-600 leading-relaxed">{subtitle}</div>
-            </div>
-
-            {disabled && !connected && lockedReason ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700">
-                <Lock className="h-3.5 w-3.5" />
-                {lockedReason}
-              </div>
-            ) : connected ? (
-              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white">
-                <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-                Connected
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-900">
-                Connect
-                <ArrowRight className="h-3.5 w-3.5" />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </button>
-  )
-}
+const TIMES = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM", "08:00 PM"]
 
 export default function OnboardingWizard() {
-  const leftCardRef = React.useRef<HTMLDivElement | null>(null)
-  const [leftCardHeight, setLeftCardHeight] = React.useState<number | null>(null)
-
-  // Hydration-safe State Persistence
-  const [stepIndex, setStepIndex] = React.useState(0)
-  const [mounted, setMounted] = React.useState(false)
-
-  React.useEffect(() => {
-    setMounted(true);
-    const saved = sessionStorage.getItem('onboarding_step_index');
-    if (saved) {
-      setStepIndex(parseInt(saved, 10));
-    }
-  }, []);
-
-  React.useEffect(() => {
-    if (mounted) {
-      sessionStorage.setItem('onboarding_step_index', stepIndex.toString());
-    }
-  }, [stepIndex, mounted]);
-  const step = STEPS[stepIndex]
-
-  const [capabilities, setCapabilities] = React.useState<Record<CapabilityKey, boolean>>({
-    draftReplies: true,
-    organizeLabels: true,
-    archiveLowPriority: false,
-    manageCalendar: false,
+  const [step, setStep] = React.useState<Step>(1)
+  const [state, setState] = React.useState<OnboardingState>({
+    capabilities: ["Organize inbox", "Draft email replies", "Track follow-ups"],
+    workingHours: { start: "09:00 AM", end: "06:00 PM" },
+    meetingDuration: 30,
+    notesMode: 'manual',
+    draftTone: 'Professional',
+    signature: '',
+    examples: '',
+    vips: [],
+    safeAutoSend: false
   })
 
-  const [selectedLabels, setSelectedLabels] = React.useState<string[]>(["Urgent", "Meeting", "FYI", "Awaiting Reply"])
-
-  const [connectedProviders, setConnectedProviders] = React.useState<string[]>([])
-  const [connectingProvider, setConnectingProvider] = React.useState<string | null>(null)
-  const [connectionError, setConnectionError] = React.useState<string | null>(null)
-
-  const [accountsLoaded, setAccountsLoaded] = React.useState(false)
-
-  // Persona State
-  const [draftTone, setDraftTone] = React.useState("professional")
-  const [signature, setSignature] = React.useState("")
-  const [autoSend, setAutoSend] = React.useState(false)
-
-  const isConnected = React.useCallback((p: string) => connectedProviders.includes(p), [connectedProviders])
-  const gmailConnected = isConnected("gmail")
-  const outlookConnected = isConnected("outlook")
-
-  const toggleLabel = (label: string) => {
-    setSelectedLabels((prev) => (prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]))
-  }
-
-  const syncConnectedProviders = React.useCallback(async () => {
-    try {
-      const accounts = await connectorService.listAccounts()
-      const next: string[] = []
-
-      for (const account of accounts) {
-        if (account.status !== "active") continue
-
-        if (account.provider === "google") {
-          if (account.hasEmailAccess) next.push("gmail")
-          if (account.hasCalendarAccess) next.push("gcal")
-        }
-
-        if (account.provider === "microsoft") {
-          if (account.hasEmailAccess) next.push("outlook")
-          if (account.hasCalendarAccess) next.push("ocal")
-        }
-      }
-
-      setConnectedProviders(next)
-    } catch (e) {
-      console.warn("Failed to sync connected accounts", e)
-    } finally {
-      setAccountsLoaded(true)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    void syncConnectedProviders()
-  }, [syncConnectedProviders])
-
-  React.useEffect(() => {
-    const el = leftCardRef.current
-    if (!el) return
-
-    const update = () => {
-      const h = Math.round(el.getBoundingClientRect().height)
-      setLeftCardHeight(Number.isFinite(h) && h > 0 ? h : null)
-    }
-
-    update()
-    const ro = new ResizeObserver(() => update())
-    ro.observe(el)
-
-    return () => ro.disconnect()
-  }, [])
-
-  const handleConnect = async (provider: string) => {
-    if (connectedProviders.includes(provider)) return
-    setConnectingProvider(provider)
-    setConnectionError(null)
-
-    try {
-      const providerMap: Record<string, { provider: "google" | "microsoft"; serviceType: "email" | "calendar" }> = {
-        gmail: { provider: "google", serviceType: "email" },
-        outlook: { provider: "microsoft", serviceType: "email" },
-        gcal: { provider: "google", serviceType: "calendar" },
-        ocal: { provider: "microsoft", serviceType: "calendar" },
-      }
-
-      const config = providerMap[provider]
-      if (config) {
-        await connectorService.connect(config)
-        await syncConnectedProviders()
-      }
-    } catch (error) {
-      console.error("Connection failed:", error)
-      setConnectionError(error instanceof Error ? error.message : "Connection failed")
-    } finally {
-      setConnectingProvider(null)
-    }
-  }
-
-  const persistLabelPreferences = React.useCallback(async () => {
-    try {
-      await updateLabelingPreferences({
-        enabled_labels: selectedLabels,
-        auto_label_enabled: true,
-        auto_sync_interval_seconds: 120,
-      })
-    } catch (error) {
-      console.warn("Failed to persist labeling preferences", error)
-    }
-  }, [selectedLabels])
-
-  const canGoBack = stepIndex > 0
-  const canGoNext = stepIndex < STEPS.length - 1
-  const nextStep = async () => {
-    if (step.key === "taxonomy") {
-      await persistLabelPreferences()
-    }
-    setStepIndex((i) => Math.min(i + 1, STEPS.length - 1))
-  }
-  const prevStep = () => setStepIndex((i) => Math.max(i - 1, 0))
-  const progress = Math.round(((stepIndex + 1) / STEPS.length) * 100)
-  const rightPanelStyle =
-    leftCardHeight !== null
-      ? ({ "--aaliyah-left-card-h": `${leftCardHeight}px` } as React.CSSProperties &
-        Record<"--aaliyah-left-card-h", string>)
-      : undefined
+  const next = () => setStep((s) => Math.min(s + 1, 7) as Step)
+  const back = () => setStep((s) => Math.max(s - 1, 1) as Step)
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-[var(--font-body)]">
-      <div className="mx-auto max-w-7xl px-6 min-h-screen py-16 flex items-center">
-        <div className="w-full">
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,720px)_minmax(0,420px)] lg:items-stretch">
-            {/* Left: Primary Card */}
-            <div className="w-full max-w-[760px] mx-auto lg:mx-0">
+    <div className="min-h-screen relative flex items-center justify-center p-4 font-sans selection:bg-zinc-900 selection:text-white overflow-hidden">
+      <style dangerouslySetInnerHTML={{ __html: STYLE }} />
+
+      {/* Ambient Background Elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-zinc-100/50 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-zinc-50 blur-[100px] rounded-full pointer-events-none" />
+
+      <div className="w-full max-w-xl relative z-10">
+        {/* Compact Progress Tracking */}
+        <div className="mb-8 flex flex-col items-center">
+          <div className="flex gap-2 items-center">
+            {[1, 2, 3, 4, 5, 6, 7].map((s) => (
               <div
-                ref={leftCardRef}
-                className="rounded-2xl border border-zinc-200 bg-white shadow-[0_24px_70px_-60px_rgba(0,0,0,0.35)]"
-              >
-                <div className="px-6 sm:px-8 py-6 border-b border-zinc-200">
-                  <div className="flex items-start justify-between gap-6">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-zinc-500">
-                        Aaliyah Onboarding
-                      </div>
-                      <div className="mt-1 text-lg font-extrabold tracking-tight text-zinc-900 font-[var(--font-display)]">
-                        Aaliyah (Executive Assistant)
-                      </div>
-                    </div>
+                key={s}
+                className={cn(
+                  "h-1 rounded-full transition-all duration-500",
+                  step === s ? "w-8 bg-zinc-900" : (step > s ? "w-3 bg-zinc-200" : "w-3 bg-zinc-100")
+                )}
+              />
+            ))}
+          </div>
+        </div>
 
-                    <div className="text-right">
-                      <div className="text-[11px] font-semibold text-zinc-500">
-                        Step {String(stepIndex + 1).padStart(2, "0")} / {String(STEPS.length).padStart(2, "0")}
-                      </div>
-                      <div className="mt-2 h-1.5 w-32 rounded-full bg-zinc-100 overflow-hidden">
-                        <motion.div
-                          className="h-full bg-zinc-900"
-                          initial={{ width: "0%" }}
-                          animate={{ width: `${progress}%` }}
-                          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, scale: 0.99, y: 5 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 1.01, y: -5 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
+            className="glass-card rounded-[40px] p-8 sm:p-12 overflow-hidden relative shadow-2xl"
+          >
+            {step === 1 && <Screen1 state={state} setState={setState} onNext={next} />}
+            {step === 2 && <Screen2 state={state} setState={setState} onNext={next} />}
+            {step === 3 && <Screen3 state={state} setState={setState} onNext={next} />}
+            {step === 4 && <Screen4 state={state} setState={setState} onNext={next} />}
+            {step === 5 && <Screen5 onNext={next} />}
+            {step === 6 && <Screen6 state={state} setState={setState} onNext={next} />}
+            {step === 7 && <Screen7 />}
+          </motion.div>
+        </AnimatePresence>
 
-                <div className="px-6 sm:px-8 py-8 min-h-[460px] sm:min-h-[520px]">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={step.key}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                    >
-                      <div className="text-[11px] uppercase tracking-[0.22em] font-semibold text-zinc-500">{step.kicker}</div>
-                      <h2 className="mt-2 text-2xl font-extrabold tracking-tight text-zinc-900 font-[var(--font-display)]">
-                        {step.title}
-                      </h2>
-                      <p className="mt-2 text-sm font-medium text-zinc-600 leading-relaxed">{step.description}</p>
+        {/* Compact Footer */}
+        {step < 7 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-6 flex items-center justify-between px-8">
+            {step > 1 ? (
+              <button onClick={back} className="flex items-center gap-2 text-zinc-400 hover:text-zinc-900 font-bold transition-all text-xs group">
+                <ChevronLeft className="h-3 w-3 group-hover:-translate-x-0.5 transition-transform" />
+                Back
+              </button>
+            ) : <div />}
 
-                      <div className="mt-6">
-                        {step.key === "autopilot" && (
-                          <div className="space-y-3">
-                            {CAPABILITIES.map((cap) => {
-                              const enabled = !!capabilities[cap.key]
-                              return (
-                                <button
-                                  key={cap.key}
-                                  type="button"
-                                  onClick={() => setCapabilities((prev) => ({ ...prev, [cap.key]: !prev[cap.key] }))}
-                                  className={cn(
-                                    "w-full rounded-2xl border bg-white p-4 text-left transition-colors",
-                                    enabled ? "border-zinc-900/30" : "border-zinc-200 hover:border-zinc-300"
-                                  )}
-                                >
-                                  <div className="flex items-start gap-4">
-                                    <div
-                                      className={cn(
-                                        "h-10 w-10 rounded-xl border flex items-center justify-center",
-                                        enabled ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-zinc-50 text-zinc-900"
-                                      )}
-                                    >
-                                      {cap.icon}
-                                    </div>
+            {(step === 1 || step === 4) && (
+              <button onClick={next} className="text-zinc-300 hover:text-zinc-900 text-xs font-bold">
+                Skip for now
+              </button>
+            )}
+          </motion.div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center justify-between gap-4">
-                                        <div className="text-sm font-extrabold tracking-tight text-zinc-900">{cap.title}</div>
-                                        <div
-                                          className={cn(
-                                            "inline-flex items-center justify-center h-6 w-6 rounded-full border",
-                                            enabled ? "border-zinc-900 bg-zinc-900" : "border-zinc-300 bg-white"
-                                          )}
-                                        >
-                                          {enabled && <Check className="h-4 w-4 text-white" strokeWidth={3} />}
-                                        </div>
-                                      </div>
-                                      <div className="mt-1 text-xs font-medium text-zinc-600 leading-relaxed">{cap.description}</div>
-                                    </div>
-                                  </div>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
+// --- Screen Components (Optimized for Height) ---
 
-                        {step.key === "taxonomy" && (
-                          <div className="space-y-8">
-                            <div>
-                              <div className="text-xs font-semibold tracking-[0.18em] uppercase text-zinc-500">Active Categories</div>
-                              <div className="mt-4 flex flex-wrap gap-2.5">
-                                {DEFAULT_LABELS.map((label) => (
-                                  <Pill key={label} selected={selectedLabels.includes(label)} onClick={() => toggleLabel(label)}>
-                                    {label}
-                                  </Pill>
-                                ))}
-                              </div>
-                            </div>
+function Screen1({ state, setState, onNext }: ScreenProps) {
+  const capacities = [
+    { id: "Organize inbox", title: "Smart Inbox Triage", desc: "Automate labels & clean noise.", icon: Mail },
+    { id: "Draft email replies", title: "AI Draft Engine", desc: "Replies in your unique voice.", icon: Sparkles },
+    { id: "Archive less important emails", title: "Intelligent Archiving", desc: "Clear newsletters automatically.", icon: Zap },
+    { id: "Track follow-ups", title: "Response Tracking", desc: "Watch for pending replies.", icon: Clock },
+    { id: "Manage your calendar", title: "Executive Calendar", desc: "Smart scheduling assistants.", icon: Calendar },
+    { id: "Attend meetings and take notes", title: "Meeting Intelligence", desc: "AI briefs & recorded minutes.", icon: Mic }
+  ]
 
-                            {OPTIONAL_LABELS.length > 0 && (
-                              <div className="border-t border-dashed border-zinc-200 pt-6">
-                                <div className="text-xs font-semibold tracking-[0.18em] uppercase text-zinc-500">Optional</div>
-                                <div className="mt-4 flex flex-wrap gap-2.5">
-                                  {OPTIONAL_LABELS.map((label) => (
-                                    <Pill key={label} selected={selectedLabels.includes(label)} onClick={() => toggleLabel(label)}>
-                                      {label}
-                                    </Pill>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+  const toggle = (id: string) => {
+    setState((prev: OnboardingState) => ({
+      ...prev,
+      capabilities: prev.capabilities.includes(id)
+        ? prev.capabilities.filter((c: string) => c !== id)
+        : [...prev.capabilities, id]
+    }))
+  }
 
-                        {step.key === "email" && (
-                          <div className="space-y-4">
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <ProviderCard
-                                title="Gmail"
-                                subtitle="Reads and drafts only. Review-first."
-                                icon={<Image src="/Icons/gmail.png" alt="Gmail" width={20} height={20} className="object-contain" />}
-                                connected={gmailConnected}
-                                disabled={!accountsLoaded || outlookConnected}
-                                connecting={connectingProvider === "gmail"}
-                                onClick={() => handleConnect("gmail")}
-                                lockedReason={outlookConnected ? "Outlook active" : undefined}
-                              />
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-3xl font-black text-zinc-900 tracking-tight leading-none">Modules</h1>
+        <p className="text-zinc-400 font-medium text-sm">Select how I should assist you.</p>
+      </div>
 
-                              <ProviderCard
-                                title="Outlook"
-                                subtitle="Microsoft Graph connection for Mail."
-                                icon={<Image src="/Icons/outlook.png" alt="Outlook" width={20} height={20} className="object-contain" />}
-                                connected={outlookConnected}
-                                disabled={!accountsLoaded || gmailConnected}
-                                connecting={connectingProvider === "outlook"}
-                                onClick={() => handleConnect("outlook")}
-                                lockedReason={gmailConnected ? "Gmail active" : undefined}
-                              />
-                            </div>
-
-                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                              <div className="flex items-start gap-3">
-                                <AlertCircle className="h-5 w-5 text-zinc-700 mt-0.5" />
-                                <div className="text-sm font-medium text-zinc-700 leading-relaxed">
-                                  Only one email provider can be active. This avoids split behavior across inboxes.
-                                  <div className="text-xs text-zinc-500 mt-1">
-                                    To switch later, revoke the active provider first.
-                                  </div>
-                                  <div className="text-xs text-zinc-500 mt-2">
-                                    If OAuth opens and closes immediately, allow popups for this site and retry.
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {connectionError && (
-                              <div className="rounded-2xl border border-red-200 bg-white px-4 py-3 text-sm font-semibold text-red-700">
-                                {connectionError}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {step.key === "calendar" && (
-                          <div className="space-y-4">
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <ProviderCard
-                                title="Google Calendar"
-                                subtitle="Read events and availability."
-                                icon={
-                                  <Image
-                                    src="/Icons/google-calender.png"
-                                    alt="Google Calendar"
-                                    width={20}
-                                    height={20}
-                                    className="object-contain"
-                                  />
-                                }
-                                connected={isConnected("gcal")}
-                                disabled={!accountsLoaded}
-                                connecting={connectingProvider === "gcal"}
-                                onClick={() => handleConnect("gcal")}
-                              />
-
-                              <ProviderCard
-                                title="Outlook Calendar"
-                                subtitle="Microsoft Calendar access."
-                                icon={
-                                  <Image
-                                    src="/Icons/outlook-calender.png"
-                                    alt="Outlook Calendar"
-                                    width={20}
-                                    height={20}
-                                    className="object-contain"
-                                  />
-                                }
-                                connected={isConnected("ocal")}
-                                disabled={!accountsLoaded}
-                                connecting={connectingProvider === "ocal"}
-                                onClick={() => handleConnect("ocal")}
-                              />
-                            </div>
-
-                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                              <div className="flex items-start gap-3">
-                                <AlertCircle className="h-5 w-5 text-zinc-700 mt-0.5" />
-                                <div className="text-sm font-medium text-zinc-700 leading-relaxed">
-                                  Calendar is optional. Aaliyah will not accept or decline meetings automatically.
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {step.key === "persona" && (
-                          <div className="space-y-6">
-                            <div className="space-y-3">
-                              <label className="text-sm font-bold text-zinc-900">Draft Tone</label>
-                              <div className="flex gap-3">
-                                {["Professional", "Casual", "Direct", "Friendly"].map((t) => (
-                                  <button
-                                    key={t}
-                                    onClick={() => setDraftTone(t.toLowerCase())}
-                                    className={cn(
-                                      "px-4 py-2 rounded-xl text-sm font-semibold border transition-all",
-                                      draftTone === t.toLowerCase()
-                                        ? "border-zinc-900 bg-zinc-900 text-white"
-                                        : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
-                                    )}
-                                  >
-                                    {t}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="space-y-3">
-                              <label className="text-sm font-bold text-zinc-900">Email Signature</label>
-                              <textarea
-                                value={signature}
-                                onChange={(e) => setSignature(e.target.value)}
-                                placeholder="Best,\n[Your Name]"
-                                className="w-full h-24 p-3 rounded-xl border border-zinc-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-zinc-900/10 resize-none"
-                              />
-                            </div>
-
-                            <div className="flex items-center justify-between rounded-xl border border-zinc-200 p-4">
-                              <div>
-                                <div className="text-sm font-bold text-zinc-900">Enable Auto-Send?</div>
-                                <div className="text-xs text-zinc-500">
-                                  If confident, Aaliyah can send replies without review.
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => setAutoSend(!autoSend)}
-                                className={cn(
-                                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                                  autoSend ? "bg-zinc-900" : "bg-zinc-200"
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                                    autoSend ? "translate-x-6" : "translate-x-1"
-                                  )}
-                                />
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {step.key === "safety" && (
-                          <div className="space-y-4">
-                            <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-                              <div className="text-xs font-semibold tracking-[0.18em] uppercase text-zinc-500">Autonomy Ladder</div>
-                              <div className="mt-4 space-y-2 text-sm font-semibold text-zinc-800">
-                                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
-                                  <span>Read inbox</span>
-                                  <span className="inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-black text-white">
-                                    AUTO
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
-                                  <span>Label / archive</span>
-                                  <span className="inline-flex items-center rounded-full bg-emerald-600 px-2.5 py-0.5 text-[11px] font-black text-white">
-                                    AUTO
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
-                                  <span>Draft replies</span>
-                                  <span className="inline-flex items-center rounded-full bg-amber-600 px-2.5 py-0.5 text-[11px] font-black text-white">
-                                    REVIEW
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
-                                  <span>Send email</span>
-                                  <span className="inline-flex items-center rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-black text-white">
-                                    BLOCKED
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2">
-                                  <span>Accept / decline meetings</span>
-                                  <span className="inline-flex items-center rounded-full bg-rose-600 px-2.5 py-0.5 text-[11px] font-black text-white">
-                                    BLOCKED
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-                              <div className="text-xs font-semibold tracking-[0.18em] uppercase text-zinc-500">Explain + Undo</div>
-                              <div className="mt-4 space-y-3 text-sm font-medium text-zinc-700 leading-relaxed">
-                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                                  <div className="text-xs font-semibold text-zinc-500">What I did</div>
-                                  <div className="mt-1 font-semibold text-zinc-900">Labeled as Finance.</div>
-                                </div>
-                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                                  <div className="text-xs font-semibold text-zinc-500">Why</div>
-                                  <div className="mt-1 font-semibold text-zinc-900">Contains invoice and payment terms.</div>
-                                </div>
-                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                                  <div className="text-xs font-semibold text-zinc-500">Undo</div>
-                                  <div className="mt-1 font-semibold text-zinc-900">One click, always available.</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {step.key === "ready" && (
-                          <div className="space-y-4">
-                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                              <div className="text-sm font-extrabold text-zinc-900">Connection Status</div>
-                              <div className="mt-2 text-sm text-zinc-700">
-                                Email:{" "}
-                                <span className="font-black text-zinc-900">
-                                  {gmailConnected ? "Gmail" : outlookConnected ? "Outlook" : "Not connected"}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-sm text-zinc-700">
-                                Calendar:{" "}
-                                <span className="font-black text-zinc-900">
-                                  {isConnected("gcal")
-                                    ? "Google Calendar"
-                                    : isConnected("ocal")
-                                      ? "Outlook Calendar"
-                                      : "Not connected"}
-                                </span>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await persistLabelPreferences()
-                                // Persist Persona
-                                try {
-                                  await fetch("/api/v1/aaliyah/settings", {
-                                    method: "PUT",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({
-                                      auto_send_enabled: autoSend,
-                                      draft_tone: draftTone,
-                                      signature: signature,
-                                    })
-                                  })
-                                } catch (e) {
-                                  console.error("Failed to save settings", e)
-                                }
-
-                                window.location.href = "/aaliyahworkspace"
-                              }}
-                              className="w-full rounded-2xl bg-zinc-900 text-white py-3 text-sm font-extrabold hover:bg-zinc-800 transition-colors"
-                            >
-                              Launch Workspace
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-
-                <div className="px-6 sm:px-8 py-5 border-t border-zinc-200">
-                  <div className="flex items-center justify-between gap-4">
-                    <button
-                      type="button"
-                      onClick={prevStep}
-                      disabled={!canGoBack}
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
-                        "bg-white border-zinc-200 text-zinc-900 hover:border-zinc-300",
-                        !canGoBack && "opacity-40 cursor-not-allowed hover:border-zinc-200"
-                      )}
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      Back
-                    </button>
-
-                    {canGoNext && (
-                      <button
-                        type="button"
-                        onClick={nextStep}
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-extrabold transition-colors",
-                          "bg-zinc-900 text-white hover:bg-zinc-800"
-                        )}
-                      >
-                        Continue
-                        <ArrowRight className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Aaliyah Visual (aligned to card height on desktop) */}
-            <div
-              className="w-full max-w-[520px] mx-auto lg:mx-0 lg:max-w-none"
-              style={rightPanelStyle}
+      <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
+        {capacities.map((item) => {
+          const active = state.capabilities.includes(item.id)
+          const Icon = item.icon
+          return (
+            <button
+              key={item.id}
+              onClick={() => toggle(item.id)}
+              className={cn(
+                "group w-full p-4 rounded-3xl border transition-all duration-500 text-left flex items-center gap-4 relative overflow-hidden",
+                active
+                  ? "bg-white border-zinc-900 shadow-[0_10px_30px_-5px_rgba(0,0,0,0.06)] scale-[1.01]"
+                  : "bg-zinc-50/50 border-transparent hover:border-zinc-200 hover:bg-white"
+              )}
             >
-              <div className="relative w-full aspect-[16/11] lg:aspect-auto lg:h-[var(--aaliyah-left-card-h)] rounded-3xl overflow-hidden border border-zinc-200 bg-white">
-                <Image
-                  src="/Onboarding/aaliyah-onboarding.jpg"
-                  alt="Aaliyah"
-                  fill
-                  priority
-                  className="object-cover object-[50%_25%]"
-                />
+              <div className={cn(
+                "h-11 w-11 rounded-2xl flex items-center justify-center transition-all duration-500 shrink-0",
+                active ? "bg-zinc-900 text-white shadow-lg" : "bg-white text-zinc-300 shadow-sm border border-zinc-100"
+              )}>
+                <Icon className="h-5 w-5" />
               </div>
+              <div className="flex-1">
+                <h3 className={cn("text-xs font-black uppercase tracking-widest", active ? "text-zinc-900" : "text-zinc-500")}>{item.title}</h3>
+                <p className={cn("mt-1 text-[10px] font-bold leading-none", active ? "text-zinc-400" : "text-zinc-300")}>{item.desc}</p>
+              </div>
+
+              {active && (
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="h-6 w-6 rounded-full bg-zinc-900 flex items-center justify-center shadow-lg shrink-0"
+                >
+                  <Check className="h-3 w-3 text-white" strokeWidth={5} />
+                </motion.div>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[28px] font-black text-sm shadow-2xl flex items-center justify-center gap-3 group">
+        Initialize Selected Modules
+        <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
+      </button>
+    </div>
+  )
+}
+
+function Screen2({ state, setState, onNext }: ScreenProps) {
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-2xl font-black text-zinc-900 tracking-tight">Workflow Rhythm</h1>
+        <p className="text-zinc-400 font-medium text-sm">Defining schedules and guardrails.</p>
+      </div>
+
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Start Time</label>
+            <select
+              value={state.workingHours.start}
+              onChange={(e) => setState((p: OnboardingState) => ({ ...p, workingHours: { ...p.workingHours, start: e.target.value } }))}
+              className="w-full glass-input rounded-2xl px-4 py-3 text-xs font-black outline-none appearance-none cursor-pointer"
+            >
+              {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">End Time</label>
+            <select
+              value={state.workingHours.end}
+              onChange={(e) => setState((p: any) => ({ ...p, workingHours: { ...p.workingHours, end: e.target.value } }))}
+              className="w-full glass-input rounded-2xl px-4 py-3 text-xs font-black outline-none appearance-none cursor-pointer"
+            >
+              {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Meeting Mins</label>
+            <div className="flex glass-input p-1 rounded-2xl">
+              {[15, 30, 60].map((d) => (
+                <button key={d} onClick={() => setState((p: any) => ({ ...p, meetingDuration: d }))}
+                  className={cn("flex-1 py-1.5 text-[10px] font-black rounded-xl transition-all", state.meetingDuration === d ? "bg-zinc-900 text-white" : "text-zinc-400")}
+                >{d}M</button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Notes Mode</label>
+            <div className="flex glass-input p-1 rounded-2xl">
+              {['manual', 'auto'].map((m) => (
+                <button key={m} onClick={() => setState((p: OnboardingState) => ({ ...p, notesMode: m as 'manual' | 'auto' }))}
+                  className={cn("flex-1 py-1.5 text-[10px] font-black rounded-xl transition-all capitalize", state.notesMode === m ? "bg-zinc-900 text-white" : "text-zinc-400")}
+                >{m}</button>
+              ))}
             </div>
           </div>
         </div>
+
+        <div className="p-4 rounded-3xl bg-zinc-50 flex items-center gap-4">
+          <Clock className="h-5 w-5 text-zinc-300 shrink-0" />
+          <p className="text-[10px] font-bold text-zinc-400 leading-relaxed italic">Appointments will be prioritized within these hours.</p>
+        </div>
       </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-14 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-2">
+        Continue <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function Screen3({ state, setState, onNext }: ScreenProps) {
+  const tones = ["Professional", "Direct", "Friendly", "Casual"]
+
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-2xl font-black text-zinc-900 tracking-tight">Writing Voice</h1>
+        <p className="text-zinc-400 font-medium text-sm">Authentic drafts from day one.</p>
+      </div>
+
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Draft Tone</label>
+          <div className="grid grid-cols-4 gap-2">
+            {tones.map((t) => (
+              <button key={t} onClick={() => setState((p: OnboardingState) => ({ ...p, draftTone: t }))}
+                className={cn("py-2.5 rounded-xl border text-[9px] font-black uppercase tracking-widest transition-all",
+                  state.draftTone === t ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-400 border-zinc-100")}
+              >{t}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Signature</label>
+          <input value={state.signature} onChange={(e) => setState((p: OnboardingState) => ({ ...p, signature: e.target.value }))}
+            className="w-full glass-input rounded-2xl px-4 py-3 text-xs font-black outline-none italic placeholder:text-zinc-200"
+            placeholder="– Your Name, Identity @ Company"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-300">Neural Training (Optional)</label>
+          <textarea rows={2} value={state.examples} onChange={(e) => setState((p: OnboardingState) => ({ ...p, examples: e.target.value }))}
+            className="w-full glass-input rounded-2xl px-4 py-3 text-[11px] font-medium outline-none resize-none placeholder:text-zinc-200"
+            placeholder="Paste recent replies to train my tone engine."
+          />
+        </div>
+      </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-14 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-2">
+        Continue <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function Screen4({ state, setState, onNext }: ScreenProps) {
+  const [input, setInput] = React.useState('')
+  const addVip = () => { if (input.includes('@')) { setState((p: OnboardingState) => ({ ...p, vips: [...p.vips, input] })); setInput('') } }
+  const removeVip = (email: string) => setState((p: OnboardingState) => ({ ...p, vips: p.vips.filter((v: string) => v !== email) }))
+
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-2xl font-black text-zinc-900 tracking-tight">VIP Protocol</h1>
+        <p className="text-zinc-400 font-medium text-sm">Protected senders who bypass filters.</p>
+      </div>
+
+      <div className="space-y-5">
+        <div className="flex gap-2">
+          <input type="email" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addVip()}
+            className="flex-1 glass-input rounded-2xl px-4 py-3 text-xs font-black outline-none placeholder:text-zinc-200"
+            placeholder="manager@company.com"
+          />
+          <button onClick={addVip} className="charcoal-btn text-white px-6 rounded-2xl text-xs font-black disabled:opacity-50" disabled={!input.includes('@')}>Add</button>
+        </div>
+
+        <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto pr-1 custom-scrollbar">
+          {state.vips.map((email: string) => (
+            <div key={email} className="flex items-center gap-2 pl-4 pr-1 py-1.5 rounded-full bg-zinc-50 border border-zinc-100 group">
+              <span className="text-[10px] font-black text-zinc-800">{email}</span>
+              <button onClick={() => removeVip(email)} className="h-6 w-6 rounded-full hover:bg-white flex items-center justify-center text-zinc-300">
+                <Plus className="h-4 w-4 rotate-45" strokeWidth={3} />
+              </button>
+            </div>
+          ))}
+          {state.vips.length === 0 && <div className="w-full py-6 border border-dashed border-zinc-100 rounded-2xl flex flex-col items-center justify-center text-zinc-200 gap-1">
+            <User className="h-6 w-6 opacity-20" />
+            <span className="text-[9px] font-black uppercase tracking-widest">No VIPs added</span>
+          </div>}
+        </div>
+
+        <div className="bg-zinc-50 p-4 rounded-3xl border border-zinc-100 flex items-center gap-4">
+          <Sparkles className="h-4 w-4 text-zinc-300 shrink-0" />
+          <p className="text-[10px] font-bold text-zinc-400 italic">VIPs are prioritized and clearly flagged in your terminal.</p>
+        </div>
+      </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-14 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-2">
+        Continue <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function Screen5({ onNext }: { onNext: () => void }) {
+  const rules = [
+    { title: "No Blind Dispatch", desc: "Explicit review for every draft." },
+    { title: "Protected Schedule", desc: "Calendar changes require approval." },
+    { title: "High-Risk Guard", desc: "Sensitive topics flagged for review." }
+  ]
+
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-2xl font-black text-zinc-900 tracking-tight">Safety Protocols</h1>
+        <p className="text-zinc-400 font-medium text-sm">Always active and non-negotiable.</p>
+      </div>
+
+      <div className="grid gap-2">
+        {rules.map((r, i) => (
+          <div key={i} className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-zinc-100 hover:border-zinc-300 transition-all">
+            <Check className="h-4 w-4 text-emerald-500 shrink-0" strokeWidth={5} />
+            <div>
+              <h4 className="text-[11px] font-black text-zinc-800 leading-none">{r.title}</h4>
+              <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-widest mt-1">{r.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="p-5 rounded-3xl bg-zinc-50 flex items-center gap-4">
+        <Lock className="h-4 w-4 text-zinc-300" />
+        <div className="flex flex-wrap gap-2">
+          {["Legal", "Pricing", "Angry", "Hiring"].map(tag => (
+            <span key={tag} className="text-[9px] font-black uppercase text-zinc-400">{tag}</span>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-14 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-2">
+        Confirm Protocols <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function Screen6({ state, setState, onNext }: ScreenProps) {
+  return (
+    <div className="space-y-8">
+      <div className="text-left space-y-1">
+        <h1 className="text-2xl font-black text-zinc-900 tracking-tight">Acknowledgements</h1>
+        <p className="text-zinc-400 font-medium text-sm">Save time with safe, common updates.</p>
+      </div>
+
+      <div className="p-6 rounded-3xl bg-white border border-zinc-100 space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h4 className="text-[13px] font-black text-zinc-800 leading-none">Safe Auto-Send</h4>
+            <p className="text-[10px] text-zinc-400 font-bold">Only pre-approved status acks.</p>
+          </div>
+          <button onClick={() => setState((p: OnboardingState) => ({ ...p, safeAutoSend: !p.safeAutoSend }))}
+            className={cn("relative w-12 h-6 rounded-full transition-all duration-300", state.safeAutoSend ? "bg-emerald-500" : "bg-zinc-200")}>
+            <div className={cn("absolute top-1 w-4 h-4 bg-white rounded-full transition-all", state.safeAutoSend ? "left-7" : "left-1")} />
+          </button>
+        </div>
+        <div className="grid gap-2">
+          {["\"Got it—thanks!\"", "\"Noted to revert.\""].map((t, i) => (
+            <div key={i} className="px-4 py-3 rounded-xl border border-zinc-50 text-[10px] font-black text-zinc-600 bg-zinc-50/50 italic">{t}</div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-start gap-4 p-4">
+        <Lock className="h-4 w-4 text-zinc-300 shrink-0" />
+        <p className="text-[10px] font-bold text-zinc-400 leading-relaxed italic">Aaliyah never auto-sends negotiations, pricing, or hiring threads.</p>
+      </div>
+
+      <button onClick={onNext} className="charcoal-btn w-full h-14 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-2">
+        Finalize Workflow <ArrowRight className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+function Screen7() {
+  return (
+    <div className="space-y-10 py-4 text-center">
+      <div className="relative">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+          className="mx-auto w-24 h-24 bg-zinc-900 rounded-[36px] flex items-center justify-center shadow-2xl relative z-10"
+        ><Zap className="h-10 w-10 text-white fill-white" /></motion.div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-zinc-50 blur-[60px] rounded-full -z-10" />
+      </div>
+
+      <div className="space-y-2">
+        <h1 className="text-3xl font-black text-zinc-900 tracking-tighter">Primed.</h1>
+        <p className="text-zinc-400 font-bold text-sm max-w-[240px] mx-auto">Elevating focus while preserving total control.</p>
+      </div>
+
+      <div className="max-w-[320px] mx-auto grid gap-2">
+        {["Neural Triage Active", "Draft Engine Primed", "VIP Protocol Online"].map((item, i) => (
+          <div key={i} className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-zinc-50 border border-zinc-100">
+            <Check className="h-3 w-3 text-zinc-900" strokeWidth={6} />
+            <span className="text-[11px] font-black text-zinc-800 uppercase tracking-tight">{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => window.location.href = '/aaliyahworkspace'}
+        className="charcoal-btn w-full h-16 text-white rounded-[28px] font-black text-lg transition-all"
+      >Launch Terminal</button>
     </div>
   )
 }

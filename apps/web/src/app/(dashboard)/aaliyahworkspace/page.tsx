@@ -1,5 +1,5 @@
-import WorkspaceShell from "@/components/aaliyah/workspace/WorkspaceShell"
+import { WorkspaceLayout } from "@/components/aaliyah/workspace/feed/WorkspaceLayout"
 
 export default function WorkspacePage() {
-  return <WorkspaceShell />
+  return <WorkspaceLayout />
 }

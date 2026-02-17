@@ -26,6 +26,7 @@ export interface ConnectedAccount {
     status: 'active' | 'expired' | 'revoked';
     connectedAt: string;
     lastSyncAt?: string;
+    isPrimary?: boolean;
 }
 
 export interface OAuthConfig {
@@ -264,6 +265,31 @@ class ConnectorService {
 
     private getTenantId(): string {
         return localStorage.getItem('tenant_id') || 'default';
+    }
+
+    /**
+     * Set a provider as primary for email
+     */
+    async setPrimaryAccount(provider: 'google' | 'microsoft' | 'none'): Promise<boolean> {
+        try {
+            const response = await fetch(`${this.baseUrl}/api/v1/connectors/primary/email`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...this.getAuthHeaders()
+                },
+                body: JSON.stringify({ provider })
+            });
+
+            if (!response.ok) {
+                console.error("Failed to set primary:", await response.text());
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error('Failed to set primary account:', error);
+            return false;
+        }
     }
 
     private getUserId(): string {

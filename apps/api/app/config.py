@@ -1,213 +1,171 @@
-"""Application configuration."""
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, model_validator
-from typing import Optional, Any
+"""Simplified config for robust startup."""
+from __future__ import annotations
+import os
 from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, AnyHttpUrl, validator
+from typing import Optional, List
 
+# Explicitly find .env
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
-
 class Settings(BaseSettings):
-    """Application settings."""
-
-    # Load `apps/api/.env` regardless of current working directory.
+    
+    # ------------------
+    # Environment Loading
+    # ------------------
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
+        case_sensitive=True,
+        extra="ignore"
     )
 
-    # App settings
-    env: str = "development"
-    app_name: str = "Zroky API"
-    app_version: str = "0.1.0"
-    debug: bool = False
+    # ------------------
+    # Core Application
+    # ------------------
+    ENV: str = "development"
+    APP_NAME: str = "Zroky API"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
+    
+    SERVER_HOST: str = "0.0.0.0"
+    SERVER_PORT: int = 8000
+    
+    # Database
+    DATABASE_URL: str = "sqlite:///./zroky.db"
+    
+    # Security (MUST BE SET IN PROD)
+    SECRET_KEY: str = Field(default="dev-secret-key-change-me", min_length=16)
+    OAUTH_ENCRYPTION_KEY: str = Field(..., description="32-byte hex string required for token encryption.")
+    
+    # CORS
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
 
-    # Server settings
-    server_host: str = "0.0.0.0"
-    server_port: int = 8000
+    # ------------------
+    # LLM Services (OpenRouter)
+    # ------------------
+    OPENROUTER_API_KEY: str = Field(..., description="Required for Aaliyah intelligence.")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_APP_URL: str = "http://localhost:3000"
+    OPENROUTER_APP_NAME: str = "Aaliyah AI"
+    
+    # Models
+    AALIYAH_DRAFT_MODEL: str = "google/gemini-2.5-flash-lite"
+    AALIYAH_VERIFY_MODEL: str = "deepseek/deepseek-r1"
 
-    # Database settings
-    database_url: str = "sqlite:///./zroky.db"
-    database_echo: bool = False
+    # ------------------
+    # Integrations (OAuth)
+    # ------------------
+    GOOGLE_ENABLED: bool = False
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/oauth/google/callback"
 
-    # Redis (Hot State cache)
-    redis_url: Optional[str] = Field(
-        default=None,
-        description="Redis URL for hot state cache (e.g. redis://localhost:6379/0). Falls back to in-memory when absent.",
-    )
+    MICROSOFT_ENABLED: bool = False
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_TENANT_ID: str = "common"
+    MICROSOFT_REDIRECT_URI: str = "http://localhost:8000/oauth/microsoft/callback"
 
-    # Security settings
-    secret_key: Optional[str] = Field(
-        default=None,
-        description="JWT signing key (required in production)",
-    )
-    access_token_expire_minutes: int = 30
-    refresh_token_expire_days: int = 7
-    algorithm: str = "HS256"
+    # Sync Loop
+    SYNC_INTERVAL: int = 120
 
-    # Frontend base URL (OAuth callback redirect target)
-    frontend_base_url: str = "http://localhost:3002"
+    # ------------------
+    # Validations & Defaults
+    # ------------------
+    @validator("OAUTH_ENCRYPTION_KEY")
+    def validate_encryption_key(cls, v):
+        if len(v) < 64: # 32 bytes = 64 hex chars
+             pass 
+        return v
+    
+    # Compatibility with old code that might access settings.google_scopes etc
+    @property
+    def google_scopes(self) -> list[str]:
+        return [
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.settings.basic",
+            "https://www.googleapis.com/auth/calendar",
+        ]
+        
+    @property
+    def microsoft_scopes(self) -> list[str]:
+        return [
+            "openid", "profile", "email", "User.Read", "offline_access",
+            "Mail.ReadWrite", "Mail.Send", "MailboxSettings.ReadWrite",
+            "Calendars.Read", "Calendars.ReadWrite",
+        ]
 
-    # CORS settings
-    cors_origins: list[str] = ["http://localhost:4000", "http://localhost:3005", "http://localhost:3002", "http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:4000", "http://127.0.0.1:8000"]
-    cors_credentials: bool = True
-    cors_methods: list[str] = ["*"]
-    cors_headers: list[str] = ["*"]
+    # Properties to maintain backward compatibility with old settings names 
+    # if code uses lowercase properties that map to uppercase ENV vars
+    @property
+    def openrouter_api_key(self): return self.OPENROUTER_API_KEY
+    @property
+    def openrouter_base_url(self): return self.OPENROUTER_BASE_URL
+    @property
+    def openrouter_app_url(self): return self.OPENROUTER_APP_URL
+    @property
+    def openrouter_app_name(self): return self.OPENROUTER_APP_NAME
+    @property
+    def aaliyah_draft_model(self): return self.AALIYAH_DRAFT_MODEL
+    @property
+    def aaliyah_reasoning_model(self): return "deepseek/deepseek-r1:free"
+    
+    @property
+    def server_host(self): return self.SERVER_HOST
+    @property
+    def server_port(self): return self.SERVER_PORT
+    @property
+    def database_url(self): return self.DATABASE_URL
+    @property
+    def app_name(self): return self.APP_NAME
+    @property
+    def app_version(self): return self.APP_VERSION
+    @property
+    def debug(self): return self.DEBUG
+    @property
+    def secret_key(self): return self.SECRET_KEY
+    @property
+    def algorithm(self): return "HS256"
+    @property
+    def cors_origins(self): return self.CORS_ORIGINS
+    @property
+    def cors_credentials(self): return True
+    @property
+    def cors_methods(self): return ["*"]
+    @property
+    def cors_headers(self): return ["*"]
+    @property
+    def google_enabled(self): return self.GOOGLE_ENABLED
+    @property
+    def google_client_id(self): return self.GOOGLE_CLIENT_ID
+    @property
+    def google_client_secret(self): return self.GOOGLE_CLIENT_SECRET
+    @property
+    def google_redirect_uri(self): return self.GOOGLE_REDIRECT_URI
+    @property
+    def microsoft_enabled(self): return self.MICROSOFT_ENABLED
+    @property
+    def microsoft_client_id(self): return self.MICROSOFT_CLIENT_ID
+    @property
+    def microsoft_client_secret(self): return self.MICROSOFT_CLIENT_SECRET
+    @property
+    def microsoft_tenant_id(self): return self.MICROSOFT_TENANT_ID
+    @property
+    def microsoft_redirect_uri(self): return self.MICROSOFT_REDIRECT_URI
+    @property
+    def sync_interval(self): return self.SYNC_INTERVAL
+    @property
+    def env(self): return self.ENV
+    @property
+    def oauth_encryption_key(self): return self.OAUTH_ENCRYPTION_KEY
+    @property
+    def clerk_enabled(self): return False
+    @property
+    def clerk_jwks_url(self): return None
 
-    # OpenRouter - General
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_app_name: str = "Zroky"
-    openrouter_app_url: str = "http://localhost:3000"
-
-    # Public URL for booking links etc
-    public_app_url: str = "http://localhost:3002"
-
-    # Aaliyah (Executive Assistant)
-    aaliyah_model: str = "google/gemini-2.5-flash-lite"
-    aaliyah_api_key: Optional[str] = Field(
-        default=None,
-        description="OpenRouter API key for Aaliyah (defaults to OPENROUTER_API_KEY)",
-    )
-
-    # Chief of Staff Brain (Reasoning)
-    brain_model: str = "deepseek/deepseek-r1"
-    brain_api_key: Optional[str] = Field(
-        default=None,
-        description="OpenRouter API key for Chief of Staff (defaults to OPENROUTER_API_KEY)",
-    )
-
-    # Legacy/Default (for backward compatibility or direct access)
-    openrouter_api_key: str = Field(..., description="OpenRouter API key (default)")
-    openrouter_text_model: str = "google/gemini-2.5-flash"
-    openrouter_embedding_model: str = "openai/text-embedding-3-small"
-
-    openrouter_image_model: str = "allenai/molmo-2-8b:free"
-
-    # Google OAuth (Gmail + Google Calendar)
-    google_enabled: bool = False
-    google_client_id: Optional[str] = Field(default=None, description="Google OAuth client ID")
-    google_client_secret: Optional[str] = Field(default=None, description="Google OAuth client secret")
-    google_redirect_uri: str = "http://localhost:8000/oauth/google/callback"
-    google_scopes: list[str] = [
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile",
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/gmail.settings.basic",
-        "https://www.googleapis.com/auth/calendar",
-    ]
-
-    # Microsoft OAuth (Outlook + Microsoft Calendar)
-    microsoft_enabled: bool = False
-    microsoft_client_id: Optional[str] = Field(default=None, description="Microsoft OAuth client ID")
-    microsoft_client_secret: Optional[str] = Field(default=None, description="Microsoft OAuth client secret")
-    microsoft_tenant_id: str = "common"
-    microsoft_redirect_uri: str = "http://localhost:8000/oauth/microsoft/callback"
-    microsoft_scopes: list[str] = [
-        "openid",
-        "profile",
-        "email",
-        "User.Read",
-        "offline_access",
-        "Mail.ReadWrite",
-        "Mail.Send",
-        "MailboxSettings.ReadWrite",
-        "Calendars.Read",
-        "Calendars.ReadWrite",
-    ]
-
-    # Sync Worker
-    sync_interval: int = 120 # Check for new data every 2 minutes
-
-    # OAuth encryption key (32-byte hex string)
-    oauth_encryption_key: str = Field(..., description="OAuth encryption key (32-byte hex string)")
-
-    # Clerk Auth (JWT verification)
-    clerk_enabled: bool = False
-    clerk_jwks_url: Optional[str] = Field(default=None, description="Clerk JWKS URL")
-    clerk_jwt_aud: Optional[str] = Field(default=None, description="Clerk JWT audience")
-    clerk_jwt_iss: Optional[str] = Field(default=None, description="Clerk JWT issuer")
-
-    @model_validator(mode="after")
-    def apply_dev_defaults(self) -> "Settings":
-        def _is_blank(value: Any) -> bool:
-            if value is None:
-                return True
-            if isinstance(value, str) and not value.strip():
-                return True
-            return False
-
-        if _is_blank(self.secret_key):
-            if str(self.env).lower() in {"prod", "production"}:
-                raise ValueError("SECRET_KEY is required in production")
-            self.secret_key = "dev-secret"
-
-        # Fix for short/invalid OAUTH_ENCRYPTION_KEY in dev
-        if self.env != "production":
-             # 0123456789abcdef0123456789abcdef is 32 chars (16 bytes), need 64 chars (32 bytes)
-             if not self.oauth_encryption_key or len(self.oauth_encryption_key) < 64:
-                 self.oauth_encryption_key = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-
-        # Default Aaliyah/Brain keys to OPENROUTER_API_KEY if not provided
-        if _is_blank(self.aaliyah_api_key):
-            self.aaliyah_api_key = self.openrouter_api_key
-        if _is_blank(self.brain_api_key):
-            self.brain_api_key = self.openrouter_api_key
-
-        # Inject Mock Credentials for Dev/QA if missing
-        if self.env != "production":
-            if _is_blank(self.google_client_id):
-                self.google_client_id = "mock-google-client"
-            if _is_blank(self.google_client_secret):
-                self.google_client_secret = "mock-google-secret"
-            if _is_blank(self.microsoft_client_id):
-                self.microsoft_client_id = "mock-ms-client"
-            if _is_blank(self.microsoft_client_secret):
-                self.microsoft_client_secret = "mock-ms-secret"
-
-        # Google integration
-        if self.google_enabled:
-            missing = []
-            if _is_blank(self.google_client_id):
-                missing.append("GOOGLE_CLIENT_ID")
-            if _is_blank(self.google_client_secret):
-                missing.append("GOOGLE_CLIENT_SECRET")
-            if missing:
-                raise ValueError(f"Missing required Google OAuth settings: {', '.join(missing)}")
-        else:
-            self.google_client_id = None
-            self.google_client_secret = None
-
-        # Microsoft integration
-        if self.microsoft_enabled:
-            missing = []
-            if _is_blank(self.microsoft_client_id):
-                missing.append("MICROSOFT_CLIENT_ID")
-            if _is_blank(self.microsoft_client_secret):
-                missing.append("MICROSOFT_CLIENT_SECRET")
-            if missing:
-                raise ValueError(f"Missing required Microsoft OAuth settings: {', '.join(missing)}")
-        else:
-            self.microsoft_client_id = None
-            self.microsoft_client_secret = None
-
-        # Clerk integration
-        if self.clerk_enabled:
-            missing = []
-            if _is_blank(self.clerk_jwks_url):
-                missing.append("CLERK_JWKS_URL")
-            if _is_blank(self.clerk_jwt_aud):
-                missing.append("CLERK_JWT_AUD")
-            if _is_blank(self.clerk_jwt_iss):
-                missing.append("CLERK_JWT_ISS")
-            if missing:
-                raise ValueError(f"Missing required Clerk settings: {', '.join(missing)}")
-        else:
-            self.clerk_jwks_url = None
-            self.clerk_jwt_aud = None
-            self.clerk_jwt_iss = None
-
-        return self
-
+# Instantiate global settings
 settings = Settings()

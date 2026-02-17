@@ -1,17 +1,20 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  Brain,
-  CalendarDays,
-  CircleHelp,
-  Globe2,
+  Calendar,
+  Command,
+  Globe,
   Home,
-  MessageSquareText,
-  Plus,
+  LayoutGrid,
+  LifeBuoy,
+  MessageSquare,
+  Brain,
+  PlusSquare,
   Settings,
-  UserRound,
+  User,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -19,81 +22,96 @@ import { cn } from "@/lib/utils"
 type RailItem = {
   name: string
   href: string
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number; fill?: string }>
   disabled?: boolean
 }
 
+// Updated Standard Icon Set
 const TOP_NAV: RailItem[] = [
-  { name: "Home", href: "/dashboard", icon: Home },
-  { name: "Chat", href: "/aaliyahworkspace", icon: MessageSquareText },
-  { name: "Brain", href: "/guidelines", icon: Brain },
-  { name: "Calendar", href: "/notifications", icon: CalendarDays },
+  { name: "Home", href: "/dashboard", icon: Home }, // Standard Home
+  { name: "Aaliyah", href: "/aaliyahworkspace", icon: MessageSquare }, // Chat
+  { name: "Brain", href: "/brain", icon: Brain }, // Brain
+  { name: "Calendar", href: "/notifications", icon: Calendar }, // Standard Calendar
 ]
 
 const BOTTOM_NAV: RailItem[] = [
-  { name: "Add Workspace", href: "/aaliyahonboarding", icon: Plus },
-  { name: "Global", href: "/updates", icon: Globe2 },
-  { name: "Help", href: "/feedback", icon: CircleHelp },
+  { name: "Add Workspace", href: "/aaliyahonboarding", icon: PlusSquare },
+  { name: "Global", href: "/updates", icon: Globe },
+  { name: "Help", href: "/feedback", icon: LifeBuoy },
   { name: "Settings", href: "/settings", icon: Settings },
 ]
-
-function RailLink({ item, active }: { item: RailItem; active: boolean }) {
-  const Icon = item.icon
-
-  if (item.disabled) {
-    return (
-      <div
-        aria-label={item.name}
-        title={`${item.name} (Coming soon)`}
-        className="h-11 w-11 rounded-2xl flex items-center justify-center border border-transparent bg-surface text-textMuted"
-      >
-        <Icon className="h-6 w-6" strokeWidth={1.5} />
-      </div>
-    )
-  }
-
-  return (
-    <Link
-      href={item.href}
-      aria-label={item.name}
-      title={item.name}
-      className={cn(
-        "h-11 w-11 rounded-lg flex items-center justify-center transition-colors border",
-        active
-          ? "bg-surface text-textPrimary border-borderSubtle"
-          : "bg-transparent text-textMuted border-transparent hover:bg-surface hover:text-textPrimary"
-      )}
-    >
-      <Icon className="h-6 w-6" strokeWidth={1.5} />
-    </Link>
-  )
-}
 
 export function GlobalRail() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-[72px] h-screen fixed left-0 top-0 z-30 bg-surfaceElevated border-r border-borderSubtle flex flex-col items-center py-6">
-      <nav className="flex flex-col items-center gap-6 mt-2">
+    <aside className="w-[72px] h-screen fixed left-0 top-0 z-50 bg-white border-r border-zinc-100 flex flex-col items-center py-6">
+      {/* Logo / Brand Area */}
+      <div className="mb-6">
+        <div className="h-8 w-8 bg-black rounded-[10px] flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-black/10">
+          Z
+        </div>
+      </div>
+
+      <nav className="flex flex-col items-center gap-4 w-full">
         {TOP_NAV.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-          return <RailLink key={item.href} item={item} active={isActive} />
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "relative group flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-300",
+                isActive
+                  ? "bg-zinc-100 text-black shadow-inner"
+                  : "text-zinc-400 hover:text-black hover:bg-zinc-50"
+              )}
+            >
+              <item.icon
+                className={cn(
+                  "h-5 w-5 transition-transform duration-300",
+                  isActive ? "scale-100" : "group-hover:scale-110"
+                )}
+                strokeWidth={isActive ? 2.5 : 1.5}
+              />
+              {isActive && (
+                <div
+                  className="absolute left-0 w-1 h-5 bg-black rounded-r-full"
+                />
+              )}
+            </Link>
+          )
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col items-center gap-4">
+      <div className="grow" />
+
+      <div className="flex flex-col items-center gap-4 w-full mb-2">
         {BOTTOM_NAV.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-          return <RailLink key={item.href} item={item} active={isActive} />
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "relative group flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-300",
+                isActive
+                  ? "bg-zinc-100 text-black"
+                  : "text-zinc-400 hover:text-black hover:bg-zinc-50"
+              )}
+            >
+              <item.icon className="h-5 w-5" strokeWidth={1.5} />
+            </Link>
+          )
         })}
+
+        <div className="h-px w-8 bg-zinc-100 my-1" />
 
         <Link
           href="/profile"
-          aria-label="Profile"
-          title="Profile"
-          className="h-11 w-11 rounded-lg border border-borderSubtle bg-surface flex items-center justify-center text-textMuted hover:bg-surfaceElevated hover:text-textPrimary transition-colors"
+          className="h-10 w-10 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center text-zinc-400 hover:text-black hover:border-zinc-200 transition-all overflow-hidden"
         >
-          <UserRound className="h-6 w-6" strokeWidth={1.5} />
+          <User className="h-5 w-5" strokeWidth={1.5} />
         </Link>
       </div>
     </aside>
