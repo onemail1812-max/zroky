@@ -182,7 +182,7 @@ async def get_current_user(
         
         # 2. Allow Debug Bypass
         if settings.debug and not settings.clerk_jwks_url:
-            return {"sub": "user_demo_001", "workspace_id": "ws_demo_001"}
+            return {"sub": "user_demo_001"}
             
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

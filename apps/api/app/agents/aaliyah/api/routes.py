@@ -8,11 +8,15 @@ import threading
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 from fastapi.responses import StreamingResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import SessionLocal, get_db
@@ -30,6 +34,7 @@ from app.agents.aaliyah.core.briefing_service import MorningBriefingService
 from app.agents.aaliyah.core.meeting_prep import MeetingPrepAgent
 from dataclasses import asdict
 from app.services.brain.guardrails import redact_text
+from app.core.queue import queue, JobType
 
 router = APIRouter(
     prefix="/aaliyah",
@@ -38,8 +43,6 @@ router = APIRouter(
 
 _orchestrator_lock = threading.Lock()
 _orchestrators: dict[str, AaliyahOrchestrator] = {}
-_auto_sync_tasks: dict[str, asyncio.Task[Any]] = {}
-_auto_sync_lock = asyncio.Lock()
 
 _ask_rate_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60)
 _webhook_rate_limiter = InMemoryRateLimiter(max_requests=120, window_seconds=60)
@@ -64,6 +67,7 @@ class SyncRequest(BaseModel):
     max_results: int = Field(default=25, ge=1, le=200)
     window_days: int = Field(default=7, ge=1, le=30)
     buffer_minutes: int = Field(default=15, ge=0, le=120)
+    force: bool = False  # Added for admin overrides
 
 
 class TemplateRequest(BaseModel):
@@ -75,6 +79,19 @@ class TemplateRequest(BaseModel):
 
 class AaliyahSettingsRequest(BaseModel):
     workspace_id: Optional[str] = None
+    # Inbox & Autopilot
+    organize_inbox_enabled: bool = True
+    draft_replies_enabled: bool = True
+    archive_less_important: bool = False
+    track_follow_ups: bool = True
+    
+    # Meetings
+    calendar_assist_enabled: bool = True
+    working_hours_start: str = Field(default="09:00", max_length=5)
+    working_hours_end: str = Field(default="17:00", max_length=5)
+    default_meeting_duration: int = Field(default=30, ge=15, le=120)
+
+    # Legacy/Existing
     auto_send_enabled: bool = False
     draft_tone: Optional[str] = Field(default="professional", max_length=50)
     signature: Optional[str] = Field(default=None, max_length=500)
@@ -83,6 +100,7 @@ class AaliyahSettingsRequest(BaseModel):
 class SendDraftRequest(BaseModel):
     workspace_id: Optional[str] = None
     email_id: str = Field(min_length=1, max_length=256)
+    is_explicit_approval: bool = False
 
 
 class LabelingPreferencesRequest(BaseModel):
@@ -107,6 +125,13 @@ class LabelingPreferencesRequest(BaseModel):
     @classmethod
     def validate_domains(cls, value: list[str]) -> list[str]:
         return [str(item).strip().lower().lstrip("@") for item in value if str(item).strip()]
+
+
+class UpdateDraftRequest(BaseModel):
+    to: Optional[str] = None
+    subject: Optional[str] = None
+    body: str
+    attachments: Optional[list[dict]] = None
 
 
 class LabelOverrideRequest(BaseModel):
@@ -196,63 +221,108 @@ def _decode_live_token(stream_token: str) -> dict[str, Any]:
     return payload
 
 
-async def _auto_sync_loop(workspace_id: str, user_id: str) -> None:
-    orchestrator = _get_orchestrator(workspace_id)
-    interval = max(120, int(settings.sync_interval))
 
-    async def _run_inbox_sync():
-        db = SessionLocal()
-        try:
-            await orchestrator.sync_inbox(db, user_id=user_id, provider="auto", max_results=40)
-        finally:
-            db.close()
-
-    async def _run_calendar_sync():
-        db = SessionLocal()
-        try:
-            await orchestrator.sync_calendar(db, user_id=user_id, provider="auto", window_days=7, buffer_minutes=15)
-        finally:
-            db.close()
-
-    while True:
-        try:
-            await asyncio.gather(_run_inbox_sync(), _run_calendar_sync())
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            # Suppress internals in background loops.
-            pass
-        await asyncio.sleep(interval)
-
-
-async def _ensure_auto_sync(workspace_id: str, user_id: str) -> None:
-    async with _auto_sync_lock:
-        existing = _auto_sync_tasks.get(workspace_id)
-        if existing and not existing.done():
-            return
-        _auto_sync_tasks[workspace_id] = asyncio.create_task(_auto_sync_loop(workspace_id, user_id))
-
-
-async def stop_auto_sync_workers() -> None:
-    async with _auto_sync_lock:
-        tasks = list(_auto_sync_tasks.values())
-        _auto_sync_tasks.clear()
-    for task in tasks:
-        task.cancel()
-    for task in tasks:
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
 
 
 @router.get("/status")
 async def get_status(
     context: CurrentContext = Depends(get_current_context),
 ):
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     orchestrator = _get_orchestrator(context.workspace_id)
     return orchestrator.get_status()
+
+
+# ── Onboarding Gate ──────────────────────────────────────────────────
+
+class OnboardingCompleteRequest(BaseModel):
+    capabilities: list[str] = Field(default_factory=list)
+    working_hours_start: str = Field(default="09:00 AM", max_length=10)
+    working_hours_end: str = Field(default="06:00 PM", max_length=10)
+    meeting_duration: int = Field(default=30, ge=15, le=120)
+    draft_tone: str = Field(default="Professional", max_length=50)
+    signature: Optional[str] = Field(default=None, max_length=500)
+    vips: list[str] = Field(default_factory=list)
+    safe_auto_send: bool = False
+
+
+@router.get("/onboarding/status")
+async def get_onboarding_status(
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Check whether the workspace has completed onboarding."""
+    workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    from app.models.user import User
+    user = db.query(User).filter(User.id == context.user_id).first()
+    first_name = (user.full_name or "").split()[0] if user and user.full_name else None
+
+    return {
+        "onboarding_status": getattr(workspace, "onboarding_status", "pending"),
+        "first_name": first_name,
+    }
+
+
+@router.post("/onboarding/complete")
+async def complete_onboarding(
+    payload: OnboardingCompleteRequest,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Mark onboarding as completed and persist preferences."""
+    workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    # Persist preferences into workspace settings
+    current_settings = dict(getattr(workspace, "settings_json", {}) or {})
+    if "aaliyah" not in current_settings:
+        current_settings["aaliyah"] = {}
+
+    current_settings["aaliyah"].update({
+        "capabilities": payload.capabilities,
+        "working_hours_start": payload.working_hours_start,
+        "working_hours_end": payload.working_hours_end,
+        "default_meeting_duration": payload.meeting_duration,
+        "draft_tone": payload.draft_tone,
+        "signature": payload.signature,
+        "auto_send_enabled": payload.safe_auto_send,
+        "vip_senders": payload.vips,
+    })
+
+    workspace.settings_json = current_settings
+    workspace.onboarding_status = "completed"
+    flag_modified(workspace, "settings_json")
+    flag_modified(workspace, "onboarding_status")
+    db.commit() # Save object changes
+    
+    # FORCE UPDATE via SQL to ensure persistence in SQLite/WAL
+    from sqlalchemy import text
+    try:
+        db.execute(
+            text("UPDATE workspaces SET onboarding_status = 'completed' WHERE id = :wid"),
+            {"wid": workspace.id}
+        )
+        db.commit()
+        logger.info(f"✅ [Onboarding] Status updated to completed for workspace {workspace.id}")
+    except Exception as e:
+        logger.error(f"❌ [Onboarding] SQL Update failed: {e}")
+        db.rollback()
+        raise e
+
+    from app.models.user import User
+    user = db.query(User).filter(User.id == context.user_id).first()
+    first_name = (user.full_name or "").split()[0] if user and user.full_name else None
+
+    return {
+        "status": "completed",
+        "first_name": first_name,
+        "workspace_id": workspace.id,
+        "message": f"Done, {first_name or 'there'} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.",
+    }
 
 
 @router.get("/briefing")
@@ -261,7 +331,7 @@ async def get_briefing(
     db: Session = Depends(get_db),
 ):
     """Generate or retrieve today's briefing."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     svc = MorningBriefingService(db, context.workspace_id)
     content = await svc.generate_briefing()
     return {"content": content, "date": datetime.now(timezone.utc).isoformat()}
@@ -271,7 +341,7 @@ async def get_briefing(
 async def get_stats(
     context: CurrentContext = Depends(get_current_context),
 ):
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     orchestrator = _get_orchestrator(context.workspace_id)
     return orchestrator.get_stats()
 
@@ -284,6 +354,24 @@ async def get_live_token(
     return {"stream_token": token, "expires_in_seconds": _LIVE_TOKEN_TTL_SECONDS}
 
 
+@router.get("/live/stream")
+async def live_stream(
+    stream_token: str = Query(...),
+):
+    """Canonical SSE stream (Sprint 1)"""
+    from fastapi.responses import StreamingResponse
+    payload = _decode_live_token(stream_token)
+    workspace_id = payload["workspace_id"]
+
+    async def event_generator():
+        while True:
+            # Simple heartbeat for Sprint 1
+            yield f"data: {{\"type\": \"ping\", \"timestamp\": \"{datetime.now(timezone.utc).isoformat()}\"}}\n\n"
+            await asyncio.sleep(15)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @router.get("/inbox")
 async def get_inbox(
     limit: int = Query(default=50, ge=1, le=200),
@@ -293,15 +381,130 @@ async def get_inbox(
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+    try:
+        orchestrator = _get_orchestrator(context.workspace_id)
+        return await orchestrator.list_inbox(
+            db,
+            limit=limit,
+            category=category,
+            priority=priority,
+            include_noise=include_noise,
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Inbox fetch failed: {str(e)}")
+
+
+@router.get("/counts")
+async def get_counts(
+    context: CurrentContext = Depends(get_current_context),
+):
+    """Canonical counts (Sprint 1)"""
     orchestrator = _get_orchestrator(context.workspace_id)
-    return orchestrator.list_inbox(
+    return orchestrator.get_stats()
+
+
+@router.get("/threads")
+async def get_threads(
+    queue: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Canonical threads list (Sprint 1)"""
+    orchestrator = _get_orchestrator(context.workspace_id)
+    
+    # Map 'queue' to category/priority if needed, or just pass as category
+    category = queue if queue and queue not in ["high_priority", "escalations"] else None
+    priority = "High" if queue == "high_priority" else None
+    
+    return await orchestrator.list_inbox(
         db,
         limit=limit,
         category=category,
         priority=priority,
-        include_noise=include_noise,
+        queue=queue,
     )
+
+
+@router.get("/threads/{message_id}")
+async def get_thread_item(
+    message_id: str,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Canonical thread details (Sprint 1)"""
+    row = db.query(TriagedEmail).filter(
+        TriagedEmail.id == message_id,
+        TriagedEmail.workspace_id == context.workspace_id
+    ).first()
+
+    if not row:
+        # Try finding by thread_id if message_id fails
+        row = db.query(TriagedEmail).filter(
+            TriagedEmail.thread_id == message_id,
+            TriagedEmail.workspace_id == context.workspace_id
+        ).order_by(TriagedEmail.received_at.desc()).first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Thread or message not found")
+
+    # For Sprint 1, we return the triaged metadata which contains the summary and draft.
+    # In a full 'thread' view, we would join with the actual messages.
+    return {
+        "id": row.id,
+        "thread_id": row.thread_id,
+        "subject": row.subject,
+        "sender": row.sender,
+        "snippet": row.snippet,
+        "category": row.category,
+        "priority": row.priority,
+        "status": (row.metadata_json or {}).get("draft", {}).get("status", "pending_approval"),
+        "draft": (row.metadata_json or {}).get("draft"),
+        "received_at": row.received_at.isoformat() if row.received_at else None,
+        # Flattened for simple FE consumption
+        "title": row.subject or "No Subject",
+        "subtitle": row.snippet,
+        "timestamp": row.received_at.strftime("%I:%M %p") if row.received_at else "Unknown",
+    }
+
+
+@router.put("/inbox/{message_id}/draft")
+async def update_draft(
+    message_id: str,
+    payload: UpdateDraftRequest,
+    db: Session = Depends(get_db),
+    context: CurrentContext = Depends(get_current_context),
+):
+    """
+    Update the draft metadata for an email in the Aaliyah workflow.
+    """
+    row = db.query(TriagedEmail).filter(
+        TriagedEmail.id == message_id,
+        TriagedEmail.workspace_id == context.workspace_id
+    ).first()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    meta = dict(row.metadata_json or {})
+    draft = meta.get("draft", {})
+    
+    # Update draft fields
+    if payload.to is not None: draft["to"] = payload.to
+    if payload.subject is not None: draft["subject"] = payload.subject
+    draft["body"] = payload.body
+    if payload.attachments is not None:
+        draft["attachments"] = payload.attachments
+
+    meta["draft"] = draft
+    row.metadata_json = meta
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(row, "metadata_json")
+    db.commit()
+
+    return {"status": "ok", "draft": draft}
 
 
 @router.get("/calendar/conflicts")
@@ -310,7 +513,7 @@ async def get_calendar_conflicts(
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     orchestrator = _get_orchestrator(context.workspace_id)
     return orchestrator.list_calendar_conflicts(db, limit=limit)
 
@@ -323,7 +526,7 @@ async def get_or_create_meeting_prep(
     db: Session = Depends(get_db),
 ):
     """Get or generate a meeting cheat sheet."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     
     agent = MeetingPrepAgent(db=db, workspace_id=context.workspace_id)
     
@@ -361,7 +564,7 @@ async def list_upcoming_meetings(
     db: Session = Depends(get_db),
 ):
     """List upcoming meetings, including prepared cheat sheets."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     
     from app.models.calendar_event_snapshot import CalendarEventSnapshot
     # Use naive UTC to match database storage if needed
@@ -411,7 +614,7 @@ async def upload_meeting_transcript(
     db: Session = Depends(get_db),
 ):
     """Upload a meeting transcript for summarization."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     from app.agents.aaliyah.core.meeting_summarizer import MeetingSummarizer
     
     svc = MeetingSummarizer(db, context.workspace_id)
@@ -438,7 +641,7 @@ async def get_meeting_transcript_summary(
     db: Session = Depends(get_db),
 ):
     """Get the latest transcript summary for an event."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     from app.models.meeting_transcript import MeetingTranscript
     
     # Get latest
@@ -471,7 +674,7 @@ async def ask_aaliyah(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(msg.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
+
     _rate_limit_or_throw(_ask_rate_limiter, key=f"ask:{context.user_id}:{workspace_id}")
     orchestrator = _get_orchestrator(workspace_id)
 
@@ -509,7 +712,7 @@ async def handle_webhook(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(event.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
+
     _rate_limit_or_throw(_webhook_rate_limiter, key=f"webhook:{context.user_id}:{workspace_id}")
     orchestrator = _get_orchestrator(workspace_id)
 
@@ -553,25 +756,45 @@ async def sync_inbox(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
     _rate_limit_or_throw(_webhook_rate_limiter, key=f"sync_inbox:{context.user_id}:{workspace_id}")
-    orchestrator = _get_orchestrator(workspace_id)
+    
+    # Gatekeeper: Email Health Check
+    if not payload.force:
+        from app.services.integrations.health_service import ConnectorHealthService
+        health_svc = ConnectorHealthService(db, workspace_id)
+        desc = health_svc.get_detailed_health()
+        email_info = desc.get("email", {})
+        email_status = email_info.get("status")
+        
+        if email_status != "OK":
+             logger.warning(f"SYNC_BLOCKED: workspace={workspace_id} service=email reason={email_status} code={email_info.get('error_code')}")
+             return {
+                 "status": "skipped",
+                 "reason": f"GatekeeperBlocked: Email status is {email_status}",
+                 "health_code": email_info.get("error_code")
+             }
 
+    # Check manual idempotency first if desired, but queue handles dedupe
     idem_key = request.headers.get("Idempotency-Key")
     cache_key = None
     if idem_key:
         cache_key = f"sync_inbox:{context.user_id}:{workspace_id}:{idem_key}"
         cached = _idempotency_store.get(cache_key)
         if cached is not None:
-            return cached
+             return cached
 
-    result = await orchestrator.sync_inbox(
-        db,
-        user_id=context.user_id,
-        provider=payload.provider,
-        max_results=payload.max_results,
-    )
-    response = {"status": "ok", "result": result}
+    job_payload = {
+        "user_id": context.user_id,
+        "workspace_id": workspace_id,
+        "provider": payload.provider,
+        "max_results": payload.max_results
+    }
+    # Dedupe ID can be user+workspace+provider
+    job_id = await queue.enqueue(JobType.SYNC_PROVIDER, job_payload)
+    
+    logger.info(f"SYNC_STARTED: workspace={workspace_id} job_id={job_id} type=inbox")
+
+    response = {"status": "queued", "job_id": job_id}
     if cache_key:
         _idempotency_store.set(cache_key, response)
     return response
@@ -585,9 +808,23 @@ async def sync_calendar(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
     _rate_limit_or_throw(_webhook_rate_limiter, key=f"sync_calendar:{context.user_id}:{workspace_id}")
-    orchestrator = _get_orchestrator(workspace_id)
+    
+    # Gatekeeper: Calendar Health Check
+    if not payload.force:
+        from app.services.integrations.health_service import ConnectorHealthService
+        health_svc = ConnectorHealthService(db, workspace_id)
+        desc = health_svc.get_detailed_health()
+        cal_info = desc.get("calendar", {})
+        cal_status = cal_info.get("status")
+        
+        if cal_status != "OK":
+             logger.warning(f"SYNC_BLOCKED: workspace={workspace_id} service=calendar reason={cal_status} code={cal_info.get('error_code')}")
+             return {
+                 "status": "skipped",
+                 "reason": f"GatekeeperBlocked: Calendar status is {cal_status}",
+                 "health_code": cal_info.get("error_code")
+             }
 
     idem_key = request.headers.get("Idempotency-Key")
     cache_key = None
@@ -595,16 +832,21 @@ async def sync_calendar(
         cache_key = f"sync_calendar:{context.user_id}:{workspace_id}:{idem_key}"
         cached = _idempotency_store.get(cache_key)
         if cached is not None:
-            return cached
+             return cached
 
-    result = await orchestrator.sync_calendar(
-        db,
-        user_id=context.user_id,
-        provider=payload.provider,
-        window_days=payload.window_days,
-        buffer_minutes=payload.buffer_minutes,
-    )
-    response = {"status": "ok", "result": result}
+    job_payload = {
+        "user_id": context.user_id,
+        "workspace_id": workspace_id,
+        "provider": payload.provider,
+        "window_days": payload.window_days,
+        "buffer_minutes": payload.buffer_minutes,
+        "kind": "calendar"
+    }
+    job_id = await queue.enqueue(JobType.SYNC_PROVIDER, job_payload)
+
+    logger.info(f"SYNC_STARTED: workspace={workspace_id} job_id={job_id} type=calendar")
+
+    response = {"status": "queued", "job_id": job_id}
     if cache_key:
         _idempotency_store.set(cache_key, response)
     return response
@@ -615,8 +857,7 @@ async def get_labeling_preferences(
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
-    engine = LabelingRulesEngine(db, context.workspace_id)
+
     engine = LabelingRulesEngine(db, context.workspace_id)
     return engine.get_preferences_payload()
 
@@ -636,9 +877,23 @@ async def get_aaliyah_settings(
     
     return {
         "workspace_id": context.workspace_id,
+        "organize_inbox_enabled": aaliyah_settings.get("organize_inbox_enabled", True),
+        "draft_replies_enabled": aaliyah_settings.get("draft_replies_enabled", True),
+        "archive_less_important": aaliyah_settings.get("archive_less_important", False),
+        "track_follow_ups": aaliyah_settings.get("track_follow_ups", True),
+        
+        "calendar_assist_enabled": aaliyah_settings.get("calendar_assist_enabled", True),
+        "working_hours_start": aaliyah_settings.get("working_hours_start", "09:00"),
+        "working_hours_end": aaliyah_settings.get("working_hours_end", "17:00"),
+        "default_meeting_duration": aaliyah_settings.get("default_meeting_duration", 30),
+        
         "auto_send_enabled": aaliyah_settings.get("auto_send_enabled", False),
         "draft_tone": aaliyah_settings.get("draft_tone", "professional"),
         "signature": aaliyah_settings.get("signature"),
+        
+        # Read-only security caps for Sprint 2
+        "approval_required_topics": ["Financials", "Hiring", "External Strategy"],
+        "always_require_approval": True
     }
 
 
@@ -660,6 +915,16 @@ async def update_aaliyah_settings(
         current_settings["aaliyah"] = {}
     
     current_settings["aaliyah"].update({
+        "organize_inbox_enabled": payload.organize_inbox_enabled,
+        "draft_replies_enabled": payload.draft_replies_enabled,
+        "archive_less_important": payload.archive_less_important,
+        "track_follow_ups": payload.track_follow_ups,
+        
+        "calendar_assist_enabled": payload.calendar_assist_enabled,
+        "working_hours_start": payload.working_hours_start,
+        "working_hours_end": payload.working_hours_end,
+        "default_meeting_duration": payload.default_meeting_duration,
+        
         "auto_send_enabled": payload.auto_send_enabled,
         "draft_tone": payload.draft_tone,
         "signature": payload.signature,
@@ -683,7 +948,7 @@ async def update_labeling_preferences(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
+
     engine = LabelingRulesEngine(db, workspace_id)
     row = engine.update_preferences(
         enabled_labels=payload.enabled_labels,
@@ -712,7 +977,7 @@ async def set_labeling_override(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
+
     engine = LabelingRulesEngine(db, workspace_id)
     try:
         override = engine.set_override(
@@ -744,7 +1009,7 @@ async def send_draft(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    await _ensure_auto_sync(workspace_id, context.user_id)
+
     
     executor = ActionExecutor(db)
     try:
@@ -752,7 +1017,16 @@ async def send_draft(
             user_id=context.user_id,
             workspace_id=workspace_id,
             email_id=payload.email_id,
+            is_explicit_approval=payload.is_explicit_approval,
         )
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "locked_gate",
+                "message": str(exc),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -773,7 +1047,7 @@ async def list_templates(
     db: Session = Depends(get_db),
 ):
     """List all draft templates."""
-    await _ensure_auto_sync(context.workspace_id, context.user_id)
+
     templates = (
         db.query(DraftTemplate)
         .filter(DraftTemplate.workspace_id == context.workspace_id)
@@ -977,31 +1251,29 @@ async def live_stream(
 ):
     payload = _decode_live_token(stream_token)
     workspace_id = str(payload["workspace_id"])
-    queue = await event_bus.subscribe(workspace_id)
+    
+    # We use an async generator directly
+    async def event_generator():
+        # Yield initial
+        initial = LiveEvent(
+            workspace_id=workspace_id,
+            type="connected",
+            message="Live stream connected",
+            payload={"connected_at": datetime.now(timezone.utc).isoformat()},
+        )
+        yield initial.to_sse()
 
-    async def stream() -> Any:
+        iterator = event_bus.subscribe(workspace_id)
         try:
-            initial = LiveEvent(
-                workspace_id=workspace_id,
-                type="connected",
-                message="Live stream connected",
-                payload={"connected_at": datetime.now(timezone.utc).isoformat()},
-            )
-            yield initial.to_sse()
-
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield event.to_sse()
-                except asyncio.TimeoutError:
-                    yield "event: ping\ndata: {}\n\n"
-        finally:
-            await event_bus.unsubscribe(workspace_id, queue)
+             async for event in iterator:
+                 if await request.is_disconnected():
+                     break
+                 yield event.to_sse()
+        except Exception:
+             pass
 
     return StreamingResponse(
-        stream(),
+        event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -1025,8 +1297,9 @@ async def live_websocket(websocket: WebSocket):
         return
 
     workspace_id = str(payload["workspace_id"])
-    queue = await event_bus.subscribe(workspace_id)
+    
     await websocket.accept()
+    
     try:
         await websocket.send_json(
             {
@@ -1035,13 +1308,12 @@ async def live_websocket(websocket: WebSocket):
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
-        while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=20)
-                await websocket.send_json(event.model_dump(mode="json"))
-            except asyncio.TimeoutError:
-                await websocket.send_json({"type": "ping", "created_at": datetime.now(timezone.utc).isoformat()})
+        
+        iterator = event_bus.subscribe(workspace_id)
+        async for event in iterator:
+             await websocket.send_json(event.model_dump(mode="json"))
+             
     except WebSocketDisconnect:
         pass
-    finally:
-        await event_bus.unsubscribe(workspace_id, queue)
+    except Exception:
+        pass
