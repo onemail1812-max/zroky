@@ -382,6 +382,32 @@ def seed_database():
             )
             db.add(ec)
 
+        # Create a sample TriagedEmail for Aaliyah
+        from app.models.triaged_email import TriagedEmail
+        demo_email_id = "draft_demo_001"
+        demo_email = TriagedEmail(
+            id=demo_email_id,
+            workspace_id=workspace_id,
+            provider="google",
+            external_message_id="msg_abc123",
+            thread_id="thread_xyz789",
+            sender="sarah@northbridge.com",
+            subject="Q3 Investor Update and Scheduling Alignment",
+            snippet="Hi, let's discuss the Q3 update...",
+            category="To Respond",
+            priority="High",
+            requires_approval=True,
+            metadata_json={
+                "draft": {
+                    "to": "board@northbridge.com",
+                    "subject": "Q3 Investor Update and Scheduling Alignment",
+                    "body": "<p>Attached is the refined update. Pending your approval, I will send to legal and finance, then align board prep to remove conflicts.</p>",
+                    "status": "pending_approval"
+                }
+            }
+        )
+        db.add(demo_email)
+
         db.commit()
         print("✓ Demo data seeded successfully")
 

@@ -30,6 +30,9 @@ class DraftResponse(BaseModel):
     subject: str
     body: str
     rationale: str
+    intent: str
+    risk_labels: list[str]
+    missing_info: Optional[str] = None
     status: str = "drafted"
 
 
@@ -43,186 +46,210 @@ class DraftingAgent:
         self.availability = AvailabilityEngine(db, workspace_id)
         self.ingestor = EmailIngestor(workspace_id, db)
 
-    async def generate_draft(self, email: TriagedEmail) -> Optional[DraftResponse]:
+    async def _get_style_context(self) -> str:
+        """
+        Implements Style Learning Trust Ladder:
+        - Learn only from approved sent emails (draft status == "sent").
+        - After 10: greeting + signoff + length.
+        - After 30: phrasing patterns.
+        - After 60: micro-style.
+        """
+        # Find approved drafts
+        # Note: In a real DB we'd use JSON operators, here we iterate or use a simple query
+        approved_emails = (
+            self.db.query(TriagedEmail)
+            .filter(TriagedEmail.workspace_id == self.workspace_id)
+            .order_by(TriagedEmail.updated_at.desc())
+            .limit(100) # Pull last 100 to scan for approved
+            .all()
+        )
+        
+        sends = []
+        for e in approved_emails:
+            meta = e.metadata_json or {}
+            draft = meta.get("draft")
+            if draft and isinstance(draft, dict) and draft.get("status") == "sent":
+                sends.append(draft)
+        
+        count = len(sends)
+        if count < 5:
+            return "No style baseline yet. Use professional defaults."
+
+        context = f"**Style Baseline (Based on {count} approved sends):**\n"
+        
+        # 1. Ladder Step 1: Greeting + Signoff (10+ sends)
+        if count >= 10:
+            last_10 = sends[:10]
+            context += "- Use the user's preferred greeting and sign-off styles from these examples.\n"
+            for s in last_10[:3]:
+                 context += f"Example Send: {s.get('body')[:100]}...\n"
+        
+        # 2. Ladder Step 2: Phrasing (30+ sends)
+        if count >= 30:
+            context += "- Match the user's phrasing patterns (sentence structure, directness vs. verbosity).\n"
+
+        # 3. Ladder Step 3: Micro-style (60+ sends)
+        if count >= 60:
+            context += "- Match precise micro-styles (capitalization, emoji usage, specific slang/vocab).\n"
+            
+        return context
+
+    async def generate_draft(self, email: TriagedEmail, is_followup: bool = False) -> Optional[DraftResponse]:
         """
         Generate a reply draft using LLM and context.
-        Returns None if no draft is appropriate (e.g. newsletter).
+        Enforces "No Hallucination" and "Style Learning".
         """
         # 0. Skip if already drafted
         if email.metadata_json and "draft" in email.metadata_json:
-            logger.info("Draft already exists for email %s", email.id)
+            # Check if it was sent
+            if email.metadata_json["draft"].get("status") == "sent":
+                return None
+            # If it exists but not sent, we might want to re-draft? For now, skip.
             return None
 
-        # 1. Gather Thread Context
+        # 1. Extract Latest Reply Only
+        from app.services.email.parsing.reply_parser import parse_email_body
+        latest_content = parse_email_body(email.snippet or "")
+        if not latest_content:
+             latest_content = email.snippet or ""
+
+        # 2. Gather Context
         history = self.label_engine.list_recent_thread_history(
             thread_id=email.thread_id,
             sender=email.sender,
             limit=5
         )
         
-        # Format history string
         thread_context = ""
         for msg in reversed(history):
             if msg.id == email.id:
-                continue # Skip current message to avoid duplication if it's in history
-            thread_context += f"From: {msg.sender}\nDate: {msg.received_at}\nSubject: {msg.subject}\nBody: {msg.snippet}\n---\n"
+                continue
+            thread_context += f"From: {msg.sender}\nBody: {msg.snippet[:500]}\n---\n"
 
-        # 2. Gather Knowledge Graph Context
-        # Extract email address for lookup
         sender_query = email.sender or ""
-        if "<" in sender_query:
-            try:
-                sender_query = sender_query.split("<")[1].strip(">")
-            except Exception:
-                pass
-        
         kg_context = self.kg.summarize_for_prompt(query=sender_query)
 
-        # 2a. Fetch Workspace Settings & Templates
         workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-        settings_json = getattr(workspace, "settings_json", {}) or {}
-        aaliyah_settings = settings_json.get("aaliyah", {})
-        
-        signature = aaliyah_settings.get("signature")
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
         tone = aaliyah_settings.get("draft_tone", "professional")
         
-        templates = self.db.query(DraftTemplate).filter(DraftTemplate.workspace_id == self.workspace_id).all()
-        template_context = ""
-        if templates:
-            template_context = "**Available Templates (Use if relevant):**\n"
-            for t in templates:
-                template_context += f"- Name: {t.name}\n  Body: {t.body}\n"
+        style_context = await self._get_style_context()
 
-        # 2b. Fetch Recent Sent Emails (Style Learning)
-        # We use the ingestor to fetch sent items on demand.
-        sent_messages = await self.ingestor.fetch_sent(max_results=3)
-        style_context = ""
-        if sent_messages:
-            style_context = "**My Recent Sent Emails (ADOPT THIS STYLE):**\n"
-            for m in sent_messages:
-                content = m.get("snippet") or "(No preview)"
-                style_context += f"To: {m.get('recipient') or 'Unknown'}\nSubject: {m.get('subject')}\nBody (Snippet): {content}\n---\n"
-
-        # 3. Time Lord Intelligence
-        # Heuristic check for scheduling intent before expensive LLM call? 
-        # For now, let's always check availability if "Meeting" or "Awaiting Reply" is in category/label.
+        # 3. Handle Scheduling (Sprint 9: Deterministic Keywords first)
         availability_context = ""
-        is_scheduling_intent = "Meeting" in (email.category or "") or "meeting" in ((email.metadata_json or {}).get("labels", []))
+        body_lower = (email.snippet or "").lower()
+        meeting_keywords = {"schedule", "meet", "calendar", "zoom", "call", "availability", "slots", "meeting"}
+        
+        has_keywords = any(word in body_lower for word in meeting_keywords)
+        is_labeled_meeting = "Meeting" in (email.category or "") or "Meeting" in ((email.metadata_json or {}).get("labels", []))
+        
+        is_scheduling_intent = has_keywords or is_labeled_meeting
         
         if is_scheduling_intent:
             now = datetime.now(timezone.utc)
-            slots = self.availability.find_slots(search_start_dt=now, days_ahead=5)
+            # Sprint 9: Propose exactly 3 slots using user's configured timezone
+            slots = self.availability.propose_n_slots(search_start_dt=now, n=3, duration_minutes=30)
+            user_tz_label = self.availability.user_tz_name
+            
             if slots:
-                availability_context = "**My Available Slots (Use these for scheduling):**\n"
-                for i, s in enumerate(slots[:5]):
-                    availability_context += f"- {s.start.strftime('%A %b %d, %H:%M')} to {s.end.strftime('%H:%M')} UTC\n"
+                availability_context = f"**Available Slots (in {user_tz_label}):**\n"
+                for s in slots:
+                    # Format: Monday Feb 18, 14:00
+                    availability_context += f"- {s.strftime('%A %b %d, %H:%M')}\n"
+                
+                availability_context += f"\nNote: All times are in {user_tz_label}."
+                availability_context += "\nIf the recipient's timezone is unknown, ASK exactly one question about their location or preferred timezone."
 
         system_prompt = (
             "You are Aaliyah, an elite Executive Chief of Staff. "
-            "Your goal is to draft a perfect email reply that sounds like your principal wrote it. "
-            f"Adopt a {tone} tone. "
-            "If recent sent emails are provided, mirror their vocabulary, greeting style, and sign-off. "
-            "Never use placeholders like '[Insert Name]'. Infer it or use a generic greeting. "
-            "Keep replies focused and move the conversation forward."
+            "Your goal is to draft a grounded, professional, and CONCISE reply that sounds like your principal. "
+            "STYLE RULE: Be brief. Use 1-3 sentences maximum unless a complex explanation is unavoidable. "
+            f"Tone: {tone}. "
+            f"\n{style_context}\n"
+            "STRICT NO HALLUCINATION POLICY:\n"
+            "- NEVER invent: pricing, timelines, policies, or contract terms.\n"
+            "- If any required fact is missing from Knowledge Context, ASK EXACTLY ONE clarifying question or state you will check with the principal.\n"
+            "- If unsure, keep the line neutral or state as a placeholder [CONFIRM WITH PRINCIPAL]."
         )
 
-        if signature:
-            sig_instruction = f"Append this signature:\\n{signature}"
+        if is_followup:
+            followup_hint = "\n**Important: NO RESPONSE RECEIVED.** This is a follow-up message because we haven't heard back since our last outbound email.\n"
         else:
-            sig_instruction = "Sign off with 'Best,'."
+            followup_hint = ""
 
         user_prompt = f"""
-Analyze the following email and draft a reply if necessary.
+Analyze the latest message and draft a reply.
+{followup_hint}
 
-**Knowledge Context:**
+**Knowledge Context (Grounding):**
 {kg_context}
 
-{template_context}
-
+**Style Guidance:**
 {style_context}
 
 {availability_context}
 
-**Conversation History:**
-{thread_context}
-
-**Current Message:**
+**Latest Message to Reply To:**
 From: {email.sender}
 Subject: {email.subject}
-Content: {email.snippet}
-Category: {email.category}
-Priority: {email.priority}
+Content: {latest_content}
 
 **Task:**
-1. Determine if a reply is needed. If this is a notification, newsletter, or noise, return valid JSON with {{"action": "ignore"}}.
-2. If a reply is needed, draft a response that moves the conversation forward.
-3. If the user asks for a meeting or availability:
-   a. Propose 2-3 specific times from the **My Available Slots** list above.
-   b. Explicitly mention these time slots in the email body.
-   c. Add a placeholder "[BOOKING_LINK]" right after the proposed times. I will replace it with a real link.
-4. If a template is relevant, adapt it to the context.
-5. {sig_instruction}
+1. Determine the intent: meeting request, follow-up, info request, risk-related (pricing/legal/payment), or ignore.
+2. If info is missing (e.g. they asked for pricing not in context), DO NOT MAKE IT UP. Ask 1 question.
+3. If they want a meeting, use the available slots and add [BOOKING_LINK].
+4. Return a one-line rationale for the user in 'rationale'.
 
-**Output Format:**
-Return ONLY raw JSON (no markdown branding) with this structure:
+**Output JSON Structure:**
 {{
   "action": "reply" | "ignore",
+  "intent": "meeting request" | "follow-up" | "info request" | "risk-related" | "other",
   "subject": "Re: ...",
-  "body": "The email body (including signature)...",
-  "rationale": "Why you drafted this..."
+  "body": "The clean, concise email body...",
+  "risk_labels": ["Money", "Legal", "Complaint", "Hiring"] (list any detected),
+  "missing_info": "Explain what you don't know if applicable",
+  "rationale": "Short explanation for the user."
 }}
 """
 
-
-
-        # 4. Invoke Brain
         try:
             response = await self.brain.think(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                model_override="deepseek/deepseek-r1", # Use high-reasoning model
-                temperature_override=0.3
+                model_override="deepseek/deepseek-r1",
+                temperature_override=0.2
             )
             
             content = response.content.strip()
-            # Clean possible markdown code blocks
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
             
-            data = json.loads(content.strip())
+            data = json.loads(content)
             
             if data.get("action") == "ignore":
-                logger.info("Drafting agent decided to ignore email %s", email.id)
                 return None
                 
             draft_body = data.get("body", "")
-
-            # 5. Inject Booking Link if Placeholder Found
-            if "[BOOKING_LINK]" in draft_body and is_scheduling_intent and slots:
-                # Generate link for ALL available slots (or better: extract mentioned slots?)
-                # For Sprint 5 velocity: Include top 5 slots in the link.
+            
+            if "[BOOKING_LINK]" in draft_body and is_scheduling_intent:
                 bm = BookingManager(self.db, self.workspace_id)
-                link = bm.create_link(
-                    slots=slots[:5], 
-                    recipient_email=email.sender, 
-                    subject=f"Meeting: {email.subject}"
-                )
+                link = bm.create_link(slots=slots[:5] if 'slots' in locals() else [], recipient_email=email.sender, subject=f"Meeting: {email.subject}")
                 public_url = f"{settings.public_app_url}/booking/{link.slug}"
-                # Replace placeholder
                 draft_body = draft_body.replace("[BOOKING_LINK]", f"You can book one of these slots here: {public_url}")
-                
-            draft = DraftResponse(
+
+            return DraftResponse(
                 subject=data.get("subject", f"Re: {email.subject}"),
                 body=draft_body,
                 rationale=data.get("rationale", "Automated draft."),
+                intent=data.get("intent", "other"),
+                risk_labels=data.get("risk_labels", []),
+                missing_info=data.get("missing_info"),
             )
-            
-            return draft
 
         except Exception as e:
-            logger.error("Failed to generate draft for %s: %s", email.id, e)
+            logger.error("Failed to generate draft: %s", e)
             return None
 
     async def save_draft(self, email_id: str, draft: DraftResponse) -> bool:
@@ -232,12 +259,27 @@ Return ONLY raw JSON (no markdown branding) with this structure:
             return False
             
         meta = dict(email.metadata_json or {})
-        meta["draft"] = draft.dict()
-        
-        # SQLAlchemy JSON tracking workaround
+        meta["draft"] = draft.model_dump()
         email.metadata_json = meta
+        
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(email, "metadata_json")
+        
+        # Also update the thread record for visibility in the unified inbox
+        if email.thread_id:
+            from app.models.triaged_thread import TriagedThread
+            thread = (
+                self.db.query(TriagedThread)
+                .filter(
+                    TriagedThread.workspace_id == self.workspace_id,
+                    TriagedThread.external_thread_id == email.thread_id
+                )
+                .first()
+            )
+            if thread:
+                thread.has_draft = True
+                thread.draft_json = draft.model_dump()
+                flag_modified(thread, "draft_json")
         
         self.db.commit()
         return True

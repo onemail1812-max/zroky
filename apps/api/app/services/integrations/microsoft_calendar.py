@@ -101,3 +101,35 @@ class MicrosoftCalendarService:
             "web_link": data.get("webLink"),
             "status": "created",
         }
+
+    def get_event(self, event_id: str) -> Dict[str, Any]:
+        """Fetch a specific event by ID."""
+        url = f"https://graph.microsoft.com/v1.0/me/events/{event_id}"
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+            timeout=20,
+        )
+        if not resp.ok:
+            logger.error("Microsoft Calendar get_event error %s: %s", resp.status_code, redact_text(resp.text))
+            resp.raise_for_status()
+        item = resp.json()
+        organizer = (((item.get("organizer") or {}).get("emailAddress") or {}).get("address")) if isinstance(item, dict) else None
+        
+        attendees = []
+        for att in (item.get("attendees") or []):
+            email = ((att.get("emailAddress") or {}).get("address"))
+            if email: attendees.append(email)
+
+        return {
+            "id": item.get("id"),
+            "title": item.get("subject") or "(No title)",
+            "start_at": ((item.get("start") or {}).get("dateTime")),
+            "end_at": ((item.get("end") or {}).get("dateTime")),
+            "organizer": organizer,
+            "location": (item.get("location") or {}).get("displayName"),
+            "description": (item.get("body") or {}).get("content"),
+            "attendees": attendees,
+            "status": "cancelled" if bool(item.get("isCancelled")) else "confirmed",
+            "is_all_day": bool(item.get("isAllDay")),
+        }

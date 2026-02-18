@@ -18,7 +18,11 @@ class AuditLog(Base):
     actor_user_id = Column(String, index=True, nullable=True)
     action = Column(String, index=True, nullable=False)
     target_type = Column(String, nullable=True)
-    target_id = Column(String, nullable=True)
+    target_id = Column(String, nullable=True) # Can be thread_id
+    
+    # Specific Context
+    thread_id = Column(String, index=True, nullable=True)
+    provider = Column(String, nullable=True)
 
     # f4c5 renamed from metadata -> meta, while keeping DB column name "metadata"
     meta = Column("metadata", Text)  # JSON serialized - additional context

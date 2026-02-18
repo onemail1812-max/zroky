@@ -38,6 +38,18 @@ class UndoService:
 
                 connector = await EmailConnectorFactory(self.db, workspace_id).get_connector(user_id, provider)
                 await connector.remove_label(message_id, label_name, label_id=label_id)
+            elif undo_type == "RESTORE_CATEGORY":
+                from app.models.triaged_email import TriagedEmail
+                message_id = str(payload.get("message_id") or "")
+                to_category = str(payload.get("to_category") or "")
+                
+                if not message_id or not to_category:
+                     raise ValueError("Undo payload missing message_id or to_category")
+                
+                row = self.db.query(TriagedEmail).filter(TriagedEmail.id == message_id).first()
+                if row:
+                    row.category = to_category
+                    row.previous_category = None
             else:
                 raise ValueError("Unsupported undo operation")
 

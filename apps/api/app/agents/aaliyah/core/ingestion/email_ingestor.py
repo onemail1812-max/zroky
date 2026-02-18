@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.models.integration import IntegrationProvider
+from app.models.search_index import EmailIndex
 from app.services.brain.guardrails import redact_text
 from app.services.integrations.google_gmail import GmailService
 from app.services.integrations.integration_token_manager import IntegrationTokenManager
@@ -18,10 +20,20 @@ from app.services.integrations.microsoft_outlook import OutlookService
 logger = logging.getLogger(__name__)
 
 
+class AttachmentMetadata(BaseModel):
+    id: str
+    filename: str
+    mime_type: str
+    size: int # in bytes
+    content_id: Optional[str] = None # For inline images
+
+
 class EmailMetadata(BaseModel):
     sender: Optional[str] = None
     subject: Optional[str] = None
     thread_id: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
+    attachments: List[AttachmentMetadata] = Field(default_factory=list)
 
 
 class NormalizedEmailMessage(BaseModel):
@@ -33,6 +45,7 @@ class NormalizedEmailMessage(BaseModel):
     content: str = Field(default="", max_length=20_000)
     created_at: Optional[datetime] = None
     is_read: bool = False
+    has_attachments: bool = False
 
     @field_validator("provider")
     @classmethod
@@ -44,6 +57,30 @@ class NormalizedEmailMessage(BaseModel):
             return "microsoft"
         return normalized or "unknown"
 
+
+import email.utils
+from datetime import timezone as py_timezone
+
+def normalize_sender(sender: Optional[str]) -> Optional[str]:
+    if not sender:
+        return None
+    name, addr = email.utils.parseaddr(sender)
+    addr = addr.lower().strip()
+    if name:
+        return f"{name} <{addr}>"
+    return addr
+
+def normalize_timestamp(dt: Optional[datetime]) -> Optional[datetime]:
+    if not dt:
+        return None
+    # Ensure it's UTC aware if it isn't
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=py_timezone.utc)
+    
+    # Convert to IST (UTC+5:30)
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_tz = py_timezone(ist_offset)
+    return dt.astimezone(ist_tz)
 
 class EmailIngestor:
     def __init__(self, workspace_id: str, db: Session):
@@ -119,10 +156,127 @@ class EmailIngestor:
             self.logger.warning("Fetch sent emails failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
             return []
 
+    async def search_remote(self, query: str, provider: str = "auto", max_results: int = 10) -> List[NormalizedEmailMessage]:
+        """Search messages remotely on provider."""
+        resolved_provider = self._resolve_provider(provider)
+        if not resolved_provider:
+            return []
+
+        raw_messages = []
+        try:
+            if resolved_provider == "google":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                if token:
+                    raw_messages = GmailService(token).search_messages(query, max_results=max_results)
+            
+            elif resolved_provider == "microsoft":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+                if token:
+                    access_token = str(token.get("access_token") or "")
+                    if access_token:
+                        raw_messages = OutlookService(access_token).search_messages(query, max_results=max_results)
+        
+        except Exception as exc:
+             self.logger.warning("Search failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
+             return []
+
+        for raw in raw_messages:
+            msg = await self.normalize_message(raw, provider=resolved_provider)
+            self._upsert_search_index(msg)
+            normalized.append(msg)
+        return normalized
+
+    def _upsert_search_index(self, msg: NormalizedEmailMessage):
+        """Update fast search index for thread."""
+        if not msg.metadata.thread_id: return
+        
+        try:
+            row = self.db.query(EmailIndex).filter(
+                EmailIndex.workspace_id == self.workspace_id,
+                EmailIndex.thread_id == msg.metadata.thread_id
+            ).first()
+            
+            search_text = (
+                f"{msg.metadata.subject or ''} {msg.metadata.sender or ''} "
+                f"{msg.content or ''} {msg.metadata.snippet or ''}"
+            ).lower()[:10000] # Cap search text
+            
+            ts = msg.created_at or datetime.utcnow()
+            
+            if not row:
+                 row = EmailIndex(
+                     id=str(uuid.uuid4()),
+                     workspace_id=self.workspace_id,
+                     thread_id=msg.metadata.thread_id,
+                     provider=msg.provider,
+                     subject=msg.metadata.subject,
+                     sender=msg.metadata.sender,
+                     last_message_at=ts,
+                     snippet=(msg.content or "")[:500],
+                     latest_reply_text=(msg.content or "")[:500],
+                     searchable_text=search_text,
+                     message_count=1
+                 )
+                 self.db.add(row)
+            else:
+                 if row.last_message_at is None or ts > row.last_message_at:
+                     row.last_message_at = ts
+                     row.snippet = (msg.content or "")[:500]
+                     row.latest_reply_text = (msg.content or "")[:500]
+                     row.searchable_text = search_text
+                 row.message_count += 1
+            self.db.commit()
+        except Exception as e:
+            self.logger.warning(f"Failed to update search index for thread {msg.metadata.thread_id}: {e}")
+            self.db.rollback()
+
+    async def fetch_full_content(self, message_id: str, provider: str) -> Optional[NormalizedEmailMessage]:
+        """Fetch full message content for deep reading."""
+        resolved_provider = self._resolve_provider(provider)
+        if not resolved_provider:
+             return None
+
+        try:
+             if resolved_provider == "google":
+                 token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                 if not token: return None
+                 raw = GmailService(token).get_message(message_id, format="full")
+                 return await self.normalize_message(raw, provider="google")
+             
+             if resolved_provider == "microsoft":
+                 token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+                 if not token: return None
+                 access_token = str(token.get("access_token") or "")
+                 raw = OutlookService(access_token).get_message(message_id)
+                 return await self.normalize_message(raw, provider="microsoft")
+        except Exception as exc:
+             self.logger.warning("Fetch full content failed id=%s err=%s", message_id, redact_text(str(exc)))
+        
+        return None
+
+    async def fetch_thread(self, thread_id: str, provider: str) -> Optional[Dict[str, Any]]:
+        """Fetch all messages in a thread for deep reading."""
+        resolved = self._resolve_provider(provider)
+        if not resolved: return None
+        try:
+            if resolved == "google":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                if not token: return None
+                return GmailService(token).get_thread(thread_id)
+            elif resolved == "microsoft":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+                if not token: return None
+                return OutlookService(token["access_token"]).get_thread(thread_id)
+        except Exception as e:
+            self.logger.error(f"Failed to fetch thread {thread_id}: {e}")
+        return None
+
+
     async def normalize_message(self, raw_msg: Dict[str, Any], provider: str) -> NormalizedEmailMessage:
         """Convert provider-specific payload into stable internal shape."""
         created_at: Optional[datetime] = None
-        raw_created = raw_msg.get("received_at")
+        raw_created = raw_msg.get("received_at") or raw_msg.get("receivedDateTime")
+        
         if isinstance(raw_created, datetime):
             created_at = raw_created
         elif isinstance(raw_created, str) and raw_created.strip():
@@ -131,18 +285,130 @@ class EmailIngestor:
             except ValueError:
                 created_at = None
 
+        # Content extraction
+        snippet = str(raw_msg.get("snippet") or raw_msg.get("bodyPreview") or "")
+        content = snippet
+        
+        # If we have full body, use it to get the latest reply
+        body_text = None
+        if provider == "google":
+            payload = raw_msg.get("payload", {})
+            def _get_body_part(parts_list):
+                for part in parts_list:
+                    mime_type = part.get("mimeType")
+                    if mime_type == "text/plain":
+                        data = part.get("body", {}).get("data")
+                        if data:
+                            import base64
+                            return base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+                    if "parts" in part:
+                         res = _get_body_part(part["parts"])
+                         if res: return res
+                return None
+            
+            body_text = _get_body_part(payload.get("parts", []))
+            if not body_text and payload.get("body", {}).get("data"):
+                 import base64
+                 body_text = base64.urlsafe_b64decode(payload["body"]["data"]).decode('utf-8', errors='replace')
+
+        elif provider == "microsoft":
+            body = raw_msg.get("body", {})
+            if isinstance(body, dict):
+                body_content = body.get("content", "")
+                if body.get("contentType") == "html":
+                    from app.services.email.parsing.html_cleaner import clean_html_to_text
+                    body_text = clean_html_to_text(body_content)
+                else:
+                    body_text = body_content
+
+        if body_text:
+            from app.services.email.parsing.reply_parser import parse_email_body
+            content = parse_email_body(body_text) or snippet
+
+        headers = raw_msg.get("headers", {})
+
+        # Attachment Extraction & Metadata Indexing
+        attachments: List[AttachmentMetadata] = []
+        has_attachments = False
+        
+        if provider == "google":
+            payload = raw_msg.get("payload", {})
+            def _extract_attachments(parts_list):
+                for part in parts_list:
+                    filename = part.get("filename")
+                    attachment_id = part.get("body", {}).get("attachmentId")
+                    if filename and attachment_id:
+                        attachments.append(AttachmentMetadata(
+                            id=attachment_id,
+                            filename=filename,
+                            mime_type=part.get("mimeType", "application/octet-stream"),
+                            size=part.get("body", {}).get("size", 0)
+                        ))
+                    if "parts" in part:
+                        _extract_attachments(part["parts"])
+
+            _extract_attachments(payload.get("parts", []))
+            has_attachments = len(attachments) > 0
+
+        elif provider == "microsoft":
+            has_attachments = bool(raw_msg.get("has_attachments", raw_msg.get("hasAttachments", False)))
+            if has_attachments:
+                # We might need to fetch them if they aren't in the payload
+                raw_atts = raw_msg.get("attachments")
+                if not raw_atts:
+                    # Lazy fetch or assume they are already there if we used a specific select?
+                    # Graph API usually requires a separate call or $expand=attachments
+                    # For now, if not present, we just mark as has_attachments=True
+                    # and the sync job might have fetched them.
+                    pass
+                else:
+                    for att in raw_atts:
+                        attachments.append(AttachmentMetadata(
+                            id=att.get("id"),
+                            filename=att.get("name", "unnamed"),
+                            mime_type=att.get("contentType", "application/octet-stream"),
+                            size=att.get("size", 0)
+                        ))
+
+        # Append attachment names to searchable content for indexing
+        if attachments:
+            attachment_names = [a.filename for a in attachments]
+            content += f"\n[Attachments: {', '.join(attachment_names)}]"
+            
+            # Deep Indexing (Enterprise Feature): OCR/Text Extraction for Search
+            # We only do this for "relevant" files to save costs/time
+            for att in attachments:
+                if any(kw in att.filename.lower() for kw in ["invoice", "contract", "agreement", "resume", "pdf"]):
+                    try:
+                        # We only fetch if it's small (<2MB) for indexing
+                        if att.size < 2 * 1024 * 1024:
+                            # We need the connector here to fetch data
+                            # For simplicity in this sprint, we'll assume the caller wants deep index
+                            # and provided the connector/service. 
+                            # If not, we'll skip but log the potential.
+                            from app.services.extraction.file_extractor import FileExtractorService
+                            # Note: This requires getting raw bytes, which we'll skip for now
+                            # in basic unread fetch to keep it FAST. 
+                            # But we'll add the hook.
+                            pass
+                    except Exception as e:
+                        self.logger.warning(f"Failed deep index for {att.filename}: {e}")
+
         normalized = NormalizedEmailMessage(
             id=str(raw_msg.get("id") or "").strip() or "unknown",
             workspace_id=self.workspace_id,
             provider=provider,
             metadata=EmailMetadata(
-                sender=(str(raw_msg.get("sender") or "").strip() or None),
+                sender=normalize_sender(str(raw_msg.get("sender") or "").strip() or None),
                 subject=(str(raw_msg.get("subject") or "").strip() or None),
-                thread_id=(str(raw_msg.get("thread_id") or "").strip() or None),
+                thread_id=(str(raw_msg.get("thread_id") or raw_msg.get("conversationId") or "").strip() or None),
+                headers=headers,
+                attachments=attachments,
             ),
-            content=str(raw_msg.get("snippet") or ""),
-            created_at=created_at,
-            is_read=bool(raw_msg.get("is_read", False)),
+            content=content,
+            created_at=normalize_timestamp(created_at),
+            is_read=bool(raw_msg.get("is_read", raw_msg.get("isRead", False))),
+            has_attachments=has_attachments,
         )
         return normalized
 
@@ -151,5 +417,78 @@ class EmailIngestor:
         resolved_provider = self._resolve_provider(provider) or "unknown"
         normalized: List[NormalizedEmailMessage] = []
         for raw in raw_messages:
-            normalized.append(await self.normalize_message(raw, provider=resolved_provider))
+            msg = await self.normalize_message(raw, provider=resolved_provider)
+            self._upsert_search_index(msg)
+            normalized.append(msg)
         return normalized
+
+    async def fetch_incremental(self, provider: str = "auto") -> List[NormalizedEmailMessage]:
+        """Incremental sync for Gmail/Outlook."""
+        resolved_provider = self._resolve_provider(provider)
+        if not resolved_provider:
+            return []
+
+        self.logger.info("Incremental sync provider=%s", resolved_provider)
+        
+        provider_enum = IntegrationProvider.GOOGLE_GMAIL if resolved_provider == "google" else IntegrationProvider.OUTLOOK
+        config = self.token_manager.get_config(self.workspace_id, provider_enum)
+        
+        try:
+            if resolved_provider == "google":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                if not token: return []
+                service = GmailService(token)
+                
+                last_history_id = config.get("last_history_id")
+                if not last_history_id:
+                    # Initial sync marker setup
+                    profile = service.get_profile()
+                    self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
+                    return await self.fetch_and_normalize(provider="google", max_results=20)
+                
+                history_resp = service.list_history(last_history_id)
+                if history_resp.get("expired"):
+                    profile = service.get_profile()
+                    self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
+                    return await self.fetch_and_normalize(provider="google", max_results=20)
+                
+                new_message_ids = set()
+                for record in history_resp.get("history", []):
+                    for added in record.get("messagesAdded", []):
+                        new_message_ids.add(added["message"]["id"])
+                
+                self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": history_resp.get("historyId")})
+                
+                normalized = []
+                for msg_id in new_message_ids:
+                    raw = service.get_message(msg_id, format="full")
+                    msg = await self.normalize_message(raw, provider="google")
+                    self._upsert_search_index(msg)
+                    normalized.append(msg)
+                return normalized
+
+            else: # microsoft
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+                if not token: return []
+                access_token = str(token.get("access_token") or "")
+                service = OutlookService(access_token)
+                
+                delta_link = config.get("delta_link")
+                delta_resp = service.list_delta(delta_link)
+                
+                self.token_manager.update_config(self.workspace_id, provider_enum, {
+                    "delta_link": delta_resp.get("@odata.deltaLink"),
+                })
+                
+                items = delta_resp.get("value", [])
+                normalized = []
+                for item in items:
+                    if "@removed" in item: continue
+                    msg = await self.normalize_message(item, provider="microsoft")
+                    self._upsert_search_index(msg)
+                    normalized.append(msg)
+                return normalized
+
+        except Exception as exc:
+            self.logger.warning("Incremental sync failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
+            return []

@@ -101,3 +101,32 @@ class GoogleCalendarService:
         except Exception as exc:  # noqa: BLE001
             logger.error("Google Calendar create_event failed: %s", redact_text(str(exc)))
             raise
+
+    def get_event(self, event_id: str) -> Dict[str, Any]:
+        """Fetch a specific event by ID."""
+        try:
+            item = self.service.events().get(calendarId="primary", eventId=event_id).execute()
+            start = (item.get("start") or {}).get("dateTime") or (item.get("start") or {}).get("date")
+            end = (item.get("end") or {}).get("dateTime") or (item.get("end") or {}).get("date")
+            organizer = ((item.get("organizer") or {}).get("email") or None)
+            
+            attendees = []
+            for att in (item.get("attendees") or []):
+                email = att.get("email")
+                if email: attendees.append(email)
+
+            return {
+                "id": item.get("id"),
+                "title": item.get("summary") or "(No title)",
+                "start_at": start,
+                "end_at": end,
+                "organizer": organizer,
+                "location": item.get("location"),
+                "description": item.get("description"),
+                "attendees": attendees,
+                "status": item.get("status") or "confirmed",
+                "is_all_day": "date" in (item.get("start") or {}),
+            }
+        except Exception as exc:
+            logger.error("Google Calendar get_event failed: %s", redact_text(str(exc)))
+            raise

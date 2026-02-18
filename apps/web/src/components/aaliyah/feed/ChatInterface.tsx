@@ -26,17 +26,7 @@ export default function ChatInterface() {
     const { setThinking, setIdle } = useSystemStore()
 
     // State for events (In real app, fetch from backend via React Query or SSE)
-    const [events, setEvents] = React.useState<ChatEvent[]>([
-        {
-            id: "1",
-            type: "email",
-            title: "Re: Q3 Planning Meeting",
-            subtitle: "Steve: Can we move the meeting to Tuesday? I have a conflict.",
-            timestamp: "10:42 AM",
-            priority: "medium",
-            hasDraft: false
-        }
-    ])
+    const [events, setEvents] = React.useState<ChatEvent[]>([])
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;

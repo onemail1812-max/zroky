@@ -57,11 +57,43 @@ export const aaliyahApi = axios.create({
 
 aaliyahApi.interceptors.request.use((config) => withAuth(config))
 
+export const assistApi = axios.create({
+  baseURL: "/assist",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  timeout: 20000,
+})
+
+assistApi.interceptors.request.use((config) => withAuth(config))
+
 export async function sendChat(message: string, workspaceId?: string) {
   try {
-    const response = await aaliyahApi.post("/ask", {
+    const response = await assistApi.post("/answer", {
       message,
       workspace_id: workspaceId,
+    })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getThreadDetails(threadId: string, provider: string) {
+  try {
+    const response = await assistApi.get(`/thread/${threadId}`, {
+      params: { provider }
+    })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getEventDetails(eventId: string, provider: string) {
+  try {
+    const response = await assistApi.get(`/event/${eventId}`, {
+      params: { provider }
     })
     return response.data
   } catch (error) {
@@ -80,11 +112,74 @@ export async function getStatus(workspaceId?: string) {
   }
 }
 
+// ── Onboarding Gate ──────────────────────────────────────────────────
+
+export interface OnboardingStatusResponse {
+  onboarding_status: "pending" | "completed"
+  first_name: string | null
+}
+
+export interface OnboardingCompletePayload {
+  capabilities: string[]
+  working_hours_start: string
+  working_hours_end: string
+  meeting_duration: number
+  draft_tone: string
+  signature?: string
+  vips: string[]
+  safe_auto_send: boolean
+}
+
+export async function getOnboardingStatus(): Promise<OnboardingStatusResponse> {
+  try {
+    const response = await aaliyahApi.get("/onboarding/status", { params: { t: Date.now() } })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function completeOnboarding(payload: OnboardingCompletePayload) {
+  try {
+    const response = await aaliyahApi.post("/onboarding/complete", payload)
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
 export async function getStats(workspaceId?: string) {
   try {
     const response = await aaliyahApi.get("/stats", {
       params: workspaceId ? { workspace_id: workspaceId } : undefined,
     })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getCounts() {
+  try {
+    const response = await aaliyahApi.get("/counts")
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getThreads(queue?: string, limit = 50) {
+  try {
+    const response = await aaliyahApi.get("/threads", { params: { queue, limit } })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getThreadItem(threadId: string) {
+  try {
+    const response = await aaliyahApi.get(`/threads/${threadId}`)
     return response.data
   } catch (error) {
     throw toApiError(error)
@@ -215,11 +310,37 @@ export async function sendDraft(workspaceId: string, emailId: string) {
   }
 }
 
+export async function updateDraft(emailId: string, payload: { to?: string; subject?: string; body: string; attachments?: any[] }) {
+  try {
+    const response = await aaliyahApi.put(`/inbox/${emailId}/draft`, payload)
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
 export interface AaliyahSettings {
   workspace_id?: string
+  // Inbox & Autopilot
+  organize_inbox_enabled: boolean
+  draft_replies_enabled: boolean
+  archive_less_important: boolean
+  track_follow_ups: boolean
+
+  // Meetings
+  calendar_assist_enabled: boolean
+  working_hours_start: string
+  working_hours_end: string
+  default_meeting_duration: number
+
+  // Legacy/Existing
   auto_send_enabled: boolean
   draft_tone?: string
   signature?: string
+
+  // Read-only info
+  approval_required_topics?: string[]
+  always_require_approval?: boolean
 }
 
 export async function getAaliyahSettings() {

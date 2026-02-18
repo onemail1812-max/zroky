@@ -21,12 +21,19 @@ class Approval(Base):
 
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)
-    action_id = Column(String, index=True, nullable=False)
-    requested_by_user_id = Column(String, nullable=False)
+    thread_id = Column(String, index=True, nullable=True)
+    action_id = Column(String, index=True, nullable=True) # Made nullable to allow generic thread approvals
+    
+    category = Column(String, nullable=True) # pricing, legal, etc.
+    
+    requested_by_user_id = Column(String, nullable=True) # System auto-requests might be null?
     decided_by_user_id = Column(String, nullable=True)
+    
     decision = Column(SQLEnum(ApprovalDecision), default=ApprovalDecision.PENDING, nullable=False)
-    reason = Column(Text, nullable=True)
+    reason = Column(Text, nullable=True) # Notes or explanation
+    
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = Column(DateTime, nullable=True) # Alias for decided_at
     decided_at = Column(DateTime, nullable=True)
 
     def __repr__(self) -> str:

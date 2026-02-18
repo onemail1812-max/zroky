@@ -18,6 +18,7 @@ class AuditAction(str, Enum):
     CREATE = "create"
     UPDATE = "update"
     DELETE = "delete"
+    EXECUTE = "execute"
     STATUS_CHANGE = "status_change"
     ASSIGN = "assign"
     UNASSIGN = "unassign"

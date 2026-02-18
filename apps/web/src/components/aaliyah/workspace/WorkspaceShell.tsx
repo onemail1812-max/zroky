@@ -11,9 +11,11 @@ import {
   MessageSquareText,
   PanelRightOpen,
   X,
+  AlertCircle,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { PreFlightPanel } from "@/components/aaliyah/workspace/PreFlightPanel"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { NotificationStream } from "@/components/aaliyah/workspace/NotificationStream"
 import { LeftPanel } from "@/components/aaliyah/workspace/left/LeftPanel"
@@ -22,51 +24,6 @@ import { SlideOver } from "@/components/aaliyah/workspace/intelligence/SlideOver
 import { BottomSheet } from "@/components/aaliyah/workspace/intelligence/BottomSheet"
 import { FocusTrap } from "@/components/aaliyah/workspace/intelligence/FocusTrap"
 import type { ConversationSummary, IntelligenceTab } from "@/components/aaliyah/workspace/types"
-
-const INITIAL_CONVERSATIONS: ConversationSummary[] = [
-  {
-    id: "morning-briefing",
-    title: "Morning Briefing",
-    subtitle: "Daily executive context",
-    timestamp: "8:05 AM",
-    status: "Shadow Mode",
-  },
-  {
-    id: "q3-investor-update",
-    title: "Q3 Investor Update",
-    subtitle: "Draft ready for legal",
-    timestamp: "9:12 AM",
-    status: "Waiting Approval",
-  },
-  {
-    id: "hiring-cto",
-    title: "Hiring CTO",
-    subtitle: "Compensation decision pending",
-    timestamp: "9:40 AM",
-    status: "Needs Clarification",
-  },
-  {
-    id: "board-meeting-prep",
-    title: "Board Meeting Prep",
-    subtitle: "Execution in progress",
-    timestamp: "10:15 AM",
-    status: "Executing",
-  },
-  {
-    id: "legal-policy-review",
-    title: "Legal Policy Review",
-    subtitle: "Escalated due to policy",
-    timestamp: "Yesterday",
-    status: "Blocked by Rule",
-  },
-  {
-    id: "weekly-kpi-digest",
-    title: "Weekly KPI Digest",
-    subtitle: "Published to leadership",
-    timestamp: "Yesterday",
-    status: "Completed",
-  },
-]
 
 const MOBILE_NAV = [
   { href: "/dashboard", icon: Home, label: "Home" },
@@ -97,11 +54,47 @@ function useMediaQuery(query: string) {
 
 export default function WorkspaceShell() {
   const pathname = usePathname()
-  const { status, lastSync, pendingApprovals, queuedCount, inboxItems, fetchStatus, fetchInbox, triggerSync } = useSystemStore()
+  const {
+    status,
+    lastSync,
+    pendingApprovals,
+    queuedCount,
+    inboxItems,
+    isBackendConnected,
+    isLiveOffline,
+    fetchStatus,
+    fetchInbox,
+    fetchHealth,
+    triggerSync,
+    setIsLiveOffline,
+    connectionHealth
+  } = useSystemStore()
+
   const isDesktop = useMediaQuery("(min-width: 1024px)")
   const isTabletUp = useMediaQuery("(min-width: 768px)")
 
-  const [conversations, setConversations] = React.useState<ConversationSummary[]>(INITIAL_CONVERSATIONS)
+  // Derive conversations from inboxItems
+  const conversations = React.useMemo<ConversationSummary[]>(() => {
+    const items = inboxItems.map(item => ({
+      id: item.id,
+      title: item.subject || "No Subject",
+      subtitle: item.snippet,
+      timestamp: item.received_at ? new Date(item.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recently",
+      status: (item.requires_approval ? "Waiting Approval" : "Shadow Mode") as ConversationSummary["status"]
+    }))
+
+    return [
+      {
+        id: "morning-briefing",
+        title: "Morning Briefing",
+        subtitle: "Daily executive context",
+        timestamp: "8:05 AM",
+        status: "Shadow Mode",
+      },
+      ...items
+    ]
+  }, [inboxItems])
+
   const [activeConversationId, setActiveConversationId] = React.useState("morning-briefing")
   const [isLeftPanelOpen, setIsLeftPanelOpen] = React.useState(false)
   const [isIntelligenceOpen, setIsIntelligenceOpen] = React.useState(false)
@@ -111,7 +104,7 @@ export default function WorkspaceShell() {
 
   React.useEffect(() => {
     let alive = true
-    void Promise.all([fetchStatus(), fetchInbox()]).finally(() => {
+    void Promise.all([fetchStatus(), fetchInbox(), fetchHealth()]).finally(() => {
       if (alive) setIsBooting(false)
     })
     const interval = window.setInterval(() => {
@@ -122,7 +115,50 @@ export default function WorkspaceShell() {
       alive = false
       window.clearInterval(interval)
     }
-  }, [fetchStatus, fetchInbox, triggerSync])
+  }, [fetchStatus, fetchInbox, fetchHealth, triggerSync])
+
+  // SSE Live Stream
+  React.useEffect(() => {
+    let es: EventSource | null = null
+    let alive = true
+
+    const connect = async () => {
+      try {
+        const { getLiveToken } = await import("@/lib/aaliyah/api")
+        const token = await getLiveToken()
+        if (!alive) return
+
+        es = new EventSource(`/aaliyah/live/stream?stream_token=${token}`)
+        es.onopen = () => setIsLiveOffline(false)
+        es.onerror = () => setIsLiveOffline(true)
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+
+            // Log everything interesting
+            const { addLog } = useSystemStore.getState()
+
+            if (data.type === "update" || data.type === "thread_updated" || data.type === "thread_moved") {
+              void fetchStatus()
+              void fetchInbox()
+            }
+
+            if (data.message) {
+              addLog(data.type, data.message)
+            }
+          } catch (e) { }
+        }
+      } catch (err) {
+        if (alive) setIsLiveOffline(true)
+      }
+    }
+
+    void connect()
+    return () => {
+      alive = false
+      es?.close()
+    }
+  }, [fetchStatus, fetchInbox, setIsLiveOffline])
 
   React.useEffect(() => {
     if (!isLeftPanelOpen) return
@@ -176,15 +212,15 @@ export default function WorkspaceShell() {
     [conversations]
   )
 
-  const setConversationState = React.useCallback((conversationId: string, next: ConversationSummary["status"]) => {
-    setConversations((prev) =>
-      prev.map((conversation) => (conversation.id === conversationId ? { ...conversation, status: next } : conversation))
-    )
-  }, [])
+  const setConversationState = React.useCallback((_conversationId: string, _next: ConversationSummary["status"]) => {
+    // In Sprint 1, we rely on the DB as truth. This should trigger a fetch or wait for background sync.
+    void fetchInbox()
+  }, [fetchInbox])
 
   return (
-    <div className="h-screen overflow-hidden bg-appBg text-textPrimary">
-      <div className="h-full flex">
+    <div className="h-screen overflow-hidden bg-appBg text-textPrimary flex flex-col">
+      <PreFlightPanel />
+      <div className="flex-1 overflow-hidden flex">
         <div className="hidden lg:block w-[300px] shrink-0">
           <LeftPanel
             presence={presence}

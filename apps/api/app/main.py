@@ -20,7 +20,9 @@ from app.agents.aaliyah.api import (
     knowledge_router,
 )
 from app.api.routes.inbox import router as inbox_router
+from app.routers.unified_inbox import router as unified_inbox_router
 from app.routers import oauth
+from app.routers import assist as assist_router
 
 
 setup_logging()
@@ -117,11 +119,7 @@ async def startup_event() -> None:
         Base.metadata.create_all(bind=engine)
 
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    # Need to import the module object to access stop_auto_sync_workers, currently in routes.py
-    from app.agents.aaliyah.api import stop_auto_sync_workers
-    await stop_auto_sync_workers()
+
     
 app.add_middleware(
     CORSMiddleware,
@@ -139,6 +137,8 @@ app.include_router(connectors_router)
 app.include_router(booking_router)
 app.include_router(knowledge_router, prefix="/aaliyah", tags=["knowledge"])
 app.include_router(inbox_router)
+app.include_router(unified_inbox_router)
+app.include_router(assist_router.router, prefix="/assist", tags=["assist"])
 
 
 @app.get("/")
@@ -156,44 +156,36 @@ async def health_check_providers(
     token_payload: dict = Depends(get_current_user),
 ):
     """
-    Check connectivity and token status for all integrations in the current user's workspace.
+    Check connectivity and token status for all integrations.
+    Returns detailed health states using the centralized health service.
     """
-    from app.models.integration import Integration, IntegrationProvider
-    from app.services.integrations.token_store import decrypt_token
-    import requests
+    from app.services.integrations.health_service import ConnectorHealthService
+    from app.models.membership import Membership
 
     user_id = token_payload.get("sub")
     membership = db.query(Membership).filter(Membership.user_id == user_id).first()
     if not membership:
         raise HTTPException(status_code=404, detail="Workspace not found")
         
-    integrations = db.query(Integration).filter(Integration.workspace_id == membership.workspace_id).all()
-    results = {}
+    service = ConnectorHealthService(db, membership.workspace_id)
+    detailed_health = service.get_detailed_health()
     
-    for integ in integrations:
-        status_info = "unknown"
-        try:
-            token_data = decrypt_token(integ.token_encrypted)
-            token = token_data.get("access_token")
-            
-            if integ.provider == IntegrationProvider.GOOGLE_GMAIL:
-                # Ping Google
-                res = requests.get(f"https://www.googleapis.com/oauth2/v1/tokeninfo?access_token={token}")
-                status_info = "active" if res.status_code == 200 else "expired_or_revoked"
-            elif integ.provider == IntegrationProvider.OUTLOOK:
-                # Ping Microsoft
-                # /me is a good check
-                res = requests.get("https://graph.microsoft.com/v1.0/me", headers={"Authorization": f"Bearer {token}"})
-                status_info = "active" if res.status_code == 200 else "expired_or_revoked"
-            else:
-                 status_info = "unsupported_check"
-                 
-        except Exception as e:
-            status_info = f"error: {str(e)}"
-            
-        results[integ.provider] = status_info
-        
-    return {"status": "ok", "providers": results}
+    # Map to the unified schema requested in Story A1
+    # We maintain backward compatibility with 'providers' key for now if needed,
+    # but the primary response model should match the requirement:
+    # { email: {...}, calendar: {...} }
+    
+    # Also adapt to the frontend expectation of { status: "ok", data: ... }
+    return {
+        "status": "ok",
+        "data": {
+            "email_accessible": detailed_health["email"]["connected"],
+            "calendar_accessible": detailed_health["calendar"]["connected"],
+            "providers": detailed_health["providers"], # Legacy detailed map if frontend uses it
+            "email_health": detailed_health["email"],   # New unified object
+            "calendar_health": detailed_health["calendar"] # New unified object
+        }
+    }
 
 
 @app.get("/version")

@@ -11,7 +11,7 @@ from app.services.brain.schemas.models import ModelType
 
 from .ingestion.email_ingestor import NormalizedEmailMessage
 
-VALID_CATEGORIES = {"Urgent", "Newsletter", "Meeting", "FYI"}
+VALID_CATEGORIES = {"Urgent", "Newsletter", "Meeting", "FYI", "Receipt", "Notification"}
 VALID_PRIORITIES = {"High", "Medium", "Low"}
 
 # ── Few-shot calibration examples ──────────────────────────────────────
@@ -70,7 +70,19 @@ class SmartTriageClassifier:
         self.brain = brain
 
     async def classify(self, message: NormalizedEmailMessage) -> TriageResult:
-        # Tier-1 fast model.
+        # Sprint 9: Deterministic Keywords First
+        heuristic = self._fallback_heuristic(message)
+        
+        # If it's a very clear meeting or urgent item based on heuristics, we can trust it.
+        # But per requirements: "deterministic keywords first, LLM confirm only if ambiguous"
+        # We'll consider it "ambiguous" if it's NOT a clear meeting according to heuristic, 
+        # or if we want extra validation.
+        
+        if heuristic.category == "Meeting" and heuristic.confidence >= 0.8:
+            # Clear meeting intent detected deterministically
+            return heuristic
+
+        # Tier-1 fast model for everything else or ambiguous cases.
         subject = message.metadata.subject or ""
         sender = message.metadata.sender or ""
         snippet = message.content or ""

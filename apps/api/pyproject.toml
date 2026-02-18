@@ -22,6 +22,8 @@ dependencies = [
     "redis==5.0.1",
     "google-api-python-client==2.163.0",
     "google-auth==2.38.0",
+    "pypdf==4.0.1",
+    "python-magic-bin==0.4.14",
 ]
 
 [tool.setuptools]

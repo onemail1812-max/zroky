@@ -40,11 +40,75 @@ export class InboxService {
     }
 
     async getInbox(filter: string = 'all', provider: string = 'all', limit: number = 20): Promise<InboxResponse> {
-        const res = await fetch(`${API_URL}/api/v1/inbox?filter=${filter}&provider=${provider}&limit=${limit}`, {
+        const params = new URLSearchParams({
+            limit: String(limit),
+            provider: provider === 'all' ? 'all' : provider,
+        });
+
+        if (filter && filter !== 'all') {
+            params.append('queue', filter);
+        }
+
+        const res = await fetch(`${API_URL}/api/v1/inbox/threads?${params.toString()}`, {
             headers: this.getHeaders(),
         });
-        if (!res.ok) throw new Error('Failed to fetch inbox');
-        return res.json();
+
+        if (!res.ok) {
+            const errorText = await res.text();
+            console.error('Fetch inbox failed:', res.status, errorText);
+            throw new Error(`Failed to fetch inbox: ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // Map backend response to frontend interface
+        const items = (data.items || []).map((item: any) => {
+            // Parse sender "Name <email>" or "email"
+            let name = item.sender;
+            let email = item.sender;
+
+            const senderMatch = item.sender.match(/^(.*?) <(.*?)>$/);
+            if (senderMatch) {
+                name = senderMatch[1].replace(/^"|"$/g, '');
+                email = senderMatch[2];
+            } else if (item.sender.includes('@')) {
+                name = item.sender.split('@')[0];
+            }
+
+            // Map priority to labels
+            const labels = [];
+            if (item.priority === 'high' || item.priority === 'urgent') labels.push('priority');
+            if (item.category) labels.push(item.category);
+
+            return {
+                id: item.id,
+                provider: item.provider,
+                subject: item.subject,
+                sender: { name, email },
+                snippet: item.snippet,
+                bodyCleaned: item.draft_preview || item.snippet,
+                receivedAt: item.received_at || new Date().toISOString(),
+                isRead: item.is_read,
+                isPrimaryAccount: true, // simplified assumption
+                labels: labels,
+                draft: item.draft ? {
+                    id: 'draft-' + item.id,
+                    subject: item.draft.subject || item.subject,
+                    body: item.draft.body || '',
+                    status: 'ready', // valid assumption if draft exists
+                    reasoning: item.reasoning
+                } : undefined
+            };
+        });
+
+        return {
+            data: items,
+            meta: {
+                total: data.count || 0,
+                skip: 0,
+                limit: limit
+            }
+        };
     }
 
     async syncInbox(): Promise<void> {

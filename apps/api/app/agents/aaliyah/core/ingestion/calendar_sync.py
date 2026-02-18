@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.models.calendar_event_snapshot import CalendarConflict, CalendarEventSnapshot
+from app.models.search_index import CalendarIndex
 from app.models.integration import IntegrationProvider
 from app.services.integrations.google_calendar import GoogleCalendarService
 from app.services.integrations.integration_token_manager import IntegrationTokenManager
@@ -144,6 +145,22 @@ class CalendarSync:
                 continue
         return normalized
 
+    async def fetch_event(self, event_id: str, provider: str) -> Optional[Dict[str, Any]]:
+        """Fetch a specific event from provider."""
+        resolved = provider.lower()
+        try:
+            if resolved == "google":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_CALENDAR)
+                if not token: return None
+                return GoogleCalendarService(token).get_event(event_id)
+            elif resolved == "microsoft":
+                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+                if not token: return None
+                return MicrosoftCalendarService(token["access_token"]).get_event(event_id)
+        except Exception as e:
+            logger.error(f"Failed to fetch event {event_id}: {e}")
+        return None
+
     def detect_conflicts(self, events: List[NormalizedCalendarEvent], buffer_minutes: int = 15) -> List[ConflictResult]:
         if not events:
             return []
@@ -213,6 +230,45 @@ class CalendarSync:
                 row.is_all_day = event.is_all_day
                 row.is_cancelled = event.is_cancelled
                 row.metadata_json = event.raw
+            
+            # Update CalendarIndex
+            idx = (
+                self.db.query(CalendarIndex)
+                .filter(
+                    CalendarIndex.workspace_id == self.workspace_id,
+                    CalendarIndex.event_id == event.id,
+                    CalendarIndex.provider == event.provider,
+                )
+                .first()
+            )
+            
+            search_text = (
+                f"{event.title or ''} {event.organizer or ''} {event.raw.get('location', '')} "
+                f"{event.raw.get('description', '')}"
+            ).lower()[:10000]
+            
+            if not idx:
+                idx = CalendarIndex(
+                    id=str(uuid.uuid4()),
+                    workspace_id=self.workspace_id,
+                    event_id=event.id,
+                    provider=event.provider,
+                    title=event.title,
+                    start_at=event.start_at,
+                    end_at=event.end_at,
+                    location=str(event.raw.get('location') or ""),
+                    description_snippet=(str(event.raw.get('description') or ""))[:500],
+                    searchable_text=search_text,
+                )
+                self.db.add(idx)
+            else:
+                idx.title = event.title
+                idx.start_at = event.start_at
+                idx.end_at = event.end_at
+                idx.location = str(event.raw.get('location') or "")
+                idx.description_snippet = (str(event.raw.get('description') or ""))[:500]
+                idx.searchable_text = search_text
+
         self.db.commit()
 
     def replace_conflicts(self, conflicts: List[ConflictResult]) -> None:

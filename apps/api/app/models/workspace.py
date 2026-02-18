@@ -19,6 +19,8 @@ class Workspace(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     settings_json = Column(SafeJSON(), nullable=True)
+    style_profile_json = Column(SafeJSON(), nullable=True)
+    onboarding_status = Column(String, default="pending", nullable=False)
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, name={self.name})>"

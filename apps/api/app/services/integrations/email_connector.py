@@ -20,7 +20,15 @@ class EmailConnector(Protocol):
     async def move_to_inbox(self, message_id: str) -> Any: ...
     async def archive_message(self, message_id: str) -> Any: ...
     async def delete_draft(self, draft_id: str) -> Any: ...
-    async def send_message(self, recipient: str, subject: str, body: str) -> Dict[str, Any]: ...
+    async def send_message(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        thread_id: Optional[str] = None,
+        reply_to_id: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
+    async def get_attachment(self, message_id: str, attachment_id: str) -> Dict[str, Any]: ...
 
 
 class GmailConnector:
@@ -45,8 +53,11 @@ class GmailConnector:
     async def delete_draft(self, draft_id: str) -> Any:
         return self.service.delete_draft(draft_id)
 
-    async def send_message(self, recipient: str, subject: str, body: str) -> Dict[str, Any]:
-        return self.service.send_message(recipient, subject, body)
+    async def send_message(self, recipient: str, subject: str, body: str, thread_id: Optional[str] = None, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.service.send_message(recipient, subject, body, thread_id=thread_id, reply_to_id=reply_to_id)
+
+    async def get_attachment(self, message_id: str, attachment_id: str) -> Dict[str, Any]:
+        return self.service.get_attachment(message_id, attachment_id)
 
 
 class OutlookConnector:
@@ -71,8 +82,17 @@ class OutlookConnector:
     async def delete_draft(self, draft_id: str) -> Any:
         return self.service.delete_draft(draft_id)
 
-    async def send_message(self, recipient: str, subject: str, body: str) -> Dict[str, Any]:
-        return self.service.send_message(recipient, subject, body)
+    async def send_message(self, recipient: str, subject: str, body: str, thread_id: Optional[str] = None, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
+        return self.service.send_message(recipient, subject, body, thread_id=thread_id, reply_to_id=reply_to_id)
+
+    async def get_attachment(self, message_id: str, attachment_id: str) -> Dict[str, Any]:
+        # For Outlook, attachment_id is enough to get it via Graph, but we follow the interface.
+        # Actually in Graph it's per message.
+        atts = self.service.get_attachments(message_id)
+        for a in atts:
+            if a.get("id") == attachment_id:
+                return a
+        return {}
 
 
 class EmailConnectorFactory:

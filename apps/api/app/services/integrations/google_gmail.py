@@ -47,6 +47,24 @@ class GmailService:
                 raise e
         return request.execute()
 
+    def get_profile(self) -> Dict[str, Any]:
+        """Get user profile, including current historyId."""
+        return self._retry_execute(self.service.users().getProfile(userId="me"))
+
+    def list_history(self, start_history_id: str, max_results: int = 50) -> Dict[str, Any]:
+        """List history record from a given historyId."""
+        try:
+            return self._retry_execute(self.service.users().history().list(
+                userId='me',
+                startHistoryId=start_history_id,
+                maxResults=max_results
+            ))
+        except HttpError as e:
+            if e.resp.status == 404: # History expired
+                logger.warning(f"Gmail History {start_history_id} expired.")
+                return {"expired": True}
+            raise e
+
     def _label_map(self) -> Dict[str, str]:
         labels = self._retry_execute(self.service.users().labels().list(userId="me")).get("labels") or []
         out: Dict[str, str] = {}
@@ -99,12 +117,7 @@ class GmailService:
             
             for msg in messages:
                 # Fetch full details
-                txt = self._retry_execute(self.service.users().messages().get(
-                    userId='me', 
-                    id=msg['id'], 
-                    format='metadata',
-                    metadataHeaders=['From', 'Subject', 'Date']
-                ))
+                txt = self.get_message(msg['id'], format='full')
 
                 headers = {
                     (h.get("name") or "").lower(): (h.get("value") or "")
@@ -125,17 +138,71 @@ class GmailService:
                     {
                         "id": txt.get("id"),
                         "thread_id": txt.get("threadId"),
+                        "history_id": txt.get("historyId"),
                         "sender": headers.get("from") or None,
                         "subject": headers.get("subject") or None,
                         "snippet": txt.get("snippet") or "",
                         "received_at": received_at_iso,
                         "is_read": is_read,
+                        "payload": txt.get("payload"),
+                        "headers": headers,
                     }
                 )
                 
             return full_messages
         except Exception as e:
             logger.error("Gmail API Error: %s", redact_text(str(e)))
+            return []
+
+    def search_messages(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Search messages using Gmail query syntax."""
+        try:
+            results = self._retry_execute(self.service.users().messages().list(
+                userId='me', 
+                q=query, 
+                maxResults=max_results
+            ))
+            
+            messages = results.get('messages', [])
+            full_messages = []
+            
+            for msg in messages:
+                # Fetch full details
+                txt = self.get_message(msg['id'], format='full')
+
+                headers = {
+                    (h.get("name") or "").lower(): (h.get("value") or "")
+                    for h in (txt.get("payload", {}) or {}).get("headers", []) or []
+                    if isinstance(h, dict)
+                }
+
+                received_at = headers.get("date") or ""
+                try:
+                    received_at_iso = parsedate_to_datetime(received_at).isoformat() if received_at else None
+                except Exception:
+                    received_at_iso = None
+
+                label_ids = txt.get("labelIds") or []
+                is_read = "UNREAD" not in label_ids
+
+                full_messages.append(
+                    {
+                        "id": txt.get("id"),
+                        "thread_id": txt.get("threadId"),
+                        "history_id": txt.get("historyId"),
+                        "sender": headers.get("from") or None,
+                        "subject": headers.get("subject") or None,
+                        "snippet": txt.get("snippet") or "",
+                        "received_at": received_at_iso,
+                        "is_read": is_read,
+                        "payload": txt.get("payload"),
+                        "headers": headers,
+                    }
+                )
+                
+            return full_messages
+        except Exception as e:
+            logger.error("Gmail Search Error: %s", redact_text(str(e)))
             return []
 
     def list_sent_messages(self, max_results: int = 5) -> List[Dict[str, Any]]:
@@ -184,13 +251,16 @@ class GmailService:
             logger.error("Gmail API Error (Sent): %s", redact_text(str(e)))
             return []
 
-    def get_message(self, message_id: str) -> Dict[str, Any]:
-        txt = self._retry_execute(self.service.users().messages().get(
-            userId="me",
-            id=message_id,
-            format="metadata",
-            metadataHeaders=["From", "Subject", "Date"],
-        ))
+    def get_message(self, message_id: str, format: str = "metadata") -> Dict[str, Any]:
+        params = {
+            "userId": "me",
+            "id": message_id,
+            "format": format
+        }
+        if format == "metadata":
+            params["metadataHeaders"] = ["From", "Subject", "Date", "List-Unsubscribe", "Precedence", "Auto-Submitted"]
+            
+        txt = self._retry_execute(self.service.users().messages().get(**params))
         headers = {
             (h.get("name") or "").lower(): (h.get("value") or "")
             for h in (txt.get("payload", {}) or {}).get("headers", []) or []
@@ -199,11 +269,67 @@ class GmailService:
         return {
             "id": txt.get("id"),
             "thread_id": txt.get("threadId"),
+            "history_id": txt.get("historyId"),
             "sender": headers.get("from") or None,
             "subject": headers.get("subject") or None,
             "snippet": txt.get("snippet") or "",
             "labelIds": txt.get("labelIds") or [],
+            "payload": txt.get("payload"),
+            "historyId": txt.get("historyId"),
+            "headers": headers,
         }
+
+    def get_thread(self, thread_id: str) -> Dict[str, Any]:
+        """Fetch all messages in a thread."""
+        thread = self._retry_execute(self.service.users().threads().get(userId='me', id=thread_id))
+        messages = thread.get("messages", [])
+        
+        # We don't need full bodies for all for simple thread view, but schema says messages[] (minimal text)
+        result = {
+            "id": thread.get("id"),
+            "historyId": thread.get("historyId"),
+            "messages": []
+        }
+        
+        for m in messages:
+            headers = {
+                (h.get("name") or "").lower(): (h.get("value") or "")
+                for h in (m.get("payload", {}) or {}).get("headers", []) or []
+            }
+            # Extract body if available
+            body = m.get("snippet")
+            payload = m.get("payload", {})
+            
+            def _get_text(parts):
+                for p in parts:
+                    if p.get("mimeType") == "text/plain":
+                         data = p.get("body", {}).get("data")
+                         if data:
+                             import base64
+                             return base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+                    if "parts" in p:
+                        res = _get_text(p["parts"])
+                        if res: return res
+                return None
+            
+            full_body = _get_text(payload.get("parts", []))
+            if not full_body and payload.get("body", {}).get("data"):
+                 import base64
+                 full_body = base64.urlsafe_b64decode(payload["body"]["data"]).decode('utf-8', errors='replace')
+            
+            if full_body:
+                body = full_body
+
+            result["messages"].append({
+                "id": m.get("id"),
+                "sender": headers.get("from"),
+                "subject": headers.get("subject"),
+                "snippet": m.get("snippet"),
+                "received_at": headers.get("date"),
+                "body": body
+            })
+            
+        return result
 
     def apply_label(self, message_id: str, label_name: str) -> Dict[str, Any]:
         label_id = self._ensure_user_label(label_name)
@@ -279,17 +405,27 @@ class GmailService:
             logger.error("Gmail Draft Error: %s", redact_text(str(e)))
             raise e
 
-    def send_message(self, recipient: str, subject: str, body: str) -> Dict[str, Any]:
-        """Send an email immediately."""
+    def send_message(self, recipient: str, subject: str, body: str, thread_id: Optional[str] = None, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
+        """Send an email immediately with proper threading headers."""
         message = MIMEText(body)
         message["to"] = recipient
         message["subject"] = subject
+        
+        if reply_to_id:
+            # Proper threading headers
+            message["In-Reply-To"] = reply_to_id
+            message["References"] = reply_to_id
+
         raw_string = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        
+        body_payload: Dict[str, Any] = {"raw": raw_string}
+        if thread_id:
+            body_payload["threadId"] = thread_id
 
         try:
             sent = self._retry_execute(self.service.users().messages().send(
                 userId="me",
-                body={"raw": raw_string},
+                body=body_payload,
             ))
             return {
                 "id": sent.get("id"),
@@ -298,4 +434,14 @@ class GmailService:
             }
         except Exception as e:
             logger.error("Gmail Send Error: %s", redact_text(str(e)))
+            raise e
+
+    def get_attachment(self, message_id: str, attachment_id: str) -> Dict[str, Any]:
+        """Fetch attachment data."""
+        try:
+            return self._retry_execute(self.service.users().messages().attachments().get(
+                userId='me', messageId=message_id, id=attachment_id
+            ))
+        except Exception as e:
+            logger.error("Gmail attachment error: %s", redact_text(str(e)))
             raise e

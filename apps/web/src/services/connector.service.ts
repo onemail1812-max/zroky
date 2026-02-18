@@ -35,6 +35,27 @@ export interface OAuthConfig {
     redirectUri?: string;
 }
 
+export interface HealthServiceStatus {
+    connected: boolean;
+    provider: string | null;
+    status: 'OK' | 'NOT_CONNECTED' | 'EXPIRED' | 'REVOKED' | 'SCOPE_MISSING' | 'ERROR';
+    last_sync_at: string | null;
+    error_code: string;
+}
+
+export interface ConnectionHealthData {
+    email_accessible: boolean;
+    calendar_accessible: boolean;
+    providers?: Record<string, any>;
+    email_health: HealthServiceStatus;
+    calendar_health: HealthServiceStatus;
+}
+
+export interface ConnectionHealthResponse {
+    status: string;
+    data: ConnectionHealthData;
+}
+
 class ConnectorService {
     private baseUrl: string;
 
@@ -261,6 +282,24 @@ class ConnectorService {
             if (serviceType === 'calendar') return account.hasCalendarAccess;
             return account.hasEmailAccess && account.hasCalendarAccess;
         });
+    }
+
+    /**
+     * Get detailed health status for all connections
+     */
+    async getHealth(): Promise<ConnectionHealthResponse | null> {
+        try {
+            const response = await fetch(`${this.baseUrl}/health/providers`, {
+                headers: this.getAuthHeaders(),
+                cache: 'no-store'
+            });
+
+            if (!response.ok) return null;
+            return await response.json();
+        } catch (error) {
+            console.error('Failed to get health status:', error);
+            return null;
+        }
     }
 
     private getTenantId(): string {

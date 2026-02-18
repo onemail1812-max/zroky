@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    
+    # Auth
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ------------------
     # LLM Services (OpenRouter)
@@ -53,6 +57,9 @@ class Settings(BaseSettings):
     # Models
     AALIYAH_DRAFT_MODEL: str = "google/gemini-2.5-flash-lite"
     AALIYAH_VERIFY_MODEL: str = "deepseek/deepseek-r1"
+    BRAIN_MODEL: str = "google/gemini-2.5-flash-lite"
+    BRAIN_API_KEY: Optional[str] = None
+    OPENROUTER_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
 
     # ------------------
     # Integrations (OAuth)
@@ -70,6 +77,11 @@ class Settings(BaseSettings):
 
     # Sync Loop
     SYNC_INTERVAL: int = 120
+
+    # ------------------
+    # Queue
+    # ------------------
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     # ------------------
     # Validations & Defaults
@@ -121,6 +133,8 @@ class Settings(BaseSettings):
     @property
     def database_url(self): return self.DATABASE_URL
     @property
+    def redis_url(self): return self.REDIS_URL
+    @property
     def app_name(self): return self.APP_NAME
     @property
     def app_version(self): return self.APP_VERSION
@@ -130,6 +144,10 @@ class Settings(BaseSettings):
     def secret_key(self): return self.SECRET_KEY
     @property
     def algorithm(self): return "HS256"
+    @property
+    def access_token_expire_minutes(self): return self.ACCESS_TOKEN_EXPIRE_MINUTES
+    @property
+    def refresh_token_expire_days(self): return self.REFRESH_TOKEN_EXPIRE_DAYS
     @property
     def cors_origins(self): return self.CORS_ORIGINS
     @property
@@ -163,9 +181,16 @@ class Settings(BaseSettings):
     @property
     def oauth_encryption_key(self): return self.OAUTH_ENCRYPTION_KEY
     @property
-    def clerk_enabled(self): return False
-    @property
     def clerk_jwks_url(self): return None
+
+    @property
+    def brain_model(self): return self.BRAIN_MODEL
+    
+    @property
+    def brain_api_key(self): return self.BRAIN_API_KEY
+
+    @property
+    def openrouter_embedding_model(self): return self.OPENROUTER_EMBEDDING_MODEL
 
 # Instantiate global settings
 settings = Settings()

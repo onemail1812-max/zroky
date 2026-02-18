@@ -1,0 +1,84 @@
+
+import { HealthServiceStatus } from "@/services/connector.service";
+
+export interface ConnectionMessage {
+    title: string;
+    description: string;
+    badge: "success" | "warning" | "error" | "neutral";
+    ctaLabel?: string;
+    ctaAction?: string; // Identifier for the action to take
+}
+
+export function getConnectionMessage(service: HealthServiceStatus, serviceName: "Email" | "Calendar"): ConnectionMessage {
+    if (!service) {
+        return {
+            title: "Unknown Status",
+            description: "Unable to determine connection health.",
+            badge: "neutral"
+        };
+    }
+
+    const { status, error_code, connected } = service;
+
+    // 1. HAPPY PATH
+    if (status === "OK" || (connected && error_code === "HEALTHY")) {
+        return {
+            title: "Morning Check Complete",
+            description: "Connected. Syncing inbox and today's schedule now.",
+            badge: "success",
+        };
+    }
+
+    // 2. DISCONNECTED
+    if (status === "NOT_CONNECTED" || error_code === "NO_TOKEN") {
+        return {
+            title: "Morning Check",
+            description: "Email/Calendar aren't connected yet. Authorize to start syncing and drafting.",
+            badge: "neutral",
+            ctaLabel: `Authorize ${serviceName}`,
+            ctaAction: "connect"
+        };
+    }
+
+    // 3. EXPIRED / REVOKED
+    if (status === "EXPIRED" || status === "REVOKED" || error_code === "REFRESH_FAILED") {
+        return {
+            title: "Connection Lost",
+            description: "Your access expired or was revoked. Re-authorize to continue.",
+            badge: "error",
+            ctaLabel: `Re-authorize`,
+            ctaAction: "reconnect"
+        };
+    }
+
+    // 4. SCOPE MISSING
+    if (status === "SCOPE_MISSING" || error_code === "MISSING_REQUIRED_SCOPES") {
+        return {
+            title: "Permissions Update Needed",
+            description: "I'm missing required permissions to draft/schedule. Update access to continue.",
+            badge: "warning",
+            ctaLabel: "Update Permissions",
+            ctaAction: "update_scopes"
+        };
+    }
+
+    // 5. RETRYABLE ERRORS (RATE LIMIT, NETWORK)
+    if (status === "ERROR" && (error_code === "RATE_LIMIT_EXCEEDED" || error_code === "NETWORK_TIMEOUT")) {
+        return {
+            title: "Temporary Issue",
+            description: error_code === "RATE_LIMIT_EXCEEDED" ? "Provider rate limit reached. Auto-retrying..." : "Network timeout. Auto-retrying...",
+            badge: "warning",
+            ctaLabel: "Retry Now",
+            ctaAction: "retry"
+        };
+    }
+
+    // 6. GENERIC ERROR
+    return {
+        title: "Connection Error",
+        description: `API Error: ${error_code || "Unknown"}.`,
+        badge: "error",
+        ctaLabel: "Retry",
+        ctaAction: "retry"
+    };
+}

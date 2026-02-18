@@ -23,19 +23,26 @@ from app.models.call_script import CallScript
 from app.models.aaliyah_settings_v2 import AaliyahSettingsV2
 from app.models.memory_entry import MemoryEntry
 from app.models.triaged_email import TriagedEmail
+from app.models.triaged_thread import TriagedThread
 from app.models.calendar_event_snapshot import CalendarEventSnapshot, CalendarConflict
 from app.models.labeling_preference import LabelingPreference
 from app.models.knowledge_graph import KnowledgeEntity, KnowledgeRelationship
 from app.models.draft_template import DraftTemplate
 from app.models.booking_link import BookingLink
+from app.models.draft import Draft, DraftStatus
+from app.models.email import EmailMessage
 
 
 from app.models.meeting_transcript import MeetingTranscript
+from app.models.search_index import EmailIndex, CalendarIndex
 
 __all__ = [
     "User",
     "Workspace",
     "DraftTemplate",
+    "Draft",
+    "DraftStatus",
+    "EmailMessage",
     "Employee",
     "Task",
     "AuditLog",
@@ -72,10 +79,13 @@ __all__ = [
     "AaliyahSettingsV2",
     "MemoryEntry",
     "TriagedEmail",
+"TriagedThread",
     "CalendarEventSnapshot",
     "CalendarConflict",
     "LabelingPreference",
     "KnowledgeEntity",
     "KnowledgeRelationship",
     "MeetingTranscript",
+    "EmailIndex",
+    "CalendarIndex",
 ]

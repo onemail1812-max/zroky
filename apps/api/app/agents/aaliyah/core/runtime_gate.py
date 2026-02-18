@@ -178,3 +178,40 @@ def gate_email(
         policy=policy,
     )
 
+def final_action_gate(
+    *,
+    action: str,
+    email_row: Any, # TriagedEmail row
+    draft: dict,
+    settings: dict,
+    is_explicit_approval: bool = False
+) -> bool:
+    """
+    Locked Send Gate: Must be called by all send endpoints.
+    Enforces that no email can be sent without approval if risks or missing info exist.
+    """
+    # 1. Thread/Provider safety check
+    if email_row.provider != draft.get("provider", email_row.provider):
+        raise ValueError("Thread/Provider mismatch detected in Final Action Gate.")
+
+    # 2. Block if missing info present
+    if draft.get("missing_info"):
+        return False
+
+    # 3. Block if risk labels present and approval not recorded
+    risk_labels = draft.get("risk_labels", [])
+    if risk_labels and not is_explicit_approval:
+        return False
+
+    # 4. Mandatory approval if email was flagged as requiring it
+    if email_row.requires_approval and not is_explicit_approval:
+        return False
+
+    # 5. Fallback: if not explicit approval, check if global auto-send is enabled
+    # Even then, we only allow it for low-risk items (checked above).
+    if not is_explicit_approval:
+        auto_send_enabled = settings.get("aaliyah", {}).get("auto_send_enabled", False)
+        if not auto_send_enabled:
+            return False
+
+    return True

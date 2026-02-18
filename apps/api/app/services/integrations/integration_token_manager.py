@@ -55,6 +55,42 @@ class IntegrationTokenManager:
 
         return token
 
+    def get_integration(self, workspace_id: str, provider: IntegrationProvider) -> Optional[Integration]:
+        return (
+            self.db.query(Integration)
+            .filter(
+                Integration.workspace_id == workspace_id,
+                Integration.provider == provider,
+                Integration.status == IntegrationStatus.CONNECTED,
+            )
+            .first()
+        )
+
+    def get_config(self, workspace_id: str, provider: IntegrationProvider) -> Dict[str, Any]:
+        integration = self.get_integration(workspace_id, provider)
+        if not integration or not integration.config_json:
+            return {}
+        try:
+            return json.loads(integration.config_json)
+        except Exception:
+            return {}
+
+    def update_config(self, workspace_id: str, provider: IntegrationProvider, updates: Dict[str, Any]):
+        integration = self.get_integration(workspace_id, provider)
+        if not integration:
+            return
+        
+        current = {}
+        if integration.config_json:
+            try:
+                current = json.loads(integration.config_json)
+            except Exception:
+                current = {}
+        
+        current.update(updates)
+        integration.config_json = json.dumps(current)
+        self.db.commit()
+
     def refresh_integration_token(self, integration: Integration) -> Optional[Dict[str, Any]]:
         """Force refresh of the integration token."""
         token = try_decrypt(integration.token_encrypted)

@@ -1,12 +1,15 @@
-"""Logging configuration with sensitive-data redaction."""
+"""Logging configuration with sensitive-data redaction and JSON output for observability."""
 
 from __future__ import annotations
 
 import logging
+import json
+import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import re
 import sys
+from datetime import datetime, timezone
 
 from app.config import settings
 
@@ -22,6 +25,8 @@ _EMAIL_RE = re.compile(r"([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 
 
 def _redact(value: str) -> str:
+    if not isinstance(value, str):
+        return value
     text = value
     for idx, pattern in enumerate(_TOKEN_PATTERNS):
         if idx == 0:
@@ -34,53 +39,66 @@ def _redact(value: str) -> str:
     return text
 
 
+class JSONFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_obj = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": _redact(record.getMessage()),
+            "module": record.module,
+            "func": record.funcName,
+            "line": record.lineno,
+        }
+        
+        if record.exc_info:
+            log_obj["exception"] = _redact(self.formatException(record.exc_info))
+            
+        # Merge extra fields
+        if hasattr(record, "props"):
+            log_obj.update(record.props)
+
+        return json.dumps(log_obj)
+
+
 class SensitiveDataFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            message = record.getMessage()
-            record.msg = _redact(message)
-            record.args = ()
-        except Exception:
-            pass
+        # We handle redaction in the formatter for the message
         return True
 
 
-def setup_logging() -> None:
-    """Configure application logging with token-safe formatting."""
+def setup_logging(log_file: str = "app.json.log") -> None:
+    """Configure application logging with JSON formatting and redaction."""
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
 
     root_logger = logging.getLogger()
+    # Set to INFO by default, DEBUG if configured
     root_logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
 
-    # Avoid duplicate handlers on app reload.
+    # Remove existing handlers
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    redaction_filter = SensitiveDataFilter()
+    formatter = JSONFormatter()
 
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG if settings.debug else logging.INFO)
     console_handler.setFormatter(formatter)
-    console_handler.addFilter(redaction_filter)
     root_logger.addHandler(console_handler)
 
     file_handler = RotatingFileHandler(
-        logs_dir / "app.log",
+        logs_dir / log_file,
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
-    file_handler.addFilter(redaction_filter)
     root_logger.addHandler(file_handler)
 
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -28,75 +28,17 @@ function NavItem({ id, label, count, active, onClick, icon: Icon }: any) {
     )
 }
 
-function DashboardOverview({ counts, onNavigate }: any) {
-    return (
-        <div className="p-12 flex flex-col h-full bg-zinc-50/20 overflow-y-auto">
-            <div className="max-w-4xl mx-auto w-full py-12">
-                <div className="mb-12">
-                    <h1 className="text-4xl font-bold text-black tracking-tight mb-2">Good Morning, Chief.</h1>
-                    <p className="text-sm font-medium text-zinc-400 uppercase tracking-[0.2em]">Wednesday, February 18, 2026</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-                    <button onClick={() => onNavigate('priority')} className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-[0_4px_24px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.06)] hover:border-black/5 transition-all text-left flex flex-col justify-between group h-48">
-                        <div className="h-10 w-10 bg-red-50 rounded-2xl flex items-center justify-center group-hover:bg-red-500 transition-colors">
-                            <AlertOctagon className="h-5 w-5 text-red-500 group-hover:text-white transition-colors" />
-                        </div>
-                        <div>
-                            <span className="text-4xl font-bold text-black block mb-1">{counts.priority || 0}</span>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest group-hover:text-black transition-colors">Urgent / Priority</span>
-                        </div>
-                    </button>
-
-                    <button onClick={() => onNavigate('approvals')} className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-[0_4px_24px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_32px_rgba(0,0,0,0.06)] hover:border-black/5 transition-all text-left flex flex-col justify-between group h-48">
-                        <div className="h-10 w-10 bg-amber-50 rounded-2xl flex items-center justify-center group-hover:bg-amber-500 transition-colors">
-                            <CheckCircle2 className="h-5 w-5 text-amber-500 group-hover:text-white transition-colors" />
-                        </div>
-                        <div>
-                            <span className="text-4xl font-bold text-black block mb-1">{counts.approvals || 0}</span>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest group-hover:text-black transition-colors">Pending Approval</span>
-                        </div>
-                    </button>
-
-                    <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-[0_4px_24px_rgba(0,0,0,0.02)] flex flex-col justify-between h-48 border-dashed border-zinc-200">
-                        <div className="h-10 w-10 bg-zinc-50 rounded-2xl flex items-center justify-center">
-                            <Calendar className="h-5 w-5 text-zinc-400" />
-                        </div>
-                        <div>
-                            <span className="text-xs font-bold text-black block mb-1">Product Sync</span>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Next Meeting • 11:30 AM</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                    <h3 className="text-[10px] font-bold text-zinc-300 uppercase tracking-[0.3em] mb-2 px-1">Action Items</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <button onClick={() => onNavigate('priority')} className="bg-black text-white p-6 rounded-2xl flex items-center justify-between hover:bg-zinc-800 transition-all group">
-                            <span className="text-xs font-bold uppercase tracking-widest">Review Priority</span>
-                            <AlertOctagon className="h-4 w-4 text-white/50 group-hover:text-white transition-colors" />
-                        </button>
-                        <button onClick={() => onNavigate('approvals')} className="bg-white text-black border border-zinc-100 p-6 rounded-2xl flex items-center justify-between hover:bg-zinc-50 transition-all group shadow-sm">
-                            <span className="text-xs font-bold uppercase tracking-widest">Review Approvals</span>
-                            <CheckCircle2 className="h-4 w-4 text-zinc-300 group-hover:text-black transition-colors" />
-                        </button>
-                        <button onClick={() => onNavigate('follow_ups')} className="bg-white text-black border border-zinc-100 p-6 rounded-2xl flex items-center justify-between hover:bg-zinc-50 transition-all group shadow-sm">
-                            <span className="text-xs font-bold uppercase tracking-widest">Review Follow-ups</span>
-                            <Clock className="h-4 w-4 text-zinc-300 group-hover:text-black transition-colors" />
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
+// DashboardOverview component removed as it is no longer used in the layout.
 
 export default function InboxPage() {
     const [selectedEmail, setSelectedEmail] = React.useState<EmailMessage | null>(null)
     const [refreshTrigger, setRefreshTrigger] = React.useState(0)
-    const [activeTab, setActiveTab] = React.useState("today")
+    const [activeTab, setActiveTab] = React.useState<string | null>(null)
     const [counts, setCounts] = React.useState<Record<string, number>>({})
     const [providerStatus, setProviderStatus] = React.useState<Record<string, string>>({})
+
+    const middlePanelRef = React.useRef<HTMLDivElement>(null)
+    const leftPanelRef = React.useRef<HTMLDivElement>(null)
 
     // Initial Load & Polling
     React.useEffect(() => {
@@ -109,16 +51,40 @@ export default function InboxPage() {
         return () => clearInterval(interval)
     }, [refreshTrigger])
 
+    // Click Outside Handler
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (activeTab &&
+                middlePanelRef.current &&
+                !middlePanelRef.current.contains(event.target as Node) &&
+                leftPanelRef.current &&
+                !leftPanelRef.current.contains(event.target as Node)) {
+                setActiveTab(null);
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [activeTab]);
+
     const handleRefresh = async () => {
         setRefreshTrigger(p => p + 1)
         await inboxService.syncInbox().catch(console.error)
         setRefreshTrigger(p => p + 1)
     }
 
+    const toggleTab = (id: string) => {
+        setActiveTab(prev => prev === id ? null : id);
+    }
+
     const hasError = Object.values(providerStatus).some(s => s !== 'active' && s !== 'ok')
 
     const handleListLoad = (first: EmailMessage | null) => {
-        if (!selectedEmail && first && activeTab !== 'today') {
+        // Only auto-select if we don't have one and just opened a tab? 
+        // User request: "Scrollable list; first item auto-selected"
+        if (!selectedEmail && first) {
             setSelectedEmail(first)
         }
     }
@@ -128,7 +94,7 @@ export default function InboxPage() {
             <GlobalRail />
 
             {/* A) Left Panel: Navigation & Live Numbers */}
-            <div className="w-[240px] border-r border-zinc-100 flex flex-col bg-zinc-50/30 shrink-0">
+            <div ref={leftPanelRef} className="w-[240px] border-r border-zinc-100 flex flex-col bg-zinc-50/30 shrink-0 z-20 relative">
                 <div className="p-4 flex items-center justify-between">
                     <h1 className="text-lg font-bold tracking-tight">Inbox</h1>
                     <button onClick={handleRefresh} className="p-2 hover:bg-zinc-100 rounded-full transition-colors">
@@ -146,24 +112,29 @@ export default function InboxPage() {
                 )}
 
                 <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
-                    <NavItem id="today" label="Today" count={0} active={activeTab} onClick={setActiveTab} icon={Calendar} />
-
-                    <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Focus</div>
-                    <NavItem id="priority" label="Priority" count={counts.priority || 0} active={activeTab} onClick={setActiveTab} icon={AlertOctagon} />
-                    <NavItem id="needs_reply" label="Needs Reply" count={counts.needs_reply || 0} active={activeTab} onClick={setActiveTab} icon={MessageSquare} />
-                    <NavItem id="approvals" label="Approvals" count={counts.approvals || 0} active={activeTab} onClick={setActiveTab} icon={CheckCircle2} />
-                    <NavItem id="follow_ups" label="Follow-ups" count={counts.follow_ups || 0} active={activeTab} onClick={setActiveTab} icon={Clock} />
+                    <div className="pt-2 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Focus</div>
+                    <NavItem id="priority" label="Priority" count={counts.priority || 0} active={activeTab} onClick={toggleTab} icon={AlertOctagon} />
+                    <NavItem id="needs_reply" label="Needs Reply" count={counts.needs_reply || 0} active={activeTab} onClick={toggleTab} icon={MessageSquare} />
+                    <NavItem id="approvals" label="Approvals" count={counts.approvals || 0} active={activeTab} onClick={toggleTab} icon={CheckCircle2} />
+                    <NavItem id="follow_ups" label="Follow-ups" count={counts.follow_ups || 0} active={activeTab} onClick={toggleTab} icon={Clock} />
 
                     <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Everything Else</div>
-                    <NavItem id="fyi" label="FYI" count={counts.fyi || 0} active={activeTab} onClick={setActiveTab} icon={Info} />
-                    <NavItem id="cleaned" label="Cleaned" count={counts.cleaned || 0} active={activeTab} onClick={setActiveTab} icon={Sparkles} />
-                    <NavItem id="drafts" label="Drafts" count={counts.drafts || 0} active={activeTab} onClick={setActiveTab} icon={FileText} />
+                    <NavItem id="fyi" label="FYI" count={counts.fyi || 0} active={activeTab} onClick={toggleTab} icon={Info} />
+                    <NavItem id="cleaned" label="Cleaned" count={counts.cleaned || 0} active={activeTab} onClick={toggleTab} icon={Sparkles} />
+                    <NavItem id="drafts" label="Drafts" count={counts.drafts || 0} active={activeTab} onClick={toggleTab} icon={FileText} />
                 </nav>
             </div>
 
-            {/* B) Middle Panel: Work Queue */}
-            {activeTab !== 'today' && (
-                <div className="w-[400px] border-r border-zinc-100 flex flex-col bg-white shrink-0 animate-in slide-in-from-left-8 fade-in duration-300">
+            {/* B) Middle Panel: Work Queue - Absolute/Overlay or Push? 
+                User: "Opens when left tab clicked; closes when same tab clicked OR clicking outside."
+                Let's make it push the content for now as it's cleaner than overlay, but if "clicking outside" implies overlay behavior, 
+                absolute positioning might be better. 
+                However, standard 3-pane email clients (Outlook, etc.) usually are fixed columns. 
+                "Middle panel is hidden by default". 
+                Let's use a conditional render that sits between Left and Main.
+            */}
+            {activeTab && (
+                <div ref={middlePanelRef} className="w-[400px] border-r border-zinc-100 flex flex-col bg-white shrink-0 animate-in slide-in-from-left-8 fade-in duration-300 z-10 h-full shadow-[5px_0_20px_rgba(0,0,0,0.03)]">
                     {/* Fixed Header */}
                     <div className="h-16 border-b border-zinc-100 flex items-center px-6 justify-between shrink-0 bg-white z-10">
                         <h2 className="text-sm font-bold uppercase tracking-wide">{activeTab.replace('_', ' ')}</h2>
@@ -175,7 +146,7 @@ export default function InboxPage() {
                     {/* List */}
                     <div className="flex-1 overflow-y-auto">
                         <InboxList
-                            onSelect={setSelectedEmail}
+                            onSelect={(email) => { setSelectedEmail(email); /* don't close panel automatically? User didn't say to close on select. */ }}
                             selectedId={selectedEmail?.id}
                             refreshTrigger={refreshTrigger}
                             filter={activeTab}
@@ -186,15 +157,11 @@ export default function InboxPage() {
             )}
 
             {/* C) Main Panel: Workspace */}
-            <div className="flex-1 flex flex-col bg-zinc-50/30 overflow-hidden relative">
-                {activeTab === 'today' ? (
-                    <DashboardOverview counts={counts} onNavigate={setActiveTab} />
-                ) : (
-                    <EmailThreadView
-                        email={selectedEmail}
-                        onClose={() => setSelectedEmail(null)}
-                    />
-                )}
+            <div className="flex-1 flex flex-col bg-zinc-50/30 overflow-hidden relative z-0">
+                <EmailThreadView
+                    email={selectedEmail}
+                    onClose={() => setSelectedEmail(null)}
+                />
             </div>
         </div>
     )

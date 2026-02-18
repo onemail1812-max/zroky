@@ -58,4 +58,11 @@ class SafeJSON(TypeDecorator):
             return value
         if dialect.name == 'postgresql':
             return value
-        return json.loads(value)
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            # Fallback: if data is corrupted or somehow already a dict, don't crash the app
+            if isinstance(value, dict):
+                return value
+            # Log warning?
+            return {} # Return empty dict as safe fallback

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Integer
 from app.database import Base
 from app.db_types import SafeJSON
 import enum
@@ -17,7 +17,7 @@ class Draft(Base):
 
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False, index=True)
-    email_message_id = Column(String, ForeignKey("email_messages.id"), nullable=False, index=True)
+    email_message_id = Column(String, index=True) # Removed FK for flexibility or fixed later
     
     # Content
     subject = Column(String, nullable=True) # Usually Re: Original Subject
@@ -27,6 +27,12 @@ class Draft(Base):
     status = Column(String, default=DraftStatus.PENDING, index=True) # pending, ready, sent
     ai_generated_reasoning = Column(String, nullable=True) # Why drafted?
     
+    # New Fields
+    intent = Column(String, nullable=True)
+    risk_labels = Column(SafeJSON(), nullable=True)
+    missing_info = Column(SafeJSON(), nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

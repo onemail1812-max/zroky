@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { sendChat } from "@/lib/aaliyah/api"
+import { getThreadItem, sendChat, sendDraft } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { MorningBriefing } from "@/components/aaliyah/workspace/MorningBriefing"
 import { LiveStrip } from "@/components/aaliyah/workspace/main/LiveStrip"
@@ -19,107 +19,7 @@ function formatTime(date = new Date()) {
   return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date)
 }
 
-function seedForConversation(conversation: ConversationSummary): FeedItem[] {
-  if (conversation.id === "morning-briefing") return []
-
-  const base: FeedItem[] = [
-    {
-      id: `${conversation.id}_intro`,
-      type: "response",
-      title: "Aaliyah Response",
-      text: conversation.subtitle,
-    },
-  ]
-
-  if (conversation.status === "Waiting Approval") {
-    return [
-      ...base,
-      {
-        id: `${conversation.id}_proposal`,
-        type: "proposal",
-        title: "Action Plan",
-        bullets: [
-          "Confirm the final tone and recipients.",
-          "Prepare the send-ready draft and attach approvals.",
-          "Queue execution once approved.",
-        ],
-      },
-      {
-        id: `${conversation.id}_approval`,
-        type: "approval",
-        title: "Approval Required",
-        detail: "External outreach and calendar edits require explicit approval.",
-      },
-      {
-        id: `${conversation.id}_draft`,
-        type: "artifact-email",
-        draft: {
-          to: "board@northbridge.com",
-          subject: "Q3 Investor Update and Scheduling Alignment",
-          body: "Attached is the refined update. Pending your approval, I will send to legal and finance, then align board prep to remove conflicts.",
-        },
-      },
-    ]
-  }
-
-  if (conversation.status === "Executing") {
-    return [
-      ...base,
-      {
-        id: `${conversation.id}_receipt`,
-        type: "receipt",
-        text: "Execution in progress. Monitoring for exceptions.",
-        timestamp: formatTime(),
-      },
-      {
-        id: `${conversation.id}_calendar`,
-        type: "artifact-calendar",
-        title: "Calendar Diff",
-        items: [
-          { time: "10:30", update: "Move board prep from Wed to Thu" },
-          { time: "14:00", update: "Conflict cleared with strategy review" },
-        ],
-      },
-    ]
-  }
-
-  if (conversation.status === "Blocked by Rule") {
-    return [
-      {
-        id: `${conversation.id}_blocked`,
-        type: "response",
-        title: "Blocked by Rule",
-        text: "This action is restricted by policy. I can summarize options and request approval to proceed.",
-        tone: "error",
-      },
-    ]
-  }
-
-  if (conversation.status === "Needs Clarification") {
-    return [
-      {
-        id: `${conversation.id}_clarify`,
-        type: "response",
-        title: "Needs Clarification",
-        text: "I need one missing detail to proceed (owner, deadline, or preferred tone).",
-        tone: "error",
-      },
-    ]
-  }
-
-  if (conversation.status === "Completed") {
-    return [
-      {
-        id: `${conversation.id}_done`,
-        type: "receipt",
-        text: "Completed. Output archived for retrieval.",
-        timestamp: formatTime(),
-      },
-    ]
-  }
-
-  return base
-}
+// seedForConversation removed (Sprint 1)
 
 export function NotificationStream({
   activeConversation,
@@ -130,23 +30,66 @@ export function NotificationStream({
   onOpenIntelligence: (tab?: IntelligenceTab) => void
   onSetConversationState?: (conversationId: string, state: ConversationSummary["status"]) => void
 }) {
-  const { status, setThinking, setIdle } = useSystemStore()
+  const { status, setThinking, setIdle, isBackendConnected } = useSystemStore()
 
-  const [feedItems, setFeedItems] = React.useState<FeedItem[]>(() => seedForConversation(activeConversation))
+  const [feedItems, setFeedItems] = React.useState<FeedItem[]>([])
   const [composerValue, setComposerValue] = React.useState("")
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [workingOpen, setWorkingOpen] = React.useState(false)
   const [workingStepIndex, setWorkingStepIndex] = React.useState(0)
   const [workingDetail, setWorkingDetail] = React.useState<string | undefined>(undefined)
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLiveOffline, setIsLiveOffline] = React.useState(false)
 
   const requestIdRef = React.useRef(0)
   const delayTimerRef = React.useRef<number | null>(null)
   const feedScrollRef = React.useRef<HTMLDivElement>(null)
 
+  // Fetch thread data
   React.useEffect(() => {
-    setFeedItems(seedForConversation(activeConversation))
+    if (activeConversation.id === "morning-briefing") {
+      setFeedItems([])
+      return
+    }
+
+    let alive = true
+    setIsLoading(true)
+
+    getThreadItem(activeConversation.id)
+      .then((data) => {
+        if (!alive) return
+
+        const items: FeedItem[] = [
+          {
+            id: `${data.id}_intro`,
+            type: "response",
+            title: "Aaliyah Triage",
+            text: data.snippet,
+          }
+        ]
+
+        if (data.status === "sent") {
+          items.push({ id: `${data.id}_exec`, type: "receipt", text: "Successfully sent.", timestamp: data.timestamp })
+        } else if (data.draft) {
+          items.push({ id: `${data.id}_draft`, type: "artifact-email", draft: data.draft })
+        }
+
+        setFeedItems(items)
+      })
+      .catch((err) => {
+        console.error("Failed to fetch thread", err)
+        setFeedItems([
+          { id: "error", type: "response", title: "Sync Error", text: "Failed to load thread details. Backend may be offline.", tone: "error" }
+        ])
+        if (!isBackendConnected) setIsLiveOffline(true)
+      })
+      .finally(() => {
+        if (alive) setIsLoading(false)
+      })
+
     setComposerValue("")
-  }, [activeConversation])
+    return () => { alive = false }
+  }, [activeConversation.id, isBackendConnected])
 
   React.useEffect(() => {
     if (!feedScrollRef.current) return
@@ -183,14 +126,27 @@ export function NotificationStream({
     setFeedItems((prev) => prev.map((item) => (item.id === id && item.type === "artifact-email" ? { ...item, draft } : item)))
   }
 
-  const onApprovalAction = (action: "approve" | "edit" | "reject", _id: string) => {
+  const onApprovalAction = async (action: "approve" | "edit" | "reject", id: string) => {
     if (action === "approve") {
-      onSetConversationState?.(activeConversation.id, "Executing")
-      setFeedItems((prev) => [
-        ...prev,
-        { id: `exec_${Date.now()}`, type: "receipt", text: "Approved. Executing the queued actions now.", timestamp: formatTime() },
-      ])
-      onOpenIntelligence("Timeline")
+      try {
+        // Retrieve workspace ID from storage
+        const workspaceId = typeof window !== "undefined" ?
+          (window.localStorage.getItem("workspace_id") || window.localStorage.getItem("tenant_id") || "default") : "default"
+
+        // Only call API if it's likely a real ID (no underscores/hyphens from mocks)
+        // or just let it fail and handle the error.
+        await sendDraft(workspaceId, id)
+
+        onSetConversationState?.(activeConversation.id, "Executing")
+        setFeedItems((prev) => [
+          ...prev,
+          { id: `exec_${Date.now()}`, type: "receipt", text: "Approved. Executing the queued actions now.", timestamp: formatTime() },
+        ])
+        onOpenIntelligence("Timeline")
+      } catch (e: any) {
+        console.error("Approval failed", e)
+        throw e // Propagate to component to show error
+      }
       return
     }
 

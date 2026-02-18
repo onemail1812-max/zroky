@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Loader2, Save } from "lucide-react"
+import { Loader2, Save, Check } from "lucide-react"
 import { getAaliyahSettings, updateAaliyahSettings, AaliyahSettings } from "@/lib/aaliyah/api"
 import { ToggleCard } from "@/components/aaliyah/ui/ToggleCard"
 import { Input } from "@/components/aaliyah/ui/Input"
@@ -55,55 +55,170 @@ export function GeneralSettings() {
     }
 
     return (
-        <div className="space-y-8 max-w-2xl">
-            <div>
-                <h2 className="text-xl font-bold tracking-tight">General Preferences</h2>
-                <p className="text-sm text-zinc-500 mt-1">Configure Aaliyah's autonomy and personality.</p>
-            </div>
-
-            {/* Auto-Send Toggle */}
-            <ToggleCard
-                title="Auto-Send Drafts"
-                description="If enabled, Aaliyah will automatically send replies she is confident about without your approval. Use with caution."
-                checked={settings.auto_send_enabled}
-                onCheckedChange={(checked) => saveChange({ auto_send_enabled: checked })}
-            />
-            {settings.auto_send_enabled && (
-                <div className="p-3 bg-amber-50 text-amber-800 text-sm rounded border border-amber-200">
-                    <strong>Warning:</strong> Aaliyah is now fully autonomous for replies. Monitoring is recommended.
+        <div className="space-y-12 max-w-2xl pb-20">
+            {/* Inbox & Autopilot */}
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-xl font-bold tracking-tight">Inbox & Autopilot</h2>
+                    <p className="text-sm text-zinc-500 mt-1">Control how Aaliyah manages your communications.</p>
                 </div>
-            )}
 
-            {/* Draft Tone */}
-            <div className="space-y-3">
-                <label className="text-sm font-medium">Draft Tone</label>
-                <select
-                    className="w-full h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2"
-                    value={settings.draft_tone || "professional"}
-                    onChange={(e) => saveChange({ draft_tone: e.target.value })}
-                >
-                    <option value="professional">Professional & Concise</option>
-                    <option value="warm">Warm & Friendly</option>
-                    <option value="direct">Direct & Assertive</option>
-                </select>
-                <p className="text-xs text-zinc-400">Controls the style of generated email drafts.</p>
+                <div className="grid gap-4">
+                    <ToggleCard
+                        title="Organize Inbox"
+                        description="Automatically categorize and prioritize incoming emails."
+                        checked={settings.organize_inbox_enabled}
+                        onCheckedChange={(checked) => saveChange({ organize_inbox_enabled: checked })}
+                    />
+                    <ToggleCard
+                        title="Draft Replies"
+                        description="Generate draft responses for emails that require a reply."
+                        checked={settings.draft_replies_enabled}
+                        onCheckedChange={(checked) => saveChange({ draft_replies_enabled: checked })}
+                    />
+                    <ToggleCard
+                        title="Archive Less Important"
+                        description="Automatically archive newsletters and notifications."
+                        checked={settings.archive_less_important}
+                        onCheckedChange={(checked) => saveChange({ archive_less_important: checked })}
+                    />
+                    <ToggleCard
+                        title="Track Follow-ups"
+                        description="Monitor sent emails and notify you if no reply is received."
+                        checked={settings.track_follow_ups}
+                        onCheckedChange={(checked) => saveChange({ track_follow_ups: checked })}
+                    />
+                </div>
+            </section>
+
+            {/* Meetings & Scheduling */}
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-xl font-bold tracking-tight">Meetings & Scheduling</h2>
+                    <p className="text-sm text-zinc-500 mt-1">Configure your availability and scheduling preferences.</p>
+                </div>
+
+                <div className="space-y-6">
+                    <ToggleCard
+                        title="Calendar Assist"
+                        description="Enable Aaliyah to manage your calendar and propose meeting times."
+                        checked={settings.calendar_assist_enabled}
+                        onCheckedChange={(checked) => saveChange({ calendar_assist_enabled: checked })}
+                    />
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Working Hours Start</label>
+                            <Input
+                                type="time"
+                                value={settings.working_hours_start}
+                                onChange={(e) => setSettings({ ...settings, working_hours_start: e.target.value })}
+                                onBlur={(e) => saveChange({ working_hours_start: e.target.value })}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Working Hours End</label>
+                            <Input
+                                type="time"
+                                value={settings.working_hours_end}
+                                onChange={(e) => setSettings({ ...settings, working_hours_end: e.target.value })}
+                                onBlur={(e) => saveChange({ working_hours_end: e.target.value })}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Default Meeting Duration (min)</label>
+                        <select
+                            className="w-full h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-950"
+                            value={settings.default_meeting_duration}
+                            onChange={(e) => saveChange({ default_meeting_duration: parseInt(e.target.value) })}
+                        >
+                            <option value={15}>15 minutes</option>
+                            <option value={30}>30 minutes</option>
+                            <option value={45}>45 minutes</option>
+                            <option value={60}>60 minutes</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            {/* Personality & Tone */}
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-xl font-bold tracking-tight">Personality & Tone</h2>
+                    <p className="text-sm text-zinc-500 mt-1">Fine-tune how Aaliyah represents you.</p>
+                </div>
+
+                <div className="space-y-6">
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium">Draft Tone</label>
+                        <select
+                            className="w-full h-10 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-950"
+                            value={settings.draft_tone || "professional"}
+                            onChange={(e) => saveChange({ draft_tone: e.target.value })}
+                        >
+                            <option value="professional">Professional & Concise</option>
+                            <option value="warm">Warm & Friendly</option>
+                            <option value="direct">Direct & Assertive</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-3">
+                        <label className="text-sm font-medium">Email Signature</label>
+                        <textarea
+                            className="flex min-h-[80px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-950"
+                            placeholder="Best,\nYour Name"
+                            value={settings.signature || ""}
+                            onChange={(e) => setSettings({ ...settings, signature: e.target.value })}
+                            onBlur={(e) => saveChange({ signature: e.target.value })}
+                        />
+                    </div>
+                </div>
+            </section>
+
+            {/* Safety & Security */}
+            <section className="space-y-6">
+                <div>
+                    <h2 className="text-xl font-bold tracking-tight">Safety & Security</h2>
+                    <p className="text-sm text-zinc-500 mt-1">Compliance and risk management settings (Read-only).</p>
+                </div>
+
+                <div className="p-4 bg-zinc-50 rounded-lg border border-zinc-200 space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">Approval-Required Topics</label>
+                        <div className="flex flex-wrap gap-2">
+                            {settings.approval_required_topics?.map(topic => (
+                                <span key={topic} className="px-2 py-1 bg-white border border-zinc-200 rounded text-xs text-zinc-600 font-medium">
+                                    {topic}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-zinc-600">Send requires approval always</span>
+                        <span className="text-xs font-bold text-zinc-400 uppercase">Always ON</span>
+                    </div>
+                </div>
+            </section>
+
+            {/* Saved Indicator */}
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+                {saving ? (
+                    <div className="bg-zinc-900 text-white px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving changes...
+                    </div>
+                ) : !error && settings ? (
+                    <div className="bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <Check className="h-4 w-4" />
+                        All settings saved
+                    </div>
+                ) : null}
             </div>
 
-            {/* Signature */}
-            <div className="space-y-3">
-                <label className="text-sm font-medium">Email Signature</label>
-                <textarea
-                    className="flex min-h-[80px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    placeholder="Best,\nYour Name"
-                    value={settings.signature || ""}
-                    onChange={(e) => setSettings({ ...settings, signature: e.target.value })}
-                    onBlur={(e) => saveChange({ signature: e.target.value })}
-                />
-                <p className="text-xs text-zinc-400">Appended to all auto-generated drafts.</p>
-            </div>
-
-            {saving && <p className="text-xs text-zinc-400 animate-pulse">Saving changes...</p>}
-            {error && <p className="text-xs text-red-500">{error}</p>}
+            {error && <p className="text-xs text-red-500 mt-4">{error}</p>}
         </div>
     )
 }

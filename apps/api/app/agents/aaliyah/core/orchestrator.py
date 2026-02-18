@@ -10,7 +10,7 @@ import re
 import threading
 from types import SimpleNamespace
 from typing import Any, Optional
-
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.calendar_event_snapshot import CalendarConflict
@@ -32,7 +32,7 @@ from app.services.brain.errors import BrainError
 from app.services.brain.guardrails import redact_text
 from app.services.brain.schemas.models import ModelType
 from app.services.brain.memory import DualStateMemory
-
+from app.agents.aaliyah.core.communication_engine import CommunicationEngine, CommunicationState
 
 @dataclass
 class WorkspaceRuntimeState:
@@ -46,6 +46,7 @@ class WorkspaceRuntimeState:
     calendar_conflicts: int = 0
     last_sync: dict[str, Optional[str]] = field(default_factory=lambda: {"gmail": None, "calendar": None})
     last_updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    communication: CommunicationState = field(default_factory=CommunicationState)
 
 
 class AaliyahOrchestrator:
@@ -59,6 +60,7 @@ class AaliyahOrchestrator:
         self.workspace_id = workspace_id
         self.brain = brain or Brain()
         self.triage_classifier = SmartTriageClassifier(self.brain)
+        self.comm_engine = CommunicationEngine()
 
     def _get_state(self) -> WorkspaceRuntimeState:
         with self._state_lock:
@@ -87,6 +89,89 @@ class AaliyahOrchestrator:
             payload=payload or {},
         )
         await event_bus.publish(event)
+        
+        # Communication Engine Integration
+        if event_type == "assistant_message":
+            return
+
+        state = self._get_state()
+        p = payload or {}
+        
+        if event_type == "draft_ready":
+            self.comm_engine.add_event(state.communication, "draft_ready", p)
+        elif event_type == "approval_required":
+            self.comm_engine.add_event(state.communication, "approval_required", p)
+        elif event_type == "followup_scan_complete":
+            if p.get("count", 0) > 0:
+                self.comm_engine.add_event(state.communication, "followup_due", p)
+        elif event_type == "triage_queued" and p.get("priority") == "High":
+            self.comm_engine.add_event(state.communication, "priority_added", p)
+        elif event_type == "sync_complete":
+             cleaned = p.get("cleaned_count", 0)
+             if cleaned > 0:
+                  self.comm_engine.add_event(state.communication, "cleaned_done", {"count": cleaned})
+        elif event_type == "daily_briefing_ready":
+             self.comm_engine.add_event(state.communication, "daily_6am_sync_complete", p)
+
+        # Attempt flush
+        msg = self.comm_engine.flush(state.communication, user_name="Boss")
+        if msg:
+             await self._emit("assistant_message", msg, {"text": msg, "role": "assistant"})
+
+    async def broadcast_updates(self, db: Session) -> None:
+        """Fetch and broadcast latest counts and stats."""
+        # Calculate aggregations
+        cat_counts = (
+            db.query(TriagedEmail.category, func.count(TriagedEmail.id))
+            .filter(TriagedEmail.workspace_id == self.workspace_id)
+            .group_by(TriagedEmail.category)
+            .all()
+        )
+        cats = {c: n for c, n in cat_counts}
+        
+        pri_counts = (
+            db.query(TriagedEmail.priority, func.count(TriagedEmail.id))
+            .filter(TriagedEmail.workspace_id == self.workspace_id)
+            .group_by(TriagedEmail.priority)
+            .all()
+        )
+        pris = {p: n for p, n in pri_counts}
+        
+        unread = db.query(TriagedEmail).filter(
+            TriagedEmail.workspace_id == self.workspace_id, 
+            TriagedEmail.is_read == False
+        ).count()
+        
+        needs_reply = db.query(TriagedEmail).filter(
+            TriagedEmail.workspace_id == self.workspace_id, 
+            TriagedEmail.awaiting_reply == True
+        ).count()
+        
+        followups = db.query(TriagedEmail).filter(
+            TriagedEmail.workspace_id == self.workspace_id,
+            TriagedEmail.category == "followups"
+        ).count()
+
+        payload = {
+            "by_category": cats,
+            "by_priority": pris,
+            "unread": unread,
+            "needs_reply": needs_reply,
+            "followups": followups,
+            "timestamp": datetime.now(timezone.utc).timestamp()
+        }
+        
+        await self._emit("counts_update", "Updated inbox counts", payload)
+        
+        # Provider totals
+        prov_counts = (
+            db.query(TriagedEmail.provider, func.count(TriagedEmail.id))
+            .filter(TriagedEmail.workspace_id == self.workspace_id)
+            .group_by(TriagedEmail.provider)
+            .all()
+        )
+        provs = {p: n for p, n in prov_counts}
+        await self._emit("provider_totals", "Provider breakdown", {"totals": provs})
 
     async def _audit(
         self,
@@ -96,6 +181,7 @@ class AaliyahOrchestrator:
         action: AuditAction,
         entity_id: str,
         metadata: Optional[dict[str, Any]] = None,
+        undo_payload: Optional[dict[str, Any]] = None,
         explain: Optional[str] = None,
     ) -> None:
         try:
@@ -107,6 +193,7 @@ class AaliyahOrchestrator:
                 entity_type=AuditEntityType.ARTIFACT,
                 entity_id=entity_id,
                 metadata=metadata,
+                undo_payload=undo_payload,
                 explain_one_liner=explain,
             )
         except Exception:
@@ -133,47 +220,56 @@ class AaliyahOrchestrator:
             "calendar_conflicts": state.calendar_conflicts,
         }
 
-    def list_inbox(
+    async def list_inbox(
         self,
         db: Session,
         *,
         limit: int = 50,
+        offset: int = 0,
         category: Optional[str] = None,
         priority: Optional[str] = None,
         include_noise: bool = False,
+        queue: Optional[str] = None,
     ) -> dict[str, Any]:
         repo = TriagedInboxRepository(db, self.workspace_id)
-        rows = repo.list_recent(
+        
+        # If queue is provided, it takes precedence over category/priority
+        q = queue or category
+        if priority == "High" and not q:
+            q = "priority"
+
+        threads, total = repo.list_threads(
+            queue=q,
             limit=limit,
-            category=category,
-            priority=priority,
-            include_noise=include_noise,
+            offset=offset
         )
+        
         return {
             "items": [
                 {
                     "id": row.id,
                     "provider": row.provider,
-                    "external_message_id": row.external_message_id,
-                    "thread_id": row.thread_id,
+                    "thread_id": row.external_thread_id,
                     "sender": row.sender,
                     "subject": row.subject,
                     "snippet": row.snippet,
-                    "received_at": row.received_at.isoformat() if row.received_at else None,
+                    "received_at": row.last_received_at.isoformat() if row.last_received_at else None,
                     "category": row.category,
                     "priority": row.priority,
                     "is_noise": row.is_noise,
                     "is_read": row.is_read,
                     "confidence": row.confidence,
                     "reasoning": row.reasoning,
-                    "labels": (row.metadata_json or {}).get("labels", []),
-                    "label_reasons": (row.metadata_json or {}).get("label_reasons", {}),
-                    "label_actions": (row.metadata_json or {}).get("label_actions", []),
-                    "draft": (row.metadata_json or {}).get("draft"),
+                    "message_count": row.message_count,
+                    "requires_approval": row.requires_approval,
+                    "awaiting_reply": row.awaiting_reply,
+                    "draft": row.draft_json,
+                    # For detail views, we might still want metadata
+                    "metadata": row.metadata_json,
                 }
-                for row in rows
+                for row in threads
             ],
-            "count": len(rows),
+            "count": total,
         }
 
     def list_calendar_conflicts(self, db: Session, limit: int = 50) -> dict[str, Any]:
@@ -215,6 +311,7 @@ class AaliyahOrchestrator:
             "MEETING_PREP": 0.0,
             "BRIEFING": 0.0,
             "STATUS": 0.0,
+            "SEARCH": 0.0,
         }
 
         # Draft intent: must show clear drafting desire, not just mention "email"
@@ -243,9 +340,16 @@ class AaliyahOrchestrator:
         if any(w in text for w in (" vip", "vips", "mark as vip", "add to vip")):
             scores["UPDATE_PREFERENCE"] += 1.5
 
-        # Meeting prep
         if any(w in text for w in ("meeting prep", "prepare for meeting", "cheat sheet", "brief me on the meeting", "meeting briefing")):
             scores["MEETING_PREP"] += 2.0
+            
+        # Search / Retrieval
+        if any(w in text for w in ("search", "find", "show me", "look for", "where is", "when is", "did", "has", "what is")):
+            scores["SEARCH"] += 1.5
+        if "?" in text:
+            scores["SEARCH"] += 0.5
+        if any(w in text for w in ("email from", "sent by", "calendar", "meeting with")):
+            scores["SEARCH"] += 1.0
 
         # Briefing
         if any(w in text for w in ("morning briefing", "daily briefing", "what's my day", "today's agenda", "give me a briefing")):
@@ -498,6 +602,44 @@ class AaliyahOrchestrator:
                 logging.getLogger(__name__).error(f"PreferencesAgent failed: {e}")
                 raise e
 
+        # --- SEARCH AGENT ---
+        if gate.allow_llm and intent == "SEARCH":
+            try:
+                from app.agents.aaliyah.core.search_agent import SearchAgent
+                search_agent = SearchAgent(db, self.workspace_id, self.brain, actor_user_id=user_id)
+                
+                # Emit searching state
+                await self._emit("thinking", f"Searching mailbox and calendar...")
+                
+                result = await search_agent.execute_search(message)
+                
+                # Audit
+                await self._audit(
+                     db,
+                     user_id=user_id,
+                     action=AuditAction.EXECUTE,
+                     entity_id=f"search:{datetime.now(timezone.utc).timestamp()}",
+                     explain=f"Searched for '{message}'",
+                     metadata={"query": message}
+                )
+
+                decision["tool"] = "search_engine"
+                return {
+                    "status": result.get("status", "found"),
+                    "answer_text": result.get("answer_text") or result.get("reply"),
+                    "evidence": result.get("evidence", []),
+                    "reply": result.get("answer_text") or result.get("reply"), # backward compatibility
+                    "details": decision,
+                    "tool_result": result.get("data", {})
+                }
+            except Exception as e:
+                import logging
+                import traceback
+                traceback.print_exc()
+                logging.getLogger(__name__).error(f"SearchAgent failed: {e}")
+                # Fallback to chat response
+                pass
+
         self._patch_state(status="acting", active_task="Preparing response artifact")
         await self._emit("acting", "Prepared an actionable response", {"intent": intent})
 
@@ -545,7 +687,10 @@ class AaliyahOrchestrator:
             explain="Generated chat response artifact",
         )
         return {
+            "status": "found",
+            "answer_text": reply_text,
             "reply": reply_text,
+            "evidence": [],
             "details": decision,
             "tool_result": {"status": "ready"},
         }
@@ -557,10 +702,20 @@ class AaliyahOrchestrator:
         message: NormalizedEmailMessage,
         triage: Optional[TriageResult] = None,
         metadata: Optional[dict[str, Any]] = None,
+        previous_category: Optional[str] = None,
+        deadline_at: Optional[datetime] = None,
+        requires_approval: bool = False,
+        approval_reason: Optional[str] = None,
+        awaiting_reply: bool = False,
     ) -> dict[str, Any]:
         triage_result: TriageResult = triage or await self.triage_classifier.classify(message)
         repo = TriagedInboxRepository(db, self.workspace_id)
-        safe_meta = {"source": message.source, "is_read": message.is_read}
+        safe_meta = {
+            "source": message.source, 
+            "is_read": message.is_read,
+            "attachments": [a.model_dump() for a in message.metadata.attachments],
+            "headers": message.metadata.headers
+        }
         if isinstance(metadata, dict):
             safe_meta.update(metadata)
         row = repo.upsert(
@@ -578,7 +733,45 @@ class AaliyahOrchestrator:
             confidence=triage_result.confidence,
             reasoning=triage_result.reasoning,
             metadata=safe_meta,
+            previous_category=previous_category,
+            deadline_at=deadline_at,
+            requires_approval=requires_approval,
+            approval_reason=approval_reason,
+            awaiting_reply=awaiting_reply,
         )
+
+        # Realtime events
+        if row.is_noise and (not previous_category or previous_category != row.category):
+             AuditLogService.log_action(
+                 db=db,
+                 workspace_id=self.workspace_id,
+                 user_id="system",
+                 action=AuditAction.UPDATE,
+                 entity_type=AuditEntityType.ARTIFACT,
+                 entity_id=row.thread_id,
+                 metadata={"action": "auto_clean", "category": row.category},
+                 after_state={"category": row.category, "is_noise": True},
+                 explain_one_liner=f"Automatically cleaned {row.category} message from {row.sender}."
+             )
+
+        if previous_category and previous_category != row.category:
+             await self._emit(
+                  "thread_moved", 
+                  f"Moved thread to {row.category}", 
+                  {"thread_id": row.thread_id, "category": row.category, "previous_category": previous_category}
+             )
+        else:
+             await self._emit(
+                  "thread_updated",
+                  f"Thread updated",
+                  {
+                      "thread_id": row.thread_id, 
+                      "category": row.category, 
+                      "priority": row.priority,
+                      "is_read": row.is_read,
+                      "id": row.id
+                  }
+             )
         return {
             "id": row.id,
             "provider": row.provider,
@@ -591,6 +784,10 @@ class AaliyahOrchestrator:
             "is_read": row.is_read,
             "confidence": row.confidence,
             "reasoning": row.reasoning,
+            "deadline_at": row.deadline_at.isoformat() if row.deadline_at else None,
+            "requires_approval": row.requires_approval,
+            "approval_reason": row.approval_reason,
+            "awaiting_reply": row.awaiting_reply,
             "labels": (row.metadata_json or {}).get("labels", []),
             "label_reasons": (row.metadata_json or {}).get("label_reasons", {}),
             "label_actions": (row.metadata_json or {}).get("label_actions", []),
@@ -603,43 +800,37 @@ class AaliyahOrchestrator:
         user_id: str,
         provider: str = "auto",
         max_results: int = 25,
+        incremental: bool = True,
     ) -> dict[str, Any]:
         ingestor = EmailIngestor(self.workspace_id, db)
         self._patch_state(status="thinking", active_task="Syncing inbox")
-        await self._emit("sync_started", "Syncing inbox from providers")
+        await self._emit("sync_started", f"Syncing inbox (incremental={incremental})")
 
-        messages = await ingestor.fetch_and_normalize(provider=provider, max_results=max_results)
+        if incremental:
+            messages = await ingestor.fetch_incremental(provider=provider)
+        else:
+            messages = await ingestor.fetch_and_normalize(provider=provider, max_results=max_results)
         triaged: list[dict[str, Any]] = []
         label_engine = LabelingRulesEngine(db, self.workspace_id)
         upcoming_events = label_engine.list_upcoming_calendar_events(days_ahead=7, limit=200)
         action_executor = ActionExecutor(db)
         memory = DualStateMemory(db, self.workspace_id)
 
+        # Load workspace settings once
+        workspace_row = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        settings = getattr(workspace_row, "settings_json", {}) or {}
+        aaliyah_settings = settings.get("aaliyah", {})
+        
+        # Behavior flags
+        organize_enabled = aaliyah_settings.get("organize_inbox_enabled", True)
+        drafting_enabled = aaliyah_settings.get("draft_replies_enabled", True)
+        archive_noise_enabled = aaliyah_settings.get("archive_less_important", False)
+        auto_send_enabled = aaliyah_settings.get("auto_send_enabled", False)
+
         for item in messages:
             triage_result = await self.triage_classifier.classify(item)
             sender_display = self._sender_display(item.metadata.sender)
-            if triage_result.is_noise and triage_result.category == "Newsletter":
-                await self._emit(
-                    "triage_ignored",
-                    f"Ignored newsletter from {sender_display}.",
-                    {
-                        "message_id": item.id,
-                        "provider": item.provider,
-                        "category": triage_result.category,
-                        "reasoning": triage_result.reasoning,
-                    },
-                )
-            else:
-                await self._emit(
-                    "triage_queued",
-                    f"Queued {triage_result.category} email from {sender_display}.",
-                    {
-                        "message_id": item.id,
-                        "provider": item.provider,
-                        "category": triage_result.category,
-                        "priority": triage_result.priority,
-                    },
-                )
+            
             history = label_engine.list_recent_thread_history(
                 thread_id=item.metadata.thread_id,
                 sender=item.metadata.sender,
@@ -650,9 +841,81 @@ class AaliyahOrchestrator:
                 triage=triage_result,
                 history=history,
                 upcoming_events=upcoming_events,
+                workspace_settings=settings,
             )
+
+            # --- Cleaned Engine Integration ---
+            final_triage = triage_result
+            prev_cat = None
+            
+            # Apply organization preferences
+            if organize_enabled:
+                if label_decision.priority:
+                    from dataclasses import replace
+                    final_triage = replace(final_triage, priority=label_decision.priority)
+                
+                if label_decision.suggested_category and label_decision.suggested_category != triage_result.category:
+                    prev_cat = triage_result.category
+                    # Replace triage result values
+                    from dataclasses import replace
+                    final_triage = replace(
+                        final_triage, 
+                        category=label_decision.suggested_category,
+                        is_noise=True if label_decision.suggested_category in ["Newsletter", "Notification", "Receipt"] else final_triage.is_noise
+                    )
+
+            # --- Archive Logic (Sprint 2) ---
+            should_archive = False
+            if archive_noise_enabled and final_triage.is_noise and final_triage.category in ["Newsletter", "Notification"]:
+                should_archive = True
+
+            if should_archive:
+                try:
+                    await action_executor.archive(
+                        user_id=user_id,
+                        workspace_id=self.workspace_id,
+                        provider=item.provider,
+                        message_id=item.id,
+                        explain_one_liner=f"Automatically archived {final_triage.category} per user settings."
+                    )
+                    await self._emit(
+                        "triage_ignored",
+                        f"Archived {final_triage.category} from {sender_display}.",
+                        {
+                            "message_id": item.id,
+                            "category": final_triage.category,
+                            "action": "archive"
+                        }
+                    )
+                    continue # Skip further processing for archived items
+                except Exception:
+                    pass
+
+            if final_triage.is_noise and final_triage.category == "Newsletter":
+                await self._emit(
+                    "triage_ignored",
+                    f"Ignored newsletter from {sender_display}.",
+                    {
+                        "message_id": item.id,
+                        "provider": item.provider,
+                        "category": final_triage.category,
+                        "reasoning": final_triage.reasoning,
+                    },
+                )
+            else:
+                await self._emit(
+                    "triage_queued",
+                    f"Queued {final_triage.category} email from {sender_display}.",
+                    {
+                        "message_id": item.id,
+                        "provider": item.provider,
+                        "category": final_triage.category,
+                        "priority": final_triage.priority,
+                    },
+                )
+
             label_actions: list[dict[str, Any]] = []
-            if not label_decision.skip_auto:
+            if not label_decision.skip_auto and organize_enabled:
                 for label_name in label_decision.labels:
                     explain = label_decision.reasons.get(label_name) or f"Applied {label_name} by deterministic rule."
                     try:
@@ -688,22 +951,38 @@ class AaliyahOrchestrator:
                             }
                         )
 
+            is_awaiting_reply = ("Awaiting Reply" in label_decision.labels) if organize_enabled else False
+            
             triaged_row = await self._classify_and_persist_email(
                 db=db,
                 message=item,
-                triage=triage_result,
+                triage=final_triage,
                 metadata={
                     "source": item.source,
                     "is_read": item.is_read,
-                    "labels": label_decision.labels,
-                    "label_reasons": label_decision.reasons,
+                    "labels": label_decision.labels if organize_enabled else [],
+                    "label_reasons": label_decision.reasons if organize_enabled else {},
                     "override_applied": label_decision.override_applied,
                     "label_actions": label_actions,
                 },
+                previous_category=prev_cat,
+                deadline_at=label_decision.deadline_at,
+                requires_approval=label_decision.requires_approval,
+                approval_reason=label_decision.approval_reason,
+                awaiting_reply=is_awaiting_reply,
             )
+
+            # Sprint 8: Clear follow-ups if new inbound received (breaking the "waiting on them" cycle)
+            # Inbound is defined by triage not being 'OUTBOUND' or 'DRAFT' (though Fetcher usually returns inbounds)
+            if final_triage.category not in {"OUTBOUND", "DRAFT"} and item.thread_id:
+                db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                    TriagedEmail.thread_id == item.thread_id
+                ).update({"followup_due_at": None, "followup_snoozed_until": None})
+                db.commit()
             
             # --- Drafting Agent: Auto-generate reply for actionable items ---
-            if "Awaiting Reply" in label_decision.labels and not label_decision.skip_auto:
+            if drafting_enabled and is_awaiting_reply and not label_decision.skip_auto:
                 try:
                     from app.agents.aaliyah.core.drafting import DraftingAgent
                     draft_agent = DraftingAgent(db, self.workspace_id)
@@ -715,30 +994,25 @@ class AaliyahOrchestrator:
                         draft = await draft_agent.generate_draft(stored_email)
                         if draft:
                             await draft_agent.save_draft(stored_email.id, draft)
-                            await self._emit("draft_created", f"Drafted: {draft.subject}", {"message_id": item.id})
+                            await self._emit("draft_ready", f"Drafted: {draft.subject}", {"message_id": item.id})
                             triaged_row["has_draft"] = True
 
-                            # --- Auto-Send Logic ---
-                            # Check workspace preference for auto-sending drafts
-                            workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-                            settings_json = getattr(workspace, "settings_json", {}) or {}
-                            auto_send = settings_json.get("aaliyah", {}).get("auto_send_enabled", False)
-
-                            if auto_send:
+                            # --- Auto-Send Logic (Sprint 2) ---
+                            if auto_send_enabled:
                                 try:
                                     await action_executor.send_draft(
                                         user_id=user_id, 
                                         workspace_id=self.workspace_id, 
-                                        email_id=stored_email.id
+                                        email_id=stored_email.id,
+                                        is_explicit_approval=False
                                     )
                                     await self._emit("auto_sent", f"Auto-sent Reply to {sender_display}", {"message_id": item.id})
                                     triaged_row["draft_status"] = "sent"
-                                except Exception as e:
-                                    logging.getLogger(__name__).error(f"Auto-send failed: {e}")
-
+                                except PermissionError as exc:
+                                     await self._emit("auto_send_blocked", f"Auto-send blocked: {str(exc)}", {"message_id": item.id})
                 except Exception as e:
                     import logging
-                    logging.getLogger(__name__).error(f"Drafting failed in sync: {e}")
+                    logging.getLogger(__name__).error(f"Drafting failed for {item.id}: {e}")
 
             triaged.append(triaged_row)
             # --- Dual-State Memory: extract facts from email + store ---
@@ -757,7 +1031,9 @@ class AaliyahOrchestrator:
             queued_count=max(0, len([t for t in triaged if not t["is_noise"]])),
             last_sync={"gmail": datetime.now(timezone.utc).isoformat(), "calendar": state.last_sync.get("calendar")},
         )
-        await self._emit("sync_complete", f"Triaged {len(triaged)} messages", {"count": len(triaged)})
+        cleaned_count = len([t for t in triaged if t["is_noise"]])
+        await self._emit("sync_complete", f"Triaged {len(triaged)} messages", {"count": len(triaged), "cleaned_count": cleaned_count})
+        await self.broadcast_updates(db)
         await self._audit(
             db,
             user_id=user_id,
@@ -845,6 +1121,144 @@ class AaliyahOrchestrator:
         )
         return result
 
+    async def run_followup_scan(self, db: Session, user_id: str) -> dict[str, Any]:
+        """
+        Sprint 8: Hourly worker logic to detect due follow-ups.
+        """
+        workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        settings = getattr(workspace, "settings_json", {}) or {}
+        aaliyah_settings = settings.get("aaliyah", {})
+        
+        if not aaliyah_settings.get("track_follow_ups", True):
+            return {"count": 0, "status": "disabled"}
+
+        self._patch_state(status="thinking", active_task="Scanning follow-ups")
+        await self._emit("followup_scan_started", "Scanning for due follow-ups...")
+
+        now = datetime.now(timezone.utc)
+        
+        # 1. Auto-detect Stale Threads (Sprint 7)
+        # Find threads where:
+        # - We are awaiting reply (last message was outbound)
+        # - Last sent > X days ago (default 3)
+        # - Not already in follow-ups
+        # - Not noise
+        follow_up_days = int(aaliyah_settings.get("auto_follow_up_days", 3))
+        threshold = now - timedelta(days=follow_up_days)
+        
+        stale_threads = (
+             db.query(TriagedThread)
+             .filter(
+                 TriagedThread.workspace_id == self.workspace_id,
+                 TriagedThread.awaiting_reply == True,
+                 TriagedThread.last_sent_at != None,
+                 TriagedThread.last_sent_at < threshold,
+                 TriagedThread.category != "followups",
+                 TriagedThread.is_noise == False,
+                 # Ensure we haven't already marked it due
+                 (TriagedThread.followup_due_at == None)
+             )
+             .limit(50)
+             .all()
+        )
+        
+        detected_count = 0
+        for thread in stale_threads:
+            thread.category = "followups"
+            thread.followup_due_at = now
+            detected_count += 1
+            
+            # Audit log
+            await self._audit(
+                 db,
+                 user_id=user_id,
+                 action=AuditAction.UPDATE,
+                 entity_id=thread.id,
+                 metadata={"action": "auto_followup_detect", "days_stale": follow_up_days},
+                 explain=f"Moved to Follow-ups: No reply after {follow_up_days} days.",
+                 after_state={"category": "followups"}
+            )
+            
+            # Generate Follow-up Draft
+            try:
+                from app.agents.aaliyah.core.drafting import DraftingAgent
+                draft_agent = DraftingAgent(db, self.workspace_id)
+                # Find the latest email to attach draft to
+                latest_email = (
+                    db.query(TriagedEmail)
+                    .filter(
+                        TriagedEmail.workspace_id == self.workspace_id,
+                        TriagedEmail.thread_id == thread.external_thread_id
+                    )
+                    .order_by(TriagedEmail.received_at.desc())
+                    .first()
+                )
+                
+                if latest_email:
+                    await self._emit("drafting_started", f"Drafting follow-up for {thread.sender}...", {"thread_id": thread.external_thread_id})
+                    draft = await draft_agent.generate_draft(latest_email, is_followup=True)
+                    if draft:
+                        await draft_agent.save_draft(latest_email.id, draft)
+                        thread.has_draft = True
+                        if hasattr(draft, 'model_dump'):
+                             thread.draft_json = draft.model_dump()
+                        else:
+                             thread.draft_json = draft.dict()
+                        
+                        await self._emit("draft_ready", f"Follow-up Drafted: {draft.subject}", {"thread_id": thread.external_thread_id})
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to generate follow-up draft for thread {thread.id}: {e}")
+            
+            await self._emit(
+                 "thread_moved", 
+                 f"Auto-moved to Follow-ups (no reply for {follow_up_days} days)", 
+                 {"thread_id": thread.external_thread_id, "category": "followups"}
+            )
+        
+        if detected_count > 0:
+             db.commit()
+
+        # 2. Process Due Items (Existing manual follow-ups)
+        # Find items where current time > followup_due_at AND (no snooze OR current time > snooze)
+        due_items = (
+            db.query(TriagedEmail)
+            .filter(
+                TriagedEmail.workspace_id == self.workspace_id,
+                TriagedEmail.followup_due_at != None,
+                TriagedEmail.followup_due_at <= now,
+                (TriagedEmail.followup_snoozed_until == None) | (TriagedEmail.followup_snoozed_until <= now)
+            )
+            .all()
+        )
+
+        from app.agents.aaliyah.core.drafting import DraftingAgent
+        draft_agent = DraftingAgent(db, self.workspace_id)
+        
+        found_count = 0
+        for item in due_items:
+            # 1. Move to followups queue
+            item.category = "followups"
+            item.awaiting_reply = True # We now need to act on the follow-up
+            
+            # 2. Generate Follow-up Draft
+            # We pass a flag or hint to the drafting agent
+            draft = await draft_agent.generate_draft(item, is_followup=True)
+            if draft:
+                await draft_agent.save_draft(item.id, draft)
+                found_count += 1
+            
+            # Reset due date to prevent immediate re-trigger
+            item.followup_due_at = None
+            item.followup_snoozed_until = None
+        
+        db.commit()
+        
+        self._patch_state(status="idle", active_task=None)
+        await self._emit("followup_scan_complete", f"Detected and drafted {found_count} follow-ups.", {"count": found_count})
+        await self.broadcast_updates(db)
+        return {"count": found_count}
+
     async def handle_webhook(self, db: Session, *, user_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         event_type_normalized = str(event_type or "").lower().strip()
         if event_type_normalized in {"sync", "inbox_sync", "sync_email"}:
@@ -871,24 +1285,30 @@ class AaliyahOrchestrator:
             sender_display = self._sender_display(normalized.metadata.sender)
             if triage_result.is_noise and triage_result.category == "Newsletter":
                 await self._emit(
-                    "triage_ignored",
+                    "thread_processed",
                     f"Ignored newsletter from {sender_display}.",
                     {
-                        "message_id": normalized.id,
-                        "provider": normalized.provider,
-                        "category": triage_result.category,
-                        "reasoning": triage_result.reasoning,
+                        "thread_id": normalized.metadata.thread_id,
+                        "category": "Newsletter",
+                        "status": "ignored",
+                        "toast": {
+                            "type": "info",
+                            "message": f"Cleaned: Newsletter from {sender_display}"
+                        }
                     },
                 )
             else:
                 await self._emit(
-                    "triage_queued",
-                    f"Queued {triage_result.category} email from {sender_display}.",
+                    "thread_processed",
+                    f"Queued {triage_result.category} from {sender_display}.",
                     {
-                        "message_id": normalized.id,
-                        "provider": normalized.provider,
+                        "thread_id": normalized.metadata.thread_id,
                         "category": triage_result.category,
-                        "priority": triage_result.priority,
+                        "status": "queued",
+                        "toast": {
+                            "type": "success",
+                            "message": f"New: {triage_result.category} from {sender_display}"
+                        }
                     },
                 )
             label_engine = LabelingRulesEngine(db, self.workspace_id)
@@ -936,8 +1356,11 @@ class AaliyahOrchestrator:
                     "labels": label_decision.labels,
                     "label_reasons": label_decision.reasons,
                     "override_applied": label_decision.override_applied,
-                "label_actions": actions,
+                    "label_actions": actions,
                 },
+                deadline_at=label_decision.deadline_at,
+                requires_approval=label_decision.requires_approval,
+                approval_reason=label_decision.approval_reason,
             )
             
             # --- Drafting Agent: Auto-generate reply for actionable items ---
@@ -967,3 +1390,95 @@ class AaliyahOrchestrator:
 
         await self._emit("noop", "Webhook received but no handler matched", {"type": event_type})
         return {"event": "noop"}
+
+    async def handle_chat(self, db: Session, user_id: str, message: str) -> dict[str, Any]:
+        """
+        Sprint 10: Ask Aaliyah (Mail + Calendar Q&A).
+        """
+        # 1. Search for context (Fast Index)
+        query = message.strip()
+        
+        # Imports inside method to avoid cycles
+        from app.models.search_index import EmailIndex, CalendarIndex
+        from sqlalchemy import or_, desc, asc
+        
+        # Search Emails
+        # Simple heuristic: if query is short, exact/ilike match on key fields
+        email_hits = (
+            db.query(EmailIndex)
+            .filter(
+                EmailIndex.workspace_id == self.workspace_id,
+                or_(
+                    EmailIndex.searchable_text.ilike(f"%{query}%"),
+                    EmailIndex.subject.ilike(f"%{query}%"),
+                    EmailIndex.sender.ilike(f"%{query}%")
+                )
+            )
+            .order_by(desc(EmailIndex.last_message_at))
+            .limit(5)
+            .all()
+        )
+        
+        # Search Calendar
+        cal_hits = (
+            db.query(CalendarIndex)
+            .filter(
+                CalendarIndex.workspace_id == self.workspace_id,
+                or_(
+                    CalendarIndex.searchable_text.ilike(f"%{query}%"),
+                    CalendarIndex.title.ilike(f"%{query}%")
+                )
+            )
+            .order_by(desc(CalendarIndex.start_at))
+            .limit(5)
+            .all()
+        )
+        
+        # 2. Construct Context
+        context_str = ""
+        if email_hits:
+            context_str += "=== RELEVANT EMAILS ===\n"
+            for e in email_hits:
+                context_str += f"- [Email] Subject: {e.subject}\n  Sender: {e.sender}\n  Date: {e.last_message_at}\n  Snippet: {e.snippet}\n\n"
+        
+        if cal_hits:
+            context_str += "=== RELEVANT EVENTS ===\n"
+            for c in cal_hits:
+                context_str += f"- [Event] Title: {c.title}\n  Time: {c.start_at}\n  Location: {c.location}\n  Snippet: {c.description_snippet}\n\n"
+
+        # 3. Ask Brain
+        system_prompt = (
+            "You are Aaliyah, an intelligent executive assistant. "
+            "You have access to the user's email and calendar via searched context. "
+            "Your Goal: Answer the user's question based ONLY on the provided context. "
+            "Refusal Rule: If the context is empty or irrelevant to the query, say explicitly: "
+            "'I searched Gmail + Outlook and couldn't find it.' (or similar). "
+            "Do not invent facts. "
+            "If the user is just saying 'hi' or 'hello', identify yourself briefly."
+        )
+        
+        user_prompt = f"""
+Query: {message}
+
+Context:
+{context_str or "No relevant emails or events found."}
+
+Answer:
+"""
+        response = await self.brain.think(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            model_override="deepseek/deepseek-r1", 
+            temperature_override=0.2
+        )
+        
+        content = response.content.strip()
+        
+        return {
+            "answer": content,
+            "sources": [
+                {"type": "email", "id": e.thread_id, "subject": e.subject, "provider": e.provider} for e in email_hits
+            ] + [
+                {"type": "event", "id": e.event_id, "title": e.title, "provider": e.provider} for e in cal_hits
+            ]
+        }

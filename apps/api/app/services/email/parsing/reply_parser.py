@@ -4,12 +4,12 @@ import re
 # Vendored and simplified from multiple open source projects for MVP.
 # Matches common signature delimiters like "--", "__", "Sent from my iPhone", etc.
 SIG_REGEX = re.compile(
-    r"(^--\s*$)|(^__\s*$)|(^Sent form my)|(^Sent from my)|(^________________)|(^-+Original Message-+)|(^On .* wrote:)",
+    r"(^--\s*$)|(^__\s*$)|(^Sent from my)|(^________________)|(^-+Original Message-+)|(^On .* wrote:)|(^Von:)|(^De:)|(^Am )",
     re.MULTILINE | re.IGNORECASE
 )
 
 QUOTE_REGEX = re.compile(
-    r"(^>+)|(^On .* wrote:)|(^-+Original Message-+)|(^From:\s)|(^Sent:\s)|(^To:\s)|(^Subject:\s)",
+    r"(^>+)|(^On .* wrote:)|(^-+Original Message-+)|(^From:\s)|(^Sent:\s)|(^To:\s)|(^Subject:\s)|(^Begin forwarded message:)|(^-----\s*Original Message\s*-----)",
     re.MULTILINE | re.IGNORECASE
 )
 
@@ -35,12 +35,10 @@ def parse_email_body(text: str) -> str:
     for line in lines:
         line_stripped = line.strip()
         
-        # Stop if we hit a likely signature or quote block start
         if SIG_REGEX.match(line_stripped):
             break
             
-        # Often quotes start with ">"
-        if line_stripped.startswith(">"):
+        if QUOTE_REGEX.match(line_stripped):
             break
         
         # Heuristic: "On [date], [name] wrote:" usually precedes a quote block

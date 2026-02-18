@@ -25,6 +25,13 @@ ALLOWED_LABELS = (
     "Awaiting Reply",
     "High Priority",
     "Actioned",
+    "Cleaned",
+    "Receipt",
+    "Notification",
+    "Money",
+    "Legal",
+    "Complaint",
+    "Hiring",
 )
 
 DEFAULT_LABELS = [
@@ -35,6 +42,13 @@ DEFAULT_LABELS = [
     "Awaiting Reply",
     "High Priority",
     "Actioned",
+    "Cleaned",
+    "Receipt",
+    "Notification",
+    "Money",
+    "Legal",
+    "Complaint",
+    "Hiring",
 ]
 
 DEFAULT_KEYWORD_RULES: dict[str, list[str]] = {
@@ -102,6 +116,11 @@ class LabelDecision:
     reasons: dict[str, str]
     override_applied: bool
     skip_auto: bool
+    suggested_category: Optional[str] = None
+    priority: Optional[str] = None
+    deadline_at: Optional[datetime] = None
+    requires_approval: bool = False
+    approval_reason: Optional[str] = None
 
 
 from app.services.cache import RedisCache
@@ -303,6 +322,88 @@ class LabelingRulesEngine:
                 return True
         return False
 
+    def _apply_cleaning_rules(self, message: NormalizedEmailMessage) -> Optional[str]:
+        """
+        Deterministic cleaning rules for newsletters, receipts, and notifications.
+        Returns the new category if cleaned, else None.
+        """
+        headers = message.metadata.headers or {}
+        subject = (message.metadata.subject or "").lower()
+        sender = (message.metadata.sender or "").lower()
+        
+        # 1. Newsletter Signals
+        is_newsletter = False
+        if "list-unsubscribe" in headers:
+            is_newsletter = True
+        elif headers.get("precedence") == "bulk":
+            is_newsletter = True
+        elif "auto-submitted" in headers and headers.get("auto-submitted") != "no":
+            is_newsletter = True
+        
+        newsletter_domains = ["newsletter", "marketing", "promo", "mailchimp", "substack", "sendgrid"]
+        if any(d in sender for d in newsletter_domains):
+            is_newsletter = True
+
+        if is_newsletter:
+            return "Newsletter"
+
+        # 2. Receipt Signals
+        receipt_patterns = [r"receipt", r"invoice", r"order", r"transaction", r"bill", r"payment", r"pago", r"purchase"]
+        if any(re.search(p, subject) for p in receipt_patterns):
+             return "Receipt"
+        
+        receipt_domains = ["stripe.com", "paypal.com", "apple.com", "microsoftcorp.com", "amazon.com", "square.com"]
+        if any(domain in sender for domain in receipt_domains):
+             return "Receipt"
+
+        # 3. Notification Signals
+        notif_patterns = [r"no-reply", r"noreply", r"system", r"alert", r"notification", r"automated", r"do-not-reply"]
+        if any(re.search(p, sender) or re.search(p, subject) for p in notif_patterns):
+             return "Notification"
+
+        return None
+
+    def _detect_deadline(self, text: str) -> Optional[datetime]:
+        """
+        Deterministic deadline extraction from text.
+        Looks for patterns like 'by Jan 20', 'deadline: 2026-03-01', etc.
+        """
+        # Simple regex for dates like YYYY-MM-DD or Month DD
+        patterns = [
+            r"deadline[:\s]+(\d{4}-\d{2}-\d{2})",
+            r"by\s+([A-Z][a-z]{2,8}\s+\d{1,2})",
+            r"due\s+date[:\s]+(\d{4}-\d{2}-\d{2})",
+            r"until\s+([A-Z][a-z]{2,8}\s+\d{1,2})",
+        ]
+        import dateutil.parser as dparser
+        for p in patterns:
+            match = re.search(p, text, re.IGNORECASE)
+            if match:
+                try:
+                    dt = dparser.parse(match.group(1), fuzzy=True)
+                    # Ensure it's in the future or plausible
+                    return dt
+                except Exception:
+                    continue
+        return None
+
+    def _detect_risk(self, text: str) -> Optional[tuple[str, str]]:
+        """
+        Detects if an email smells like 'Money', 'Legal', 'Complaint', or 'Hiring'.
+        Returns (risk_category, matching_term) if found, else None.
+        """
+        risks = {
+            "Money": [r"payment", r"invoice", r"pricing", r"billing", r"wire transfer", r"bank", r"salary"],
+            "Legal": [r"contract", r"agreement", r"terms of service", r"legal", r"lawsuit", r"policy update"],
+            "Complaint": [r"disappointing", r"complaint", r"unacceptable", r"terrible", r"worst", r"lawyer"],
+            "Hiring": [r"resume", r"cv", r"interview", r"job application", r"hiring", r"offer letter"],
+        }
+        for category, patterns in risks.items():
+            for p in patterns:
+                if re.search(p, text, re.IGNORECASE):
+                    return category, p
+        return None
+
     def decide_labels(
         self,
         *,
@@ -310,6 +411,7 @@ class LabelingRulesEngine:
         triage: TriageResult,
         history: list[TriagedEmail],
         upcoming_events: list[CalendarEventSnapshot],
+        workspace_settings: Optional[dict[str, Any]] = None,
     ) -> LabelDecision:
         preferences = self.get_preferences_payload()
         enabled_set = set(preferences["enabled_labels"])
@@ -331,9 +433,34 @@ class LabelingRulesEngine:
                 labels.append(label_name)
             reasons[label_name] = reason
 
+        # VIP list from settings_json and preferences
+        vip_senders = set([str(x).lower() for x in preferences["vip_senders"]])
+        if workspace_settings:
+            aaliyah_s = workspace_settings.get("aaliyah", {})
+            vips = _to_list_of_str(aaliyah_s.get("vip_senders", []))
+            vip_senders.update([v.lower() for v in vips])
+        
+        is_vip = (sender_email and sender_email in vip_senders) or (sender_domain and sender_domain in vip_senders)
+        is_urgent = triage.category == "Urgent" or triage.priority == "High"
+        priority_override = None
+
+        if is_vip:
+            priority_override = "High"
+            add_label("High Priority", "Sender or domain is configured as VIP.")
+
+        # Apply deterministic cleaning rules ONLY if NOT VIP or Urgent
+        cleaned_category = None
+        if not is_vip and not is_urgent:
+             cleaned_category = self._apply_cleaning_rules(message)
+        
+        final_category = triage.category
+        if cleaned_category:
+            final_category = cleaned_category
+            add_label("Cleaned", f"Deterministic rule matched: {cleaned_category}")
+
         add_label(
-            triage.category,
-            triage.reasoning or f"Classified as {triage.category} by Smart Triage Agent.",
+            final_category,
+            reasons.get(final_category) or triage.reasoning or f"Classified as {final_category}.",
         )
 
         if triage.priority == "High":
@@ -346,9 +473,7 @@ class LabelingRulesEngine:
             if any(term in text_blob for term in terms):
                 add_label(label_name, f"Matched keyword rule for {label_name}.")
 
-        vip_senders = set([str(x).lower() for x in preferences["vip_senders"]])
-        if sender_email and sender_email in vip_senders:
-            add_label("High Priority", "Sender is configured as VIP.")
+        # VIP already handled above
 
         internal_domains = set([_normalize_domain(x) for x in preferences["internal_domains"]])
         if sender_domain and sender_domain in internal_domains:
@@ -372,6 +497,24 @@ class LabelingRulesEngine:
             if len(unresolved) >= 2:
                 add_label("High Priority", "Multiple unresolved messages found in this conversation history.")
 
+        # --- Sprint 5: Priority & Approvals ---
+        deadline_at = self._detect_deadline(text_blob)
+        if deadline_at:
+            add_label("Urgent", f"Automated deadline detection: {deadline_at.strftime('%Y-%m-%d')}")
+
+        risk_category_tuple = self._detect_risk(text_blob)
+        requires_approval = False
+        approval_reason = None
+
+        if risk_category_tuple:
+            risk_category, trigger_term = risk_category_tuple
+            add_label(risk_category, f"Detected high-risk context: {risk_category} (via '{trigger_term}')")
+            # Money/Legal/Payment/Complaint/Hiring route to approvals
+            requires_approval = True
+            approval_reason = trigger_term.replace(r"", "").title()
+            priority_override = "High"
+            add_label("High Priority", f"High-risk item ({risk_category}) requiring executive approval.")
+
         overrides = _safe_overrides(preferences["overrides"])
         override = self._find_override(
             overrides=overrides,
@@ -379,10 +522,25 @@ class LabelingRulesEngine:
             thread_id=message.metadata.thread_id,
         )
         if not override:
-            return LabelDecision(labels=labels, reasons=reasons, override_applied=False, skip_auto=False)
+            return LabelDecision(
+                labels=labels,
+                reasons=reasons,
+                override_applied=False,
+                skip_auto=False,
+                suggested_category=cleaned_category,
+                priority=priority_override,
+                deadline_at=deadline_at,
+                requires_approval=requires_approval,
+                approval_reason=approval_reason,
+            )
 
         if bool(override.get("disable_auto")):
-            return LabelDecision(labels=[], reasons={"override": "User override disabled auto-labeling."}, override_applied=True, skip_auto=True)
+            return LabelDecision(
+                labels=[],
+                reasons={"override": "User override disabled auto-labeling."},
+                override_applied=True,
+                skip_auto=True,
+            )
 
         override_labels = [label for label in _to_list_of_str(override.get("labels")) if label in enabled_set]
         mode = str(override.get("mode") or "replace").lower().strip()
@@ -393,4 +551,15 @@ class LabelingRulesEngine:
             else:
                 labels = list(dict.fromkeys(override_labels))
                 reasons = {label: "User override replaced labels for this message/thread." for label in labels}
-        return LabelDecision(labels=labels, reasons=reasons, override_applied=True, skip_auto=False)
+        
+        return LabelDecision(
+            labels=labels,
+            reasons=reasons,
+            override_applied=True,
+            skip_auto=False,
+            suggested_category=cleaned_category,
+            priority=priority_override,
+            deadline_at=deadline_at,
+            requires_approval=requires_approval,
+            approval_reason=approval_reason,
+        )

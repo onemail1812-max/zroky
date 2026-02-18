@@ -29,5 +29,20 @@ class TriagedEmail(Base):
     confidence = Column(String, nullable=True)
     reasoning = Column(Text, nullable=True)
     metadata_json = Column(SafeJSON(), nullable=True)
+    
+    # New Workflow Fields
+    requires_approval = Column(Boolean, default=False, nullable=False)
+    approval_reason = Column(String, nullable=True)
+    awaiting_reply = Column(Boolean, default=False, nullable=False)
+    last_outbound_at = Column(DateTime, nullable=True)
+    followup_due_at = Column(DateTime, nullable=True)
+    followup_snoozed_until = Column(DateTime, nullable=True)
+    
+    # Restore Support
+    previous_category = Column(String, nullable=True)
+    
+    # Priority & Approvals Support
+    deadline_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

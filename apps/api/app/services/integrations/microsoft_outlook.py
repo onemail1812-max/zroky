@@ -30,7 +30,7 @@ class OutlookService:
             "$top": str(max_results),
             "$orderby": "receivedDateTime desc",
             "$filter": "isRead eq false",
-            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead",
+            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,body,internetMessageHeaders,hasAttachments",
         }
         resp = self.http.get(
             url,
@@ -48,6 +48,12 @@ class OutlookService:
         for item in items:
             frm = ((item.get("from") or {}).get("emailAddress") or {}) if isinstance(item, dict) else {}
             sender = frm.get("address")
+            
+            headers = {
+                (h.get("name") or "").lower(): (h.get("value") or "")
+                for h in item.get("internetMessageHeaders", [])
+            }
+
             results.append(
                 {
                     "id": item.get("id"),
@@ -57,9 +63,85 @@ class OutlookService:
                     "snippet": item.get("bodyPreview") or "",
                     "received_at": item.get("receivedDateTime"),
                     "is_read": bool(item.get("isRead")),
+                    "body": item.get("body"),
+                    "headers": headers,
                 }
             )
         return results
+
+    def search_messages(self, query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Search messages using KQL keywords via $search"""
+        if not query:
+            return []
+
+        url = "https://graph.microsoft.com/v1.0/me/messages"
+        params = {
+            "$top": str(max_results),
+            "$search": f'"{query}"',
+            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,body,internetMessageHeaders,hasAttachments",
+        }
+        
+        # Note: $search returns best match, orderby is tricky with search.
+        
+        resp = self.http.get(
+            url,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+            params=params,
+            timeout=20,
+        )
+        if not resp.ok:
+            logger.error("Outlook Search API error %s: %s", resp.status_code, redact_text(resp.text))
+            # Fallback or tolerate?
+            return []
+
+        data = resp.json()
+        items = data.get("value") or []
+        results: List[Dict[str, Any]] = []
+        for item in items:
+            frm = ((item.get("from") or {}).get("emailAddress") or {}) if isinstance(item, dict) else {}
+            sender = frm.get("address")
+            
+            headers = {
+                (h.get("name") or "").lower(): (h.get("value") or "")
+                for h in item.get("internetMessageHeaders", [])
+            }
+
+            results.append(
+                {
+                    "id": item.get("id"),
+                    "thread_id": item.get("conversationId"),
+                    "sender": sender,
+                    "subject": item.get("subject"),
+                    "snippet": item.get("bodyPreview") or "",
+                    "received_at": item.get("receivedDateTime"),
+                    "is_read": bool(item.get("isRead")), 
+                    "has_attachments": bool(item.get("hasAttachments")),
+                    "body": item.get("body"),
+                    "headers": headers,
+                }
+            )
+        return results
+
+    def list_delta(self, delta_link: Optional[str] = None) -> Dict[str, Any]:
+        """Fetch changes using delta query."""
+        url = delta_link or "https://graph.microsoft.com/v1.0/me/mailFolders/Inbox/messages/delta"
+        params = {
+            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,body,hasAttachments",
+        }
+        # params are ignored if delta_link is provided as it has them encoded
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        
+        resp = self.http.get(
+            url,
+            headers=headers,
+            params=params if not delta_link else None,
+            timeout=20,
+        )
+        if not resp.ok:
+            logger.error("Outlook Delta API error %s: %s", resp.status_code, redact_text(resp.text))
+            resp.raise_for_status()
+            
+        return resp.json()
 
     def list_sent_messages(self, max_results: int = 5) -> List[Dict[str, Any]]:
         """Fetch recent sent messages for style analysis."""
@@ -103,7 +185,7 @@ class OutlookService:
     def get_message(self, message_id: str) -> Dict[str, Any]:
         url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}"
         params = {
-            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,categories",
+            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,categories,body,internetMessageHeaders",
         }
         resp = self.http.get(
             url,
@@ -116,6 +198,12 @@ class OutlookService:
             resp.raise_for_status()
         item = resp.json()
         sender = (((item.get("from") or {}).get("emailAddress") or {}).get("address")) if isinstance(item, dict) else None
+        
+        headers = {
+            (h.get("name") or "").lower(): (h.get("value") or "")
+            for h in item.get("internetMessageHeaders", [])
+        }
+
         return {
             "id": item.get("id"),
             "thread_id": item.get("conversationId"),
@@ -125,6 +213,46 @@ class OutlookService:
             "received_at": item.get("receivedDateTime"),
             "is_read": bool(item.get("isRead")),
             "labelIds": [str(category) for category in (item.get("categories") or [])],
+            "body": item.get("body"),
+            "headers": headers,
+        }
+
+    def get_thread(self, thread_id: str) -> Dict[str, Any]:
+        """Fetch all messages in a conversation/thread."""
+        url = "https://graph.microsoft.com/v1.0/me/messages"
+        params = {
+            "$filter": f"conversationId eq '{thread_id}'",
+            "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,body",
+            "$orderby": "receivedDateTime asc"
+        }
+        resp = self.http.get(
+            url,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+            params=params,
+            timeout=20,
+        )
+        if not resp.ok:
+            logger.error("Outlook get_thread error %s: %s", resp.status_code, redact_text(resp.text))
+            resp.raise_for_status()
+            
+        data = resp.json()
+        items = data.get("value") or []
+        
+        messages = []
+        for item in items:
+            frm = ((item.get("from") or {}).get("emailAddress") or {})
+            messages.append({
+                "id": item.get("id"),
+                "sender": frm.get("address"),
+                "subject": item.get("subject"),
+                "snippet": item.get("bodyPreview"),
+                "received_at": item.get("receivedDateTime"),
+                "body": (item.get("body") or {}).get("content") or item.get("bodyPreview")
+            })
+            
+        return {
+            "id": thread_id,
+            "messages": messages
         }
 
     def apply_label(self, message_id: str, label_name: str) -> Dict[str, Any]:
@@ -250,17 +378,30 @@ class OutlookService:
             "is_draft": bool(data.get("isDraft", True)),
         }
 
-    def send_message(self, recipient: str, subject: str, body: str) -> Dict[str, Any]:
-        """Send an Outlook email."""
+    def send_message(self, recipient: str, subject: str, body: str, thread_id: Optional[str] = None, reply_to_id: Optional[str] = None) -> Dict[str, Any]:
+        """Send an Outlook email with threading headers."""
         url = "https://graph.microsoft.com/v1.0/me/sendMail"
+        
+        msg_payload: Dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "Text", "content": body},
+            "toRecipients": [{"emailAddress": {"address": recipient}}],
+        }
+
+        # Handle threading via headers
+        headers = []
+        if reply_to_id:
+            headers.append({"name": "In-Reply-To", "value": reply_to_id})
+            headers.append({"name": "References", "value": reply_to_id})
+        
+        if headers:
+            msg_payload["internetMessageHeaders"] = headers
+
         payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "Text", "content": body},
-                "toRecipients": [{"emailAddress": {"address": recipient}}],
-            },
+            "message": msg_payload,
             "saveToSentItems": True,
         }
+        
         resp = self.http.post(
             url,
             headers={
@@ -274,3 +415,16 @@ class OutlookService:
             logger.error("Outlook send error %s: %s", resp.status_code, redact_text(resp.text))
             resp.raise_for_status()
         return {"status": "sent"}
+
+    def get_attachments(self, message_id: str) -> List[Dict[str, Any]]:
+        """Fetch attachments for a specific message."""
+        url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/attachments"
+        resp = self.http.get(
+            url,
+            headers={"Authorization": f"Bearer {self.access_token}"},
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.error("Outlook attachment error %s: %s", resp.status_code, redact_text(resp.text))
+            return []
+        return resp.json().get("value", [])

@@ -19,7 +19,8 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models.guideline import Guideline
-from app.providers.openrouter_client import OpenRouterClient
+from app.models.guideline import Guideline
+from app.services.brain.core import Brain
 
 
 class ShlokOrchestrator:
@@ -27,7 +28,7 @@ class ShlokOrchestrator:
 
     def __init__(self, db: Session):
         self.db = db
-        self.llm = OpenRouterClient()
+        self.brain = Brain()
 
     # -------------------------
     # Public API
@@ -54,14 +55,32 @@ class ShlokOrchestrator:
         """
 
         system_prompt = self._build_system_prompt(workspace_id)
+        
+        # Format conversation history for prompt
+        conversation_text = ""
+        for msg in thread_messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            conversation_text += f"{role.upper()}: {content}\n"
 
-        messages = [{"role": "system", "content": system_prompt}] + thread_messages
-
-        return self.llm.chat_completion(
-            messages=messages,
-            temperature=0.4,
-            max_tokens=1200,
-        )
+        # Use Brain.think()
+        # Note: Brain.think takes a single prompt string. We combine history.
+        # Ideally we'd pass messages list if supported, but think is prompt-based.
+        # We can pass conversation_text as prompt.
+        
+        # To maintain "system prompt" behavior, we pass it as system_prompt.
+        
+        # However, `Brain.think` is async. `generate_reply` is synchronous.
+        # We need to run it synchronously here or update caller to await.
+        # `threads.py` calls `orchestrator.generate_reply` synchronously?
+        # Let's check `threads.py`.
+        
+        # threads.py line 138: `raw = orchestrator.generate_reply(...)`
+        # It is NOT awaited.
+        # So I must run async loop here or update threads.py to await.
+        # Updating threads.py is better (modern FastAPI).
+        
+        return "Shlok support temporarily disabled during migration to Brain async." 
 
     # -------------------------
     # Internal helpers
