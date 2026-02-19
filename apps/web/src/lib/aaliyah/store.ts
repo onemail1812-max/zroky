@@ -92,9 +92,12 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   fetchStatus: async () => {
     try {
       const [statusData, statsData] = await Promise.all([getStatus(), getCounts()])
+      const health = get().connectionHealth
+      const status = (!health || !health.email_accessible) ? "idle" : normalizeStatus(statusData?.status)
+
       set({
-        status: normalizeStatus(statusData?.status),
-        activeTask: typeof statusData?.active_task === "string" ? statusData.active_task : null,
+        status,
+        activeTask: status === "idle" ? null : (typeof statusData?.active_task === "string" ? statusData.active_task : null),
         lastSync: {
           gmail: typeof statusData?.last_sync?.gmail === "string" ? statusData.last_sync.gmail : null,
           calendar: typeof statusData?.last_sync?.calendar === "string" ? statusData.last_sync.calendar : null,

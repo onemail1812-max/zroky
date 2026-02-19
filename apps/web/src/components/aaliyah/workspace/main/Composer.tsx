@@ -81,6 +81,7 @@ export function Composer({
             }}
             rows={1}
             placeholder="Review Q3 strategy..."
+            data-testid="composer-textarea"
             className="flex-1 max-h-[200px] bg-transparent py-2.5 text-[15px] leading-relaxed text-textPrimary placeholder:text-textMuted/60 focus:outline-none resize-none scrollbar-hide"
           />
 
@@ -90,6 +91,7 @@ export function Composer({
               onClick={onSend}
               aria-label="Send"
               title="Send"
+              data-testid="composer-send-btn"
               disabled={disabled || !value.trim()}
               className={cn(
                 "h-9 w-9 rounded-full flex items-center justify-center transition-all duration-300",

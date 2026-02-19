@@ -260,10 +260,14 @@ class OnboardingCompleteRequest(BaseModel):
     working_hours_start: str = Field(default="09:00 AM", max_length=10)
     working_hours_end: str = Field(default="06:00 PM", max_length=10)
     meeting_duration: int = Field(default=30, ge=15, le=120)
+    notes_mode: str = Field(default="manual", max_length=30)
     draft_tone: str = Field(default="Professional", max_length=50)
     signature: Optional[str] = Field(default=None, max_length=500)
+    examples: Optional[str] = None
     vips: list[str] = Field(default_factory=list)
     safe_auto_send: bool = False
+    follow_up_days: int = Field(default=3, ge=1, le=14)
+    max_follow_ups: int = Field(default=2, ge=0, le=5)
     always_require_approval: bool = True
     approval_required_topics: list[str] = Field(default_factory=list)
 
@@ -309,9 +313,13 @@ async def complete_onboarding(
         "working_hours_start": payload.working_hours_start,
         "working_hours_end": payload.working_hours_end,
         "default_meeting_duration": payload.meeting_duration,
+        "notes_mode": payload.notes_mode,
         "draft_tone": payload.draft_tone,
         "signature": payload.signature,
+        "examples": payload.examples,
         "auto_send_enabled": payload.safe_auto_send,
+        "follow_up_days": payload.follow_up_days,
+        "max_follow_ups": payload.max_follow_ups,
         "vip_senders": payload.vips,
         "always_require_approval": payload.always_require_approval,
         "approval_required_topics": payload.approval_required_topics,

@@ -38,7 +38,7 @@ export interface OAuthConfig {
 export interface HealthServiceStatus {
     connected: boolean;
     provider: string | null;
-    status: 'OK' | 'NOT_CONNECTED' | 'EXPIRED' | 'REVOKED' | 'SCOPE_MISSING' | 'ERROR' | 'NEEDS_RECONNECT';
+    status: 'OK' | 'NOT_CONNECTED' | 'EXPIRED' | 'REVOKED' | 'SCOPE_MISSING' | 'ERROR' | 'NEEDS_RECONNECT' | 'RATE_LIMIT' | 'NETWORK_ERROR';
     last_sync_at: string | null;
     error_code: string;
 }

@@ -63,7 +63,7 @@ export function getConnectionMessage(service: HealthServiceStatus, serviceName: 
     }
 
     // 5. RETRYABLE ERRORS (RATE LIMIT, NETWORK)
-    if (status === "ERROR" && (error_code === "RATE_LIMIT_EXCEEDED" || error_code === "NETWORK_TIMEOUT")) {
+    if (status === "RATE_LIMIT" || status === "NETWORK_ERROR" || (status === "ERROR" && (error_code === "RATE_LIMIT_EXCEEDED" || error_code === "NETWORK_TIMEOUT"))) {
         return {
             title: "Temporary Issue",
             description: error_code === "RATE_LIMIT_EXCEEDED"

@@ -50,18 +50,20 @@ class DraftingAgent:
     async def _get_style_context(self) -> str:
         """
         Implements Style Learning Trust Ladder:
-        - Learn only from approved sent emails (draft status == "sent").
-        - After 10: greeting + signoff + length.
-        - After 30: phrasing patterns.
-        - After 60: micro-style.
+        - Incorporate user-provided examples from settings.
+        - Learn from approved sent emails (draft status == "sent").
+        - Progress through accuracy levels based on volume.
         """
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        onboarding_examples = aaliyah_settings.get("examples")
+
         # Find approved drafts
-        # Note: In a real DB we'd use JSON operators, here we iterate or use a simple query
         approved_emails = (
             self.db.query(TriagedEmail)
             .filter(TriagedEmail.workspace_id == self.workspace_id)
             .order_by(TriagedEmail.updated_at.desc())
-            .limit(100) # Pull last 100 to scan for approved
+            .limit(100)
             .all()
         )
         
@@ -73,10 +75,17 @@ class DraftingAgent:
                 sends.append(draft)
         
         count = len(sends)
-        if count < 5:
+        context = ""
+
+        if onboarding_examples:
+            context += "**User-provided Style Examples:**\n"
+            # Limit to 1000 chars to avoid bloating prompt too much
+            context += f"{onboarding_examples[:1000]}\n\n"
+
+        if count < 5 and not onboarding_examples:
             return "No style baseline yet. Use professional defaults."
 
-        context = f"**Style Baseline (Based on {count} approved sends):**\n"
+        context += f"**Style Baseline (Based on {count} approved sends):**\n"
         
         # 1. Ladder Step 1: Greeting + Signoff (10+ sends)
         if count >= 10:

@@ -13,7 +13,27 @@ import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
 import { CardFeed, type FeedItem, type Evidence } from "../main/CardFeed"
 import { sendChat, getThreadDetails, getOnboardingStatus, runPreflight, getBriefing } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
-import { BrainCircuit, Loader2 } from "lucide-react"
+import { BrainCircuit, Loader2, WifiOff, ShieldAlert, AlertTriangle } from "lucide-react"
+import { getConnectionMessage } from "@/lib/aaliyah/connection-messages"
+import { cn } from "@/lib/utils"
+
+// ── Workspace Unlocked Message ──────────────────────────────────────
+function mkWelcomeBackItem(firstName: string | null, health: any): FeedItem {
+    const name = firstName || "there"
+    const isOk = health?.email_accessible === true
+
+    const text = isOk
+        ? `Done, ${name} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.`
+        : `Protocols ready, ${name}. However, your email is not yet connected. Please authorize Gmail or Outlook in Settings > Integrations to begin.`;
+
+    return {
+        id: `welcome_${Date.now()}`,
+        type: "response",
+        title: "Aaliyah",
+        text: text,
+        tone: isOk ? "success" : "normal" as any,
+    }
+}
 
 // ── Onboarding Gate Screen ──────────────────────────────────────────
 function OnboardingGate({ firstName }: { firstName: string | null }) {
@@ -106,22 +126,58 @@ function OnboardingGate({ firstName }: { firstName: string | null }) {
     )
 }
 
-// ── Workspace Unlocked Message ──────────────────────────────────────
-function mkWelcomeBackItem(firstName: string | null, health: any): FeedItem {
-    const name = firstName || "there"
-    const isOk = health?.email_accessible === true
+// ── Health Gate Screen ──────────────────────────────────────────────
+function HealthGate({ health, onRetry }: { health: any, onRetry: () => void }) {
+    const msg = getConnectionMessage(health.email_health, "Email")
+    const Icon = msg.badge === 'error' ? ShieldAlert : msg.badge === 'warning' ? AlertTriangle : WifiOff
 
-    const text = isOk
-        ? `Done, ${name} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.`
-        : `Protocols ready, ${name}. However, your email is not yet connected. Please authorize Gmail or Outlook in Settings > Integrations to begin.`;
+    return (
+        <div className="flex h-screen w-full bg-white items-center justify-center p-8 z-[200]" data-testid="health-gate">
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="max-w-md w-full text-center"
+            >
+                <div className={cn(
+                    "mx-auto h-16 w-16 rounded-3xl flex items-center justify-center mb-8",
+                    msg.badge === 'error' ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+                )}>
+                    <Icon className="h-8 w-8" />
+                </div>
 
-    return {
-        id: `welcome_${Date.now()}`,
-        type: "response",
-        title: "Aaliyah",
-        text: text,
-        tone: isOk ? "success" : "normal" as any,
-    }
+                <h2 className="text-3xl font-black text-zinc-900 tracking-tight mb-4 leading-tight" data-testid="health-gate-title">
+                    {msg.title}
+                </h2>
+                <p className="text-zinc-500 text-lg font-medium mb-10 leading-relaxed" data-testid="health-gate-description">
+                    {msg.description}
+                </p>
+
+                <div className="space-y-4">
+                    {msg.ctaAction === 'connect' || msg.ctaAction === 'reconnect' ? (
+                        <a
+                            href="/settings/integrations"
+                            className="flex items-center justify-center w-full px-8 py-4 bg-zinc-900 text-white rounded-[20px] font-bold text-lg hover:bg-black transition-all shadow-xl"
+                            data-testid="health-gate-cta"
+                        >
+                            {msg.ctaLabel || "Reconnect Now"}
+                        </a>
+                    ) : (
+                        <button
+                            onClick={onRetry}
+                            className="flex items-center justify-center w-full px-8 py-4 bg-zinc-900 text-white rounded-[20px] font-bold text-lg hover:bg-black transition-all shadow-xl"
+                            data-testid="health-gate-cta"
+                        >
+                            {msg.ctaLabel || "Retry Connection"}
+                        </button>
+                    )}
+
+                    <p className="text-xs text-zinc-400 font-bold uppercase tracking-widest pt-4">
+                        System Gate Active — Protocols Halted
+                    </p>
+                </div>
+            </motion.div>
+        </div>
+    )
 }
 
 // ── Main Layout ─────────────────────────────────────────────────────
@@ -445,6 +501,11 @@ export function WorkspaceLayout() {
         return <OnboardingGate firstName={firstName} />
     }
 
+    // ── Health gate ───────────────────────────────────────────────────
+    if (connectionHealth && !connectionHealth.email_accessible && onboardingComplete) {
+        return <HealthGate health={connectionHealth} onRetry={() => fetchHealth()} />
+    }
+
     return (
         <div className="flex h-screen bg-white overflow-hidden relative">
             <style dangerouslySetInnerHTML={{
@@ -560,29 +621,13 @@ export function WorkspaceLayout() {
                         <button
                             onClick={(e) => { e.stopPropagation(); setSettingsOpen(true); }}
                             className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-black/15 hover:bg-zinc-900 hover:text-white text-zinc-500 transition-colors text-xs font-medium"
+                            data-testid="workspace-settings-btn"
                         >
                             <Settings className="h-3.5 w-3.5" />
                             Settings
                         </button>
                     </div>
                 </header>
-
-                {/* Connection Health Banner */}
-                {connectionHealth && !connectionHealth.email_accessible && onboardingComplete && (
-                    <div className="bg-amber-50 border-b border-amber-100 px-6 py-2 flex items-center justify-between" data-testid="connection-health-banner">
-                        <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-[11px] font-medium text-amber-800" data-testid="connection-health-message">Email connection is currently inactive. System is in read-only mode.</span>
-                        </div>
-                        <Link
-                            href="/aaliyahonboarding"
-                            className="text-[10px] font-bold uppercase tracking-wider text-amber-900 hover:underline"
-                            data-testid="authorize-email-cta"
-                        >
-                            Authorize Email
-                        </Link>
-                    </div>
-                )}
 
                 {/* Content */}
                 {selectedThread ? (

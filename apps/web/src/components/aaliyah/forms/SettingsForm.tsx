@@ -173,6 +173,7 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
+                            data-testid={`settings-tab-${tab.id}`}
                             className={cn(
                                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all group",
                                 activeTab === tab.id
@@ -363,6 +364,56 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                     onChange={(vips) => setConfig({ ...config, vip_senders: vips })}
                                 />
                             </div>
+
+                            {/* Aaliyah Persona */}
+                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm mt-6">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="h-8 w-8 bg-zinc-900 text-white rounded-lg flex items-center justify-center"><Mic className="h-4 w-4" /></div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-zinc-900">Aaliyah Persona</h3>
+                                        <p className="text-xs text-zinc-500">Tone, signature, and examples used for drafting.</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Draft Tone</label>
+                                        <select
+                                            value={config.draftTone}
+                                            onChange={(e) => setConfig({ ...config, draftTone: e.target.value })}
+                                            className="w-full bg-zinc-50 border-0 rounded-lg py-2 pl-3 pr-8 text-xs font-bold"
+                                            data-testid="settings-draft-tone"
+                                        >
+                                            <option value="Professional">Professional</option>
+                                            <option value="Direct">Direct</option>
+                                            <option value="Friendly">Friendly</option>
+                                            <option value="Casual">Casual</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Email Signature</label>
+                                        <input
+                                            value={config.signature}
+                                            onChange={(e) => setConfig({ ...config, signature: e.target.value })}
+                                            className="w-full bg-zinc-50 border-zinc-200 rounded-lg py-2 px-3 text-xs font-medium focus:ring-1 focus:ring-zinc-900"
+                                            placeholder="e.g. – Alex, CEO @ Zroky"
+                                            data-testid="settings-signature"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Style Transfer Examples</label>
+                                        <textarea
+                                            value={config.examples}
+                                            onChange={(e) => setConfig({ ...config, examples: e.target.value })}
+                                            className="w-full bg-zinc-50 border-zinc-200 rounded-lg py-2 px-3 text-xs font-medium min-h-[100px] resize-none focus:ring-1 focus:ring-zinc-900"
+                                            placeholder="Paste example emails here..."
+                                            data-testid="settings-examples"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -544,6 +595,7 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                     <button
                         onClick={handleSave}
                         disabled={saving}
+                        data-testid="settings-save-btn"
                         className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-zinc-200 hover:bg-zinc-900 hover:translate-y-px transition-all flex items-center gap-2 disabled:opacity-70"
                     >
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
     
     # Auth
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
@@ -182,6 +183,13 @@ class Settings(BaseSettings):
     def oauth_encryption_key(self): return self.OAUTH_ENCRYPTION_KEY
     @property
     def clerk_jwks_url(self): return None
+    @property
+    def clerk_jwt_iss(self): return None
+    @property
+    def clerk_jwt_aud(self): return None
+    
+    @property
+    def frontend_base_url(self): return self.FRONTEND_BASE_URL
 
     @property
     def brain_model(self): return self.BRAIN_MODEL

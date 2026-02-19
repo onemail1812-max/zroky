@@ -51,12 +51,8 @@ export function PreFlightPanel() {
     const hasError = emailMsg.badge === "error" || calMsg.badge === "error"
     const hasWarning = emailMsg.badge === "warning" || calMsg.badge === "warning"
 
-    const headerTitle = allGood ? "Morning Check Complete" : hasError ? "Connection Lost" : "Morning Check"
-    const headerDesc = allGood
-        ? "Connected. Syncing inbox and today's schedule now."
-        : hasError
-            ? "Your access expired or was revoked. Re-authorize to continue."
-            : "Email/Calendar aren't connected yet. Authorize to start syncing and drafting."
+    const headerTitle = emailMsg.title
+    const headerDesc = emailMsg.description
 
     const handleAction = async (action?: string) => {
         if (!action) return

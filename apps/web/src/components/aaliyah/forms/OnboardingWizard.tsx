@@ -63,6 +63,8 @@ type OnboardingState = {
   examples: string
   vips: string[]
   safeAutoSend: boolean
+  followUpDays: number
+  maxFollowUps: number
   alwaysRequireApproval: boolean
   approvalRequiredTopics: string[]
 }
@@ -87,6 +89,8 @@ export default function OnboardingWizard() {
     examples: '',
     vips: [],
     safeAutoSend: false,
+    followUpDays: 3,
+    maxFollowUps: 2,
     alwaysRequireApproval: true,
     approvalRequiredTopics: ["Financials", "Hiring", "External Strategy"]
   })
@@ -278,7 +282,7 @@ function Screen1({ state, setState, onNext }: ScreenProps) {
         })}
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3 group mt-4">
+      <button onClick={onNext} data-testid="onboarding-next-1" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3 group mt-4">
         Activate Modules
         <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
       </button>
@@ -381,9 +385,39 @@ function Screen2({ state, setState, onNext }: ScreenProps) {
           </p>
         </div>
 
+        {/* Section 3: Notes Mode */}
+        {state.capabilities.includes("Attend meetings and take notes") && (
+          <div className="space-y-3 pt-2">
+            <label className="text-[11px] font-black uppercase tracking-widest text-zinc-400 pl-1">Meeting Intelligence</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'manual', title: 'On-Demand', desc: 'I record only when asked.' },
+                { id: 'auto', title: 'Always Active', desc: 'I record all your meetings.' }
+              ].map((opt) => {
+                const active = state.notesMode === opt.id
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => setState((p) => ({ ...p, notesMode: opt.id as any }))}
+                    className={cn(
+                      "p-4 rounded-[22px] border transition-all duration-300 text-left flex flex-col gap-1",
+                      active
+                        ? "bg-zinc-900 text-white border-zinc-900 shadow-md"
+                        : "bg-white text-zinc-400 border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50"
+                    )}
+                  >
+                    <span className={cn("text-xs font-black uppercase tracking-wide", active ? "text-white" : "text-zinc-900")}>{opt.title}</span>
+                    <span className="text-[10px] font-medium leading-tight opacity-70">{opt.desc}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
+      <button onClick={onNext} data-testid="onboarding-next-2" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
         Confirm Schedule <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -426,13 +460,14 @@ function Screen3({ state, setState, onNext }: ScreenProps) {
         <div className="space-y-3">
           <label className="text-[11px] font-black uppercase tracking-widest text-zinc-400 pl-1">Style Transfer (Optional)</label>
           <textarea rows={3} value={state.examples} onChange={(e) => setState((p) => ({ ...p, examples: e.target.value }))}
+            data-testid="onboarding-examples"
             className="w-full glass-input rounded-3xl px-5 py-4 text-xs font-medium outline-none resize-none placeholder:text-zinc-300 bg-zinc-50 border-transparent focus:bg-white transition-all"
             placeholder="Paste a few of your sent emails here. I'll analyze sentence structure and vocabulary."
           />
         </div>
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
+      <button onClick={onNext} data-testid="onboarding-next-3" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
         Calibrate Voice <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -482,7 +517,7 @@ function Screen4({ state, setState, onNext }: ScreenProps) {
         </div>
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
+      <button onClick={onNext} data-testid="onboarding-next-4" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
         Continue <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -519,7 +554,7 @@ function Screen5({ onNext }: { onNext: () => void }) {
         ))}
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
+      <button onClick={onNext} data-testid="onboarding-next-5" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
         Acknowledge Protocols <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -568,7 +603,7 @@ function Screen6({ state, setState, onNext }: ScreenProps) {
         </p>
       </div>
 
-      <button onClick={onNext} className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
+      <button onClick={onNext} data-testid="onboarding-next-6" className="charcoal-btn w-full h-16 text-white rounded-[24px] font-black text-sm shadow-xl flex items-center justify-center gap-3">
         Complete Configuration <ArrowRight className="h-4 w-4" />
       </button>
     </div>
@@ -615,10 +650,14 @@ function Screen7({ state }: { state?: OnboardingState }) {
         working_hours_start: state?.workingHours?.start || "09:00 AM",
         working_hours_end: state?.workingHours?.end || "06:00 PM",
         meeting_duration: state?.meetingDuration || 30,
+        notes_mode: state?.notesMode || "manual",
         draft_tone: state?.draftTone || "Professional",
         signature: state?.signature || undefined,
+        examples: state?.examples || undefined,
         vips: state?.vips || [],
         safe_auto_send: state?.safeAutoSend || false,
+        follow_up_days: state?.followUpDays || 3,
+        max_follow_ups: state?.maxFollowUps || 2,
         always_require_approval: state?.alwaysRequireApproval ?? true,
         approval_required_topics: state?.approvalRequiredTopics || [],
       })
@@ -667,7 +706,7 @@ function Screen7({ state }: { state?: OnboardingState }) {
     <div className="flex flex-col items-center justify-center text-center h-full w-full max-w-2xl mx-auto py-8">
 
       <div className="space-y-6 mb-12">
-        <h1 className="text-6xl lg:text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap">
+        <h1 className="text-6xl lg:text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap" data-testid="onboarding-header">
           {done ? "System Live." : isReady ? "System Ready." : "Connection Required."}
         </h1>
         <p className="text-zinc-500 font-medium text-xl leading-relaxed max-w-md mx-auto">
@@ -687,7 +726,7 @@ function Screen7({ state }: { state?: OnboardingState }) {
           <span className="text-emerald-600/80">OK</span>
         </div>
 
-        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600">
+        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600" data-testid="onboarding-status-email">
           <div className="flex items-center gap-3">
             <div className={cn("h-1.5 w-1.5 rounded-full transition-colors", emailOk ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
             Email Stream
@@ -697,7 +736,7 @@ function Screen7({ state }: { state?: OnboardingState }) {
           </span>
         </div>
 
-        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600">
+        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600" data-testid="onboarding-status-calendar">
           <div className="flex items-center gap-3">
             <div className={cn("h-1.5 w-1.5 rounded-full transition-colors", calendarOk ? "bg-emerald-500" : "bg-zinc-300")} />
             Calendar Stream
@@ -712,12 +751,14 @@ function Screen7({ state }: { state?: OnboardingState }) {
       {!isReady ? (
         <div className="w-full max-w-md grid gap-3">
           <button onClick={() => connectProvider('google')}
+            data-testid="onboarding-auth-google"
             className="h-16 bg-white border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-[20px] font-bold text-sm shadow-sm flex items-center justify-center gap-3 transition-all"
           >
             <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
             Authorize Google Account
           </button>
           <button onClick={() => connectProvider('microsoft')}
+            data-testid="onboarding-auth-outlook"
             className="h-16 bg-white border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-[20px] font-bold text-sm shadow-sm flex items-center justify-center gap-3 transition-all"
           >
             <img src="https://www.microsoft.com/favicon.ico" className="w-5 h-5" alt="Microsoft" />
@@ -729,6 +770,7 @@ function Screen7({ state }: { state?: OnboardingState }) {
           <button
             onClick={handleLaunch}
             disabled={saving || done}
+            data-testid="onboarding-launch-btn"
             className="group relative w-full h-20 bg-zinc-900 hover:bg-black text-white rounded-[28px] overflow-hidden transition-all shadow-2xl hover:shadow-zinc-900/30 hover:-translate-y-1 active:scale-[0.98] disabled:opacity-80 disabled:cursor-not-allowed"
           >
             <div className="relative z-10 flex items-center justify-center gap-3 h-full px-8">

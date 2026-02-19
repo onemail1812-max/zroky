@@ -124,10 +124,14 @@ export interface OnboardingCompletePayload {
   working_hours_start: string
   working_hours_end: string
   meeting_duration: number
+  notes_mode: string
   draft_tone: string
   signature?: string
+  examples?: string
   vips: string[]
   safe_auto_send: boolean
+  follow_up_days?: number
+  max_follow_ups?: number
   always_require_approval?: boolean
   approval_required_topics?: string[]
 }

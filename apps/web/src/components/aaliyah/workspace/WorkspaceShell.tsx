@@ -119,7 +119,14 @@ export default function WorkspaceShell() {
         return // STOP HERE. No fetching inbox, no syncing.
       }
 
-      // 3. System is Go
+      // 3. System is Go -> Preflight & Initial Data
+      try {
+        const { runPreflight } = await import("@/lib/aaliyah/api")
+        await runPreflight()
+      } catch (e) {
+        console.error("Preflight failed, but proceeding with caution", e)
+      }
+
       await Promise.all([fetchStatus(), fetchInbox()])
       if (alive) setIsBooting(false)
     }

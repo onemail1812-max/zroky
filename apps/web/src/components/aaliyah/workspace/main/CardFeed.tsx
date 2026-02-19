@@ -66,7 +66,7 @@ export function GroundedAnswerCard({
         </div>
 
         <div className="bg-surface rounded-2xl border border-borderSubtle p-4 shadow-sm">
-          <div className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap mb-4">{text}</div>
+          <div className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap mb-4" data-testid="grounded-answer-text">{text}</div>
 
           {evidence.length > 0 && (
             <div className="pt-3 border-t border-borderSubtle">

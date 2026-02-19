@@ -184,10 +184,10 @@ class ConnectorHealthService:
                 return "OK", "HEALTHY"
             
             if ping_result == "RATE_LIMIT":
-                return "ERROR", "RATE_LIMIT_EXCEEDED"
+                return "RATE_LIMIT", "RATE_LIMIT_EXCEEDED"
 
             if ping_result == "NETWORK_ERROR":
-                 return "ERROR", "NETWORK_TIMEOUT"
+                 return "NETWORK_ERROR", "NETWORK_TIMEOUT"
 
             if ping_result == "AUTH_ERROR":
                 # If ping failed (401), try refresh
