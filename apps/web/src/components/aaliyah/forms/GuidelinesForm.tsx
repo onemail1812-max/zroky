@@ -47,7 +47,11 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
         signature: '',
         examples: '',
         vips: [] as string[],
-        safeAutoSend: false
+        safeAutoSend: false,
+        // Hidden state to prevent data loss on save
+        archive_less_important: false,
+        follow_up_days: 3,
+        max_follow_ups: 2
     })
 
     const [vipInput, setVipInput] = React.useState('')
@@ -57,12 +61,23 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
         getAaliyahSettings()
             .then(data => {
                 if (data) {
-                    setState(prev => ({
-                        ...prev,
-                        draftTone: data.draft_tone || prev.draftTone,
-                        signature: data.signature || prev.signature,
-                        safeAutoSend: data.auto_send_enabled || prev.safeAutoSend
-                    }))
+                    setState({
+                        capabilities: data.capabilities || ["Organize inbox", "Draft email replies", "Track follow-ups"],
+                        workingHours: {
+                            start: data.working_hours_start,
+                            end: data.working_hours_end
+                        },
+                        meetingDuration: data.default_meeting_duration,
+                        notesMode: data.notes_mode || 'manual',
+                        draftTone: data.draft_tone || 'Professional',
+                        signature: data.signature || '',
+                        examples: data.examples || '',
+                        vips: data.vip_senders || [],
+                        safeAutoSend: data.auto_send_enabled,
+                        archive_less_important: data.archive_less_important,
+                        follow_up_days: data.follow_up_days || 3,
+                        max_follow_ups: data.max_follow_ups || 2
+                    })
                 }
             })
             .catch(console.error)
@@ -73,16 +88,32 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
         setMessage("")
         try {
             const payload: AaliyahSettings = {
-                auto_send_enabled: state.safeAutoSend,
+                capabilities: state.capabilities,
+                working_hours_start: state.workingHours.start,
+                working_hours_end: state.workingHours.end,
+                default_meeting_duration: state.meetingDuration,
+                notes_mode: state.notesMode,
                 draft_tone: state.draftTone,
-                signature: state.signature
+                signature: state.signature,
+                examples: state.examples,
+                vip_senders: state.vips,
+                auto_send_enabled: state.safeAutoSend,
+                archive_less_important: state.capabilities.includes("Archive noise"),
+                follow_up_days: state.follow_up_days,
+                max_follow_ups: state.max_follow_ups,
+                // These are also updated by this form to keep consistency
+                organize_inbox_enabled: state.capabilities.includes("Organize inbox"),
+                draft_replies_enabled: state.capabilities.includes("Draft email replies"),
+                track_follow_ups: state.capabilities.includes("Track follow-ups"),
+                calendar_assist_enabled: state.capabilities.includes("Manage calendar"),
+                attend_meetings: state.capabilities.includes("Meeting intelligence")
             }
             await updateAaliyahSettings(payload)
-            setMessage("Configuration synced.")
+            setMessage("Protocols deployed.")
             setTimeout(() => setMessage(""), 3000)
         } catch (err) {
             console.error(err)
-            setMessage("Sync failed.")
+            setMessage("Update failed.")
         } finally {
             setSaving(false)
         }
@@ -412,7 +443,7 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                         className="bg-zinc-950 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-zinc-200 hover:bg-zinc-900 hover:translate-y-px transition-all flex items-center gap-2 disabled:opacity-70"
                     >
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {saving ? "Deploying..." : "Save Configuration"}
+                        {saving ? "Saving..." : "Save Configuration"}
                     </button>
                 </div>
             </div>

@@ -312,6 +312,7 @@ class AaliyahOrchestrator:
             "BRIEFING": 0.0,
             "STATUS": 0.0,
             "SEARCH": 0.0,
+            "HEALTH_CHECK": 0.0,
         }
 
         # Draft intent: must show clear drafting desire, not just mention "email"
@@ -358,6 +359,10 @@ class AaliyahOrchestrator:
         # Status
         if any(w in text for w in ("status", "what's happening", "inbox status", "how many emails", "how many unread")):
             scores["STATUS"] += 2.0
+
+        # Health / Connection
+        if any(w in text for w in ("mail connected", "email connected", "connection status", "is my email working", "check connection", "health")):
+            scores["HEALTH_CHECK"] += 2.5
 
         # Pick highest scoring intent, fallback to SUMMARY
         best_intent = max(scores, key=scores.get)  # type: ignore
@@ -653,19 +658,60 @@ class AaliyahOrchestrator:
 
         # --- Generate a natural, context-aware conversational reply ---
         reply_text = "I've noted that and prepared the next action."
+        
+        # --- Mandatory Health Check for Actionable Intents ---
+        health_info = {}
+        if intent in {"DRAFT", "ARCHIVE", "LABEL", "STATUS", "SEARCH", "HEALTH_CHECK"}:
+             from app.services.integrations.health_service import ConnectorHealthService
+             health_svc = ConnectorHealthService(db, self.workspace_id)
+             health_info = health_svc.get_detailed_health()
+             
+             # If disconnected and trying to act, override reply
+             email_status = health_info.get("email", {}).get("status", "NOT_CONNECTED")
+             if email_status != "OK" and intent not in {"HEALTH_CHECK", "SEARCH"}:
+                 return {
+                     "reply": (
+                         f"**Status**: action_blocked\n"
+                         f"**Result**: I cannot {intent.lower()} because your email is disconnected.\n"
+                         f"**Next step**: Please go to Settings > Integrations and authorize your email account."
+                     ),
+                     "answer_text": f"Your email connection is currently {email_status}. Please re-authorize in settings.",
+                     "details": {**decision, "health": health_info},
+                     "tool_result": {"status": "connection_required", "service": "email"}
+                 }
+
+        if intent == "HEALTH_CHECK":
+            email = health_info.get("email", {})
+            cal = health_info.get("calendar", {})
+            reply_text = (
+                f"**Status**: system_report\n"
+                f"**Result**: Email is {email.get('status')} ({email.get('provider', 'none')}) and Calendar is {cal.get('status')}.\n"
+                f"**Next step**: {'Everything looks operational.' if email.get('status') == 'OK' else 'Please re-authorize your email to resume operations.'}"
+            )
+            return {
+                "reply": reply_text,
+                "answer_text": reply_text,
+                "details": {**decision, "health": health_info},
+                "tool_result": {"status": "ok", "health": health_info}
+            }
+
         if gate.allow_llm:
             try:
                 prompt_context = context.get("prompt_context", "")
                 conv_system = (
-                    "You are Aaliyah, an elite Executive Chief of Staff. "
-                    "Respond naturally and helpfully to the user's message. "
-                    "Be concise, warm, and professional. "
-                    "If you have relevant context from memory, weave it in naturally. "
-                    "Never say 'I processed that'. Give a real, useful answer."
+                    "You are Aaliyah, an elite Executive Chief of Staff.\n"
+                    "RULES:\n"
+                    "1. Respond using strictly this markdown format:\n"
+                    "   **Status**: [current status, e.g. acting, pending_approval, info_provided]\n"
+                    "   **Result**: [concise result of the action or reasoning]\n"
+                    "   **Next step**: [what you are doing next or what the user should do]\n"
+                    "2. Be concise, warm, and professional.\n"
+                    "3. If context is provided, use it naturally.\n"
+                    "4. Avoid generic fluff like 'I processed that'. Give real value."
                 )
                 conv_prompt = (
                     f"{prompt_context}\n\n" if prompt_context else ""
-                ) + f"User says: {message}\n\nRespond helpfully:"
+                ) + f"User says: {message}\n\nRespond following the strict Status/Result/Next step format:"
 
                 conv_response = await self.brain.think(
                     prompt=conv_prompt,

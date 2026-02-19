@@ -12,6 +12,7 @@ import GuidelinesForm from "@/components/aaliyah/forms/GuidelinesForm"
 import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
 import { CardFeed, type FeedItem, type Evidence } from "../main/CardFeed"
 import { sendChat, getThreadDetails, getOnboardingStatus } from "@/lib/aaliyah/api"
+import { useSystemStore } from "@/lib/aaliyah/store"
 import { BrainCircuit, Loader2 } from "lucide-react"
 
 // ── Onboarding Gate Screen ──────────────────────────────────────────
@@ -143,6 +144,12 @@ export function WorkspaceLayout() {
     const [isSubmitting, setIsSubmitting] = React.useState(false)
     const [workingStatus, setWorkingStatus] = React.useState<string | null>(null)
 
+    const {
+        connectionHealth,
+        fetchHealth,
+        isBackendConnected
+    } = useSystemStore()
+
     // ── Check onboarding on mount ────────────────────────────────────
     React.useEffect(() => {
         // optimistically check local storage to prevent flicker
@@ -210,14 +217,28 @@ export function WorkspaceLayout() {
             setWorkingStatus("Answer ready")
             setTimeout(() => setWorkingStatus(null), 1000)
 
-            const groundedItem: FeedItem = {
-                id: `ans_${Date.now()}`,
-                type: "grounded-answer",
-                text: result.answer_text || result.reply || "I've processed your request.",
-                evidence: result.evidence || [],
-                status: result.status || "found"
-            }
-            setChatHistory(prev => [...prev, groundedItem])
+            setChatHistory(prev => {
+                const groundedItem: FeedItem = {
+                    id: `ans_${Date.now()}`,
+                    type: "grounded-answer",
+                    text: result.answer_text || result.reply || "I've processed your request.",
+                    evidence: result.evidence || [],
+                    status: result.status || "found"
+                }
+
+                const newHistory = [...prev, groundedItem]
+
+                // Check for health report
+                if (result.tool_result?.health) {
+                    newHistory.push({
+                        id: `health_${Date.now()}`,
+                        type: "health-report",
+                        health: result.tool_result.health
+                    })
+                }
+
+                return newHistory
+            })
 
         } catch (error) {
             console.error(error)
@@ -273,8 +294,8 @@ export function WorkspaceLayout() {
         inboxService.getCounts().then(res => {
             setCounts(res)
         }).catch(console.error)
-        inboxService.checkProviders().then(setProviderStatus).catch(console.error)
-    }, [refreshTrigger])
+        fetchHealth().catch(console.error)
+    }, [refreshTrigger, fetchHealth])
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
@@ -481,6 +502,22 @@ export function WorkspaceLayout() {
                     </div>
                 </header>
 
+                {/* Connection Health Banner */}
+                {connectionHealth && !connectionHealth.email_accessible && onboardingComplete && (
+                    <div className="bg-amber-50 border-b border-amber-100 px-6 py-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            <span className="text-[11px] font-medium text-amber-800">Email connection is currently inactive. System is in read-only mode.</span>
+                        </div>
+                        <Link
+                            href="/aaliyahonboarding"
+                            className="text-[10px] font-bold uppercase tracking-wider text-amber-900 hover:underline"
+                        >
+                            Authorize Email
+                        </Link>
+                    </div>
+                )}
+
                 {/* Content */}
                 {selectedThread ? (
                     <div className="flex-1 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -533,17 +570,17 @@ export function WorkspaceLayout() {
                             </button>
                             <input
                                 type="text"
-                                placeholder="Reply or ask Aaliyah..."
+                                placeholder={connectionHealth?.email_accessible ? "Reply or ask Aaliyah..." : "Authorize email to enable chat..."}
                                 style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
                                 className="flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 py-1"
                                 value={composerValue}
                                 onChange={(e) => setComposerValue(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !isSubmitting && handleSend()}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || !connectionHealth?.email_accessible}
                             />
                             <button
                                 onClick={handleSend}
-                                disabled={isSubmitting || !composerValue.trim()}
+                                disabled={isSubmitting || !composerValue.trim() || !connectionHealth?.email_accessible}
                                 className="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-900 text-white hover:bg-black transition-colors shrink-0 disabled:opacity-50"
                             >
                                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}

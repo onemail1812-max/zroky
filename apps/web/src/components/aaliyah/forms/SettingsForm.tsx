@@ -56,18 +56,42 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
         notesMode: 'manual', // 'manual' | 'auto'
 
         // 4. Safe Auto-Send
-        safeAutoSend: false
+        safeAutoSend: false,
+
+        // Hidden state to prevent data loss
+        capabilities: [] as string[],
+        draftTone: 'Professional',
+        signature: '',
+        examples: '',
+        vip_senders: [] as string[]
     })
 
     React.useEffect(() => {
         getAaliyahSettings()
             .then(data => {
                 if (data) {
-                    setConfig(prev => ({
-                        ...prev,
-                        safeAutoSend: data.auto_send_enabled || prev.safeAutoSend,
-                        // Map other fields if available in backend in future
-                    }))
+                    setConfig({
+                        organizeInbox: data.organize_inbox_enabled,
+                        draftReplies: data.draft_replies_enabled,
+                        archiveLowPriority: data.archive_less_important,
+                        trackFollowUps: data.track_follow_ups,
+                        followUpDays: data.follow_up_days || 3,
+                        maxFollowUps: data.max_follow_ups || 2,
+                        manageCalendar: data.calendar_assist_enabled,
+                        attendMeetings: data.attend_meetings || false,
+                        workingHours: {
+                            start: data.working_hours_start,
+                            end: data.working_hours_end
+                        },
+                        defaultDuration: data.default_meeting_duration,
+                        notesMode: (data.notes_mode as any) || 'manual',
+                        safeAutoSend: data.auto_send_enabled,
+                        capabilities: data.capabilities || [],
+                        draftTone: data.draft_tone || 'Professional',
+                        signature: data.signature || '',
+                        examples: data.examples || '',
+                        vip_senders: data.vip_senders || []
+                    })
                 }
             })
             .catch(console.error)
@@ -78,15 +102,31 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
         setMessage("")
         try {
             const payload: AaliyahSettings = {
+                organize_inbox_enabled: config.organizeInbox,
+                draft_replies_enabled: config.draftReplies,
+                archive_less_important: config.archiveLowPriority,
+                track_follow_ups: config.trackFollowUps,
+                follow_up_days: config.followUpDays,
+                max_follow_ups: config.maxFollowUps,
+                calendar_assist_enabled: config.manageCalendar,
+                attend_meetings: config.attendMeetings,
+                working_hours_start: config.workingHours.start,
+                working_hours_end: config.workingHours.end,
+                default_meeting_duration: config.defaultDuration,
+                notes_mode: config.notesMode,
                 auto_send_enabled: config.safeAutoSend,
-                // We would map other fields here when backend supports them
+                capabilities: config.capabilities,
+                draft_tone: config.draftTone,
+                signature: config.signature,
+                examples: config.examples,
+                vip_senders: config.vip_senders
             }
             await updateAaliyahSettings(payload)
-            setMessage("Configuration synced.")
+            setMessage("Configuration saved.")
             setTimeout(() => setMessage(""), 3000)
         } catch (err) {
             console.error(err)
-            setMessage("Sync failed.")
+            setMessage("Failed to save.")
         } finally {
             setSaving(false)
         }
@@ -490,7 +530,7 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                         className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-zinc-200 hover:bg-zinc-900 hover:translate-y-px transition-all flex items-center gap-2 disabled:opacity-70"
                     >
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {saving ? "Deploying..." : "Save Configuration"}
+                        {saving ? "Saving..." : "Save Configuration"}
                     </button>
 
                 </div>

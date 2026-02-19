@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 import type { IntelligenceTab } from "@/components/aaliyah/workspace/types"
 import { Button } from "@/components/aaliyah/ui/Button"
 import { EmailEditor } from "./EmailEditor"
-import { Paperclip, X, Save, CornerUpLeft, Plus, Send, Edit, AlertCircle, Loader2 } from "lucide-react"
+import { Paperclip, X, Save, CornerUpLeft, Plus, Send, Edit, AlertCircle, Loader2, ShieldCheck, AlertTriangle, ShieldAlert } from "lucide-react"
 import { updateDraft } from "@/lib/aaliyah/api"
 
 export type Attachment = {
@@ -41,6 +41,7 @@ export type FeedItem =
   | { id: string; type: "artifact-email"; draft: DraftArtifact }
   | { id: string; type: "artifact-calendar"; title: string; items: Array<{ time: string; update: string }> }
   | { id: string; type: "artifact-grid"; title: string; slots: Array<{ slot: string; monday: string; tuesday: string; wednesday: string }> }
+  | { id: string; type: "health-report"; health: any }
 
 export function GroundedAnswerCard({
   text,
@@ -551,6 +552,78 @@ export function MiniScheduleGridArtifact({
   )
 }
 
+export function HealthReportCard({ health }: { health: any }) {
+  if (!health) return null
+
+  const email = health.email || health.email_health
+  const cal = health.calendar || health.calendar_health
+
+  return (
+    <CardShell className="max-w-xl">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="h-8 w-8 rounded-lg bg-surfaceElevated flex items-center justify-center text-infoExecuting">
+          <ShieldCheck className="h-4 w-4" strokeWidth={1.5} />
+        </div>
+        <h3 className="text-[14px] font-semibold text-textPrimary tracking-tight">System Health Report</h3>
+      </div>
+
+      <div className="space-y-3">
+        <HealthStatusItem
+          label="Email Connection"
+          status={email?.status}
+          provider={email?.provider}
+          details={email?.error_code}
+        />
+        <HealthStatusItem
+          label="Calendar Connection"
+          status={cal?.status}
+          provider={cal?.provider}
+          details={cal?.error_code}
+        />
+      </div>
+
+      {email?.status !== 'OK' && (
+        <div className="mt-6 pt-4 border-t border-borderSubtle">
+          <Button
+            className="w-full bg-textPrimary text-white"
+            onClick={() => window.location.href = '/settings/integrations'}
+          >
+            Authorize Connection
+          </Button>
+        </div>
+      )}
+    </CardShell>
+  )
+}
+
+function HealthStatusItem({ label, status, provider, details }: any) {
+  const isOk = status === 'OK'
+  const isErr = status === 'REVOKED' || status === 'EXPIRED' || status === 'ERROR'
+
+  return (
+    <div className="flex items-center justify-between p-3 rounded-lg border border-borderSubtle bg-surfaceElevated/50">
+      <div className="flex items-center gap-3">
+        <div className={cn(
+          "h-6 w-6 rounded-full flex items-center justify-center",
+          isOk ? "bg-green-100 text-green-700" : isErr ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+        )}>
+          {isOk ? <ShieldCheck className="h-3.5 w-3.5" /> : isErr ? <ShieldAlert className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+        </div>
+        <div>
+          <div className="text-[12px] font-medium text-textPrimary">{label}</div>
+          <div className="text-[10px] text-textMuted uppercase tracking-wider">{provider || 'not connected'}</div>
+        </div>
+      </div>
+      <div className={cn(
+        "text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tighter",
+        isOk ? "text-green-700 bg-green-50" : isErr ? "text-red-700 bg-red-50" : "text-amber-700 bg-amber-50"
+      )}>
+        {status || 'Unknown'}
+      </div>
+    </div>
+  )
+}
+
 export function CardFeed({
   items,
   onOpenIntelligence,
@@ -657,6 +730,9 @@ export function CardFeed({
 
           case "artifact-grid":
             return <div key={item.id} className="animate-in fade-in"><MiniScheduleGridArtifact title={item.title} slots={item.slots} /></div>
+
+          case "health-report":
+            return <div key={item.id} className="animate-in fade-in"><HealthReportCard health={item.health} /></div>
 
           default:
             return null

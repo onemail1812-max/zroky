@@ -84,17 +84,30 @@ class AaliyahSettingsRequest(BaseModel):
     draft_replies_enabled: bool = True
     archive_less_important: bool = False
     track_follow_ups: bool = True
+    follow_up_days: int = 3
+    max_follow_ups: int = 2
+    
+    # Capabilities (Neural Modules)
+    capabilities: list[str] = Field(default_factory=lambda: ["Organize inbox", "Draft email replies", "Track follow-ups"])
     
     # Meetings
     calendar_assist_enabled: bool = True
-    working_hours_start: str = Field(default="09:00", max_length=5)
-    working_hours_end: str = Field(default="17:00", max_length=5)
+    working_hours_start: str = Field(default="09:00 AM", max_length=10)
+    working_hours_end: str = Field(default="06:00 PM", max_length=10)
     default_meeting_duration: int = Field(default=30, ge=15, le=120)
+    notes_mode: str = "manual"
+    attend_meetings: bool = False
 
-    # Legacy/Existing
-    auto_send_enabled: bool = False
-    draft_tone: Optional[str] = Field(default="professional", max_length=50)
+    # Persona & Voice
+    draft_tone: Optional[str] = Field(default="Professional", max_length=50)
     signature: Optional[str] = Field(default=None, max_length=500)
+    examples: Optional[str] = None
+    
+    # VIPs / Priority Registry
+    vip_senders: list[str] = Field(default_factory=list)
+
+    # Global Operations
+    auto_send_enabled: bool = False
 
 
 class SendDraftRequest(BaseModel):
@@ -291,6 +304,13 @@ async def complete_onboarding(
         "signature": payload.signature,
         "auto_send_enabled": payload.safe_auto_send,
         "vip_senders": payload.vips,
+        # Derived boolean flags for cross-form consistency
+        "organize_inbox_enabled": "Organize inbox" in payload.capabilities,
+        "draft_replies_enabled": "Draft email replies" in payload.capabilities,
+        "archive_less_important": "Archive less important emails" in payload.capabilities,
+        "track_follow_ups": "Track follow-ups" in payload.capabilities,
+        "calendar_assist_enabled": "Manage your calendar" in payload.capabilities,
+        "attend_meetings": "Attend meetings and take notes" in payload.capabilities,
     })
 
     workspace.settings_json = current_settings
@@ -301,13 +321,14 @@ async def complete_onboarding(
     
     # FORCE UPDATE via SQL to ensure persistence in SQLite/WAL
     from sqlalchemy import text
+    import json
     try:
         db.execute(
-            text("UPDATE workspaces SET onboarding_status = 'completed' WHERE id = :wid"),
-            {"wid": workspace.id}
+            text("UPDATE workspaces SET onboarding_status = 'completed', settings_json = :sj WHERE id = :wid"),
+            {"sj": json.dumps(current_settings), "wid": workspace.id}
         )
         db.commit()
-        logger.info(f"✅ [Onboarding] Status updated to completed for workspace {workspace.id}")
+        logger.info(f"✅ [Onboarding] Status & Settings updated for workspace {workspace.id}")
     except Exception as e:
         logger.error(f"❌ [Onboarding] SQL Update failed: {e}")
         db.rollback()
@@ -881,15 +902,24 @@ async def get_aaliyah_settings(
         "draft_replies_enabled": aaliyah_settings.get("draft_replies_enabled", True),
         "archive_less_important": aaliyah_settings.get("archive_less_important", False),
         "track_follow_ups": aaliyah_settings.get("track_follow_ups", True),
+        "follow_up_days": aaliyah_settings.get("follow_up_days", 3),
+        "max_follow_ups": aaliyah_settings.get("max_follow_ups", 2),
+        
+        "capabilities": aaliyah_settings.get("capabilities", ["Organize inbox", "Draft email replies", "Track follow-ups"]),
         
         "calendar_assist_enabled": aaliyah_settings.get("calendar_assist_enabled", True),
-        "working_hours_start": aaliyah_settings.get("working_hours_start", "09:00"),
-        "working_hours_end": aaliyah_settings.get("working_hours_end", "17:00"),
+        "working_hours_start": aaliyah_settings.get("working_hours_start", "09:00 AM"),
+        "working_hours_end": aaliyah_settings.get("working_hours_end", "06:00 PM"),
         "default_meeting_duration": aaliyah_settings.get("default_meeting_duration", 30),
+        "notes_mode": aaliyah_settings.get("notes_mode", "manual"),
+        "attend_meetings": aaliyah_settings.get("attend_meetings", False),
         
         "auto_send_enabled": aaliyah_settings.get("auto_send_enabled", False),
-        "draft_tone": aaliyah_settings.get("draft_tone", "professional"),
+        "draft_tone": aaliyah_settings.get("draft_tone", "Professional"),
         "signature": aaliyah_settings.get("signature"),
+        "examples": aaliyah_settings.get("examples"),
+        
+        "vip_senders": aaliyah_settings.get("vip_senders", []),
         
         # Read-only security caps for Sprint 2
         "approval_required_topics": ["Financials", "Hiring", "External Strategy"],
@@ -919,21 +949,42 @@ async def update_aaliyah_settings(
         "draft_replies_enabled": payload.draft_replies_enabled,
         "archive_less_important": payload.archive_less_important,
         "track_follow_ups": payload.track_follow_ups,
+        "follow_up_days": payload.follow_up_days,
+        "max_follow_ups": payload.max_follow_ups,
+        
+        "capabilities": payload.capabilities,
         
         "calendar_assist_enabled": payload.calendar_assist_enabled,
         "working_hours_start": payload.working_hours_start,
         "working_hours_end": payload.working_hours_end,
         "default_meeting_duration": payload.default_meeting_duration,
+        "notes_mode": payload.notes_mode,
+        "attend_meetings": payload.attend_meetings,
         
         "auto_send_enabled": payload.auto_send_enabled,
         "draft_tone": payload.draft_tone,
         "signature": payload.signature,
+        "examples": payload.examples,
+        "vip_senders": payload.vip_senders,
     })
     
     workspace.settings_json = current_settings
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(workspace, "settings_json")
     db.commit()
+
+    # FORCE UPDATE via SQL to ensure persistence in SQLite/WAL
+    from sqlalchemy import text
+    try:
+        db.execute(
+            text("UPDATE workspaces SET settings_json = :sj WHERE id = :wid"),
+            {"sj": json.dumps(current_settings), "wid": workspace.id}
+        )
+        db.commit()
+        logger.info(f"✅ [Settings] Protocols updated for workspace {workspace.id}")
+    except Exception as e:
+        logger.error(f"❌ [Settings] SQL Update failed: {e}")
+        db.rollback()
 
     return {
         "status": "ok",

@@ -326,17 +326,28 @@ export interface AaliyahSettings {
   draft_replies_enabled: boolean
   archive_less_important: boolean
   track_follow_ups: boolean
+  follow_up_days?: number
+  max_follow_ups?: number
+
+  // Capabilities
+  capabilities?: string[]
 
   // Meetings
   calendar_assist_enabled: boolean
   working_hours_start: string
   working_hours_end: string
   default_meeting_duration: number
+  notes_mode?: string
+  attend_meetings?: boolean
 
-  // Legacy/Existing
+  // Persona
   auto_send_enabled: boolean
   draft_tone?: string
   signature?: string
+  examples?: string
+
+  // VIPs
+  vip_senders?: string[]
 
   // Read-only info
   approval_required_topics?: string[]
