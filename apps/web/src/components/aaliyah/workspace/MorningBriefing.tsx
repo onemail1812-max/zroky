@@ -2,9 +2,21 @@
 
 import * as React from "react"
 import { format } from "date-fns"
-import { CloudSun } from "lucide-react"
+import { CloudSun, ArrowRight, RefreshCw, AlertTriangle, ShieldAlert, LogIn } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 import { aaliyahApi } from "@/lib/aaliyah/api"
+import { cn } from "@/lib/utils"
+
+interface GreetingState {
+  headline: string
+  greeting: string
+  subtext: string
+  cta_label: string
+  cta_action: string
+  state: "onboarding" | "error" | "reconnect" | "healthy"
+}
 
 interface BriefingData {
   content: string
@@ -12,78 +24,155 @@ interface BriefingData {
 }
 
 export function MorningBriefing() {
-  const [data, setData] = React.useState<BriefingData | null>(null)
+  const router = useRouter()
+  const [greeting, setGreeting] = React.useState<GreetingState | null>(null)
+  const [briefing, setBriefing] = React.useState<BriefingData | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [syncing, setSyncing] = React.useState(false)
 
   React.useEffect(() => {
     let alive = true
 
-    async function fetchBriefing() {
+    async function fetchData() {
       try {
-        const response = await aaliyahApi.get("/briefing")
+        // 1. Fetch Greeting (Health & State)
+        const greetingRes = await aaliyahApi.get("/greeting")
         if (!alive) return
-        setData(response.data as BriefingData)
-      } catch {
-        // Intentionally quiet: this is a pinned view, not a blocking error.
+        const gData = greetingRes.data as GreetingState
+        setGreeting(gData)
+
+        // 2. If Healthy, fetch Briefing
+        if (gData.state === "healthy") {
+          try {
+            const briefingRes = await aaliyahApi.get("/briefing")
+            if (alive) setBriefing(briefingRes.data as BriefingData)
+          } catch (e) {
+            // Briefing might not be ready, ignore
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load greeting", e)
       } finally {
         if (alive) setLoading(false)
       }
     }
 
-    void fetchBriefing()
-    return () => {
-      alive = false
-    }
+    void fetchData()
+    return () => { alive = false }
   }, [])
+
+  const handleAction = async () => {
+    if (!greeting) return
+
+    if (greeting.cta_action === "connect_email" || greeting.cta_action === "reconnect_email" || greeting.cta_action === "update_permissions") {
+      router.push("/settings/integrations")
+      return
+    }
+
+    if (greeting.cta_action === "retry_sync") {
+      setSyncing(true)
+      try {
+        await aaliyahApi.post("/sync/inbox", { force: true })
+        // Reload after short delay
+        setTimeout(() => window.location.reload(), 2000)
+      } catch {
+        setSyncing(false)
+      }
+      return
+    }
+
+    // View Briefing is default behavior (scrolling or just showing it below)
+  }
 
   if (loading) {
     return (
       <article className="rounded-xl border border-borderSubtle bg-surface p-6 animate-pulse">
-        <div className="h-4 w-40 rounded bg-borderSubtle opacity-70" />
-        <div className="mt-4 h-3 w-56 rounded bg-borderSubtle opacity-60" />
-        <div className="mt-6 h-3 w-full rounded bg-borderSubtle opacity-50" />
-        <div className="mt-2 h-3 w-5/6 rounded bg-borderSubtle opacity-45" />
-        <div className="mt-2 h-3 w-4/6 rounded bg-borderSubtle opacity-40" />
+        <div className="h-8 w-48 rounded bg-borderSubtle opacity-70 mb-4" />
+        <div className="h-4 w-full max-w-md rounded bg-borderSubtle opacity-50" />
       </article>
     )
   }
 
-  if (!data) {
-    return (
-      <article className="rounded-xl border border-borderSubtle bg-surface p-6 animate-slide-in-soft flex flex-col gap-3 min-h-[160px] justify-center items-center text-center">
-        <CloudSun className="h-8 w-8 text-textMuted/50" strokeWidth={1} />
-        <div className="text-[13px] text-textSecondary font-medium">Morning briefing unavailable</div>
-      </article>
-    )
-  }
+  if (!greeting) return null
+
+  // State-based Styles
+  const isError = greeting.state === "error" || greeting.state === "reconnect"
+  const isOnboarding = greeting.state === "onboarding"
 
   return (
-    <article className="group relative overflow-hidden rounded-xl border border-borderSubtle bg-surface p-6 transition-all hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] hover:border-borderStrong animate-slide-in-soft">
-      <div className="absolute top-0 right-0 p-4 opacity-0 transition-opacity group-hover:opacity-100">
-        {/* Future 'Refresh' or 'Archive' actions could go here */}
-      </div>
+    <div className="flex flex-col gap-6 animate-slide-in-soft">
 
-      <header className="flex items-center gap-3 mb-6">
-        <div className="h-8 w-8 rounded-full bg-surfaceElevated flex items-center justify-center text-textPrimary ring-1 ring-borderSubtle">
-          <CloudSun className="h-4 w-4" strokeWidth={1.5} />
-        </div>
-        <div>
-          <h2 className="text-[14px] font-semibold text-textPrimary leading-none tracking-tight">Morning Briefing</h2>
-          <p className="mt-1 text-[11px] text-textMuted font-medium uppercase tracking-widest">
-            {format(new Date(data.date), "MMMM do")}
+      {/* Dynamic Greeting Card */}
+      <article className={cn(
+        "rounded-xl border p-8 transition-all relative overflow-hidden",
+        isError ? "border-red-200 bg-red-50/50" :
+          isOnboarding ? "border-zinc-200 bg-white shadow-sm" :
+            "border-borderSubtle bg-surface hover:shadow-sm"
+      )}>
+        <header className="relative z-10">
+          <div className="flex items-center gap-3 mb-4">
+            <div className={cn(
+              "h-8 w-8 rounded-full flex items-center justify-center ring-1 ring-inset",
+              isError ? "bg-red-100 text-red-600 ring-red-200" :
+                isOnboarding ? "bg-zinc-900 text-white ring-zinc-900" :
+                  "bg-surfaceElevated text-textPrimary ring-borderSubtle"
+            )}>
+              {isError ? <AlertTriangle className="h-4 w-4" /> :
+                isOnboarding ? <LogIn className="h-4 w-4" /> :
+                  <CloudSun className="h-4 w-4" />}
+            </div>
+            <span className={cn(
+              "text-[11px] font-bold uppercase tracking-widest",
+              isError ? "text-red-600" : "text-textMuted"
+            )}>
+              {greeting.headline}
+            </span>
+          </div>
+
+          <h2 className={cn(
+            "text-xl font-semibold mb-2",
+            isError ? "text-red-900" : "text-textPrimary"
+          )}>
+            {greeting.greeting}
+          </h2>
+
+          <p className={cn(
+            "text-[14px] leading-relaxed max-w-xl",
+            isError ? "text-red-700 font-medium" : "text-textSecondary"
+          )}>
+            {greeting.subtext}
           </p>
-        </div>
-      </header>
 
-      <div className="prose prose-sm max-w-none">
-        <p className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap font-normal selection:bg-surfaceElevated selection:text-textPrimary">
-          {data.content}
-        </p>
-      </div>
+          <div className="mt-8">
+            <button
+              onClick={handleAction}
+              disabled={syncing}
+              className={cn(
+                "inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-[13px] font-bold transition-all shadow-sm",
+                isError ? "bg-red-600 text-white hover:bg-red-700 shadow-red-200" :
+                  isOnboarding ? "bg-zinc-900 text-white hover:bg-black" :
+                    "bg-white border border-borderSubtle text-textPrimary hover:bg-zinc-50"
+              )}
+            >
+              {syncing ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+              {greeting.cta_label}
+              {!syncing && <ArrowRight className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </header>
+      </article>
 
-      <div className="mt-6 pt-4 border-t border-borderSubtle/50 flex items-center gap-4">
-        <span className="text-[11px] font-medium text-textMuted">AI Generated • Executive Summary</span>
-      </div>
-    </article>
+      {/* Briefing Content (Only if Healthy & Available) */}
+      {greeting.state === "healthy" && briefing && (
+        <article className="group rounded-xl border border-borderSubtle bg-surface p-6 transition-all hover:border-borderStrong">
+          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-widest mb-4">Daily Briefing • {format(new Date(), "MMM do")}</h3>
+          <div className="prose prose-sm max-w-none">
+            <p className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap">
+              {briefing.content}
+            </p>
+          </div>
+        </article>
+      )}
+    </div>
   )
 }

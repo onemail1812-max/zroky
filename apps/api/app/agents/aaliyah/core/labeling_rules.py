@@ -387,7 +387,7 @@ class LabelingRulesEngine:
                     continue
         return None
 
-    def _detect_risk(self, text: str) -> Optional[tuple[str, str]]:
+    def _detect_risk(self, text: str, custom_topics: Optional[list[str]] = None) -> Optional[tuple[str, str]]:
         """
         Detects if an email smells like 'Money', 'Legal', 'Complaint', or 'Hiring'.
         Returns (risk_category, matching_term) if found, else None.
@@ -398,11 +398,20 @@ class LabelingRulesEngine:
             "Complaint": [r"disappointing", r"complaint", r"unacceptable", r"terrible", r"worst", r"lawyer"],
             "Hiring": [r"resume", r"cv", r"interview", r"job application", r"hiring", r"offer letter"],
         }
+        
+        # 1. Custom Workspace Topics
+        if custom_topics:
+            for topic in custom_topics:
+                if str(topic).lower() in text.lower():
+                    return "Sensitive", str(topic)
+
+        # 2. Built-in risks
         for category, patterns in risks.items():
             for p in patterns:
                 if re.search(p, text, re.IGNORECASE):
                     return category, p
         return None
+
 
     def decide_labels(
         self,
@@ -502,7 +511,14 @@ class LabelingRulesEngine:
         if deadline_at:
             add_label("Urgent", f"Automated deadline detection: {deadline_at.strftime('%Y-%m-%d')}")
 
-        risk_category_tuple = self._detect_risk(text_blob)
+        custom_topics = None
+        always_require_approval = True
+        if workspace_settings:
+             aaliyah_s = workspace_settings.get("aaliyah", {})
+             custom_topics = _to_list_of_str(aaliyah_s.get("approval_required_topics", []))
+             always_require_approval = aaliyah_s.get("always_require_approval", True)
+
+        risk_category_tuple = self._detect_risk(text_blob, custom_topics=custom_topics)
         requires_approval = False
         approval_reason = None
 
@@ -514,6 +530,13 @@ class LabelingRulesEngine:
             approval_reason = trigger_term.replace(r"", "").title()
             priority_override = "High"
             add_label("High Priority", f"High-risk item ({risk_category}) requiring executive approval.")
+        
+        # If workspace policy is "Always Require Approval", we set it here for all actionable intents
+        if always_require_approval and triage.category not in {"Newsletter", "Notification", "Receipt", "Cleaned"}:
+            requires_approval = True
+            if not approval_reason:
+                approval_reason = "Global policy: Always require approval"
+
 
         overrides = _safe_overrides(preferences["overrides"])
         override = self._find_override(

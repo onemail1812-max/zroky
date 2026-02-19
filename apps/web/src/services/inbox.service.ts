@@ -15,6 +15,9 @@ export interface EmailMessage {
         body: string;
         status: 'pending' | 'ready' | 'sent' | 'failed' | 'pending_approval';
         reasoning?: string;
+        intent?: string;
+        risk_labels?: string[];
+        sources_used?: string[];
     };
 }
 
@@ -96,7 +99,10 @@ export class InboxService {
                     subject: item.draft.subject || item.subject,
                     body: item.draft.body || '',
                     status: 'ready', // valid assumption if draft exists
-                    reasoning: item.reasoning
+                    reasoning: item.draft.rationale || item.reasoning,
+                    intent: item.draft.intent,
+                    risk_labels: item.draft.risk_labels,
+                    sources_used: item.draft.sources_used
                 } : undefined
             };
         });

@@ -34,6 +34,7 @@ class DraftResponse(BaseModel):
     risk_labels: list[str]
     missing_info: Optional[str] = None
     status: str = "drafted"
+    sources_used: list[str] = []
 
 
 class DraftingAgent:
@@ -239,6 +240,14 @@ Content: {latest_content}
                 public_url = f"{settings.public_app_url}/booking/{link.slug}"
                 draft_body = draft_body.replace("[BOOKING_LINK]", f"You can book one of these slots here: {public_url}")
 
+            sources_used = []
+            if kg_context and "No relevant context" not in kg_context:
+                sources_used.append("Knowledge Graph Context")
+            if style_context and "Style Baseline" in style_context:
+                 sources_used.append("Style Profile (Historical Sends)")
+            if availability_context:
+                 sources_used.append("Calendar Availability Engine")
+
             return DraftResponse(
                 subject=data.get("subject", f"Re: {email.subject}"),
                 body=draft_body,
@@ -246,6 +255,7 @@ Content: {latest_content}
                 intent=data.get("intent", "other"),
                 risk_labels=data.get("risk_labels", []),
                 missing_info=data.get("missing_info"),
+                sources_used=sources_used
             )
 
         except Exception as e:
@@ -253,7 +263,7 @@ Content: {latest_content}
             return None
 
     async def save_draft(self, email_id: str, draft: DraftResponse) -> bool:
-        """Persist the draft to the email's metadata."""
+        """Persist the draft and log audit event."""
         email = self.db.query(TriagedEmail).filter(TriagedEmail.id == email_id).first()
         if not email:
             return False
@@ -281,5 +291,24 @@ Content: {latest_content}
                 thread.draft_json = draft.model_dump()
                 flag_modified(thread, "draft_json")
         
+        # Audit Log
+        from app.services.audit_log_service import AuditLogService, AuditAction, AuditEntityType
+        
+        AuditLogService.log_action(
+            db=self.db,
+            workspace_id=self.workspace_id,
+            user_id="ai_agent", # System actor
+            action=AuditAction.CREATE, 
+            entity_type=AuditEntityType.ARTIFACT,
+            entity_id=email_id,
+            metadata={
+                "provider": email.provider,
+                "draft_subject": draft.subject,
+                "rationale": draft.rationale,
+                "sources_used": draft.sources_used
+            },
+            explain_one_liner=f"Drafted reply: {draft.intent}"
+        )
+
         self.db.commit()
         return True

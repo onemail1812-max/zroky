@@ -38,7 +38,7 @@ class CallbackRequest(BaseModel):
 
 
 def _assert_workspace_header_consistency(request: Request, workspace_id: str) -> None:
-    header_workspace = request.headers.get("x-tenant-id")
+    header_workspace = request.headers.get("x-workspace-id")
     if header_workspace and header_workspace != workspace_id:
         raise HTTPException(status_code=403, detail="Cross-workspace access denied")
 
@@ -455,6 +455,8 @@ async def list_accounts(
             status = "revoked"
         elif integration.status == IntegrationStatus.ERROR:
             status = "expired"
+        elif integration.status == IntegrationStatus.NEEDS_RECONNECT:
+            status = "needs_reconnect"
 
         accounts.append(
             {

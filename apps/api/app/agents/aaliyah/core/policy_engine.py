@@ -43,7 +43,21 @@ class PolicyEngine:
         risk_domain: str,
         context: Optional[dict] = None,
     ) -> PolicyDecision:
+        from app.models.workspace import Workspace
+        
         canonical = normalize_action(intent) or str(intent or "").upper().strip()
+
+        # 1. Load Workspace Settings
+        workspace = None
+        if self.db:
+            workspace = self.db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        
+        settings = getattr(workspace, "settings_json", {}) or {}
+        aaliyah_settings = settings.get("aaliyah", {})
+        
+        vip_senders = aaliyah_settings.get("vip_senders", [])
+        always_require_approval = aaliyah_settings.get("always_require_approval", True)
+        required_topics = aaliyah_settings.get("approval_required_topics", ["Financials", "Hiring", "External Strategy"])
 
         allowed_actions: Set[str] = {
             "LABEL", "ARCHIVE", "SUMMARY", "DRAFT", "CREATE_TASK", "UPDATE_PREFERENCE",
@@ -59,11 +73,37 @@ class PolicyEngine:
                 require_approval=True,
             )
 
-        # Hard blocks (policy cannot be overridden).
-        if canonical in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
+        # 2. VIP Enforcement
+        ctx = context or {}
+        sender = ctx.get("sender", "")
+        is_vip = any(v.lower() in sender.lower() for v in vip_senders) if sender and vip_senders else False
+        
+        if is_vip:
+             return PolicyDecision(
+                allowed=True,
+                reason="VIP Sender: All actions require executive review.",
+                allowed_actions=allowed_actions,
+                require_approval=True,
+            )
+
+        # 3. Global Approval Gate
+        if always_require_approval and canonical in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
             return PolicyDecision(
                 allowed=False,
-                reason=f"Policy block: {canonical} is never allowed automatically.",
+                reason=f"Policy: {canonical} always requires manual approval per workspace settings.",
+                allowed_actions=allowed_actions,
+                require_approval=True,
+            )
+
+        # 4. Sensitive Topic Detection (Sprint 2 Enforcement)
+        subject = ctx.get("subject", "").lower()
+        body = ctx.get("body", "").lower()
+        matched_topic = next((t for t in required_topics if t.lower() in subject or t.lower() in body), None)
+        
+        if matched_topic:
+             return PolicyDecision(
+                allowed=True,
+                reason=f"Sensitive topic '{matched_topic}' detected: require approval.",
                 allowed_actions=allowed_actions,
                 require_approval=True,
             )
@@ -78,7 +118,6 @@ class PolicyEngine:
             )
 
         # Context-based approval rules (deterministic).
-        ctx = context or {}
         if bool(ctx.get("is_new_sender")) and bool(ctx.get("is_actionable")):
             return PolicyDecision(
                 allowed=True,
@@ -101,4 +140,5 @@ class PolicyEngine:
             allowed_actions=allowed_actions,
             require_approval=False,
         )
+
 

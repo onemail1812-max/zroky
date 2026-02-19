@@ -134,6 +134,16 @@ class ActionExecutor:
         )
         
         if not allowed:
+            AuditLogService.log_action(
+                db=self.db,
+                workspace_id=workspace_id,
+                user_id=user_id,
+                action=AuditAction.EXECUTE,
+                entity_type=AuditEntityType.ARTIFACT, 
+                entity_id=email_id,
+                metadata={"status": "blocked", "reason": "Runtime Gate Check Failed"},
+                explain_one_liner="Send blocked by safety gate"
+            )
             raise PermissionError("Action blocked by Final Action Gate. Approval or missing facts required.")
 
         # 3. Rate Limiting (Provider Safety)

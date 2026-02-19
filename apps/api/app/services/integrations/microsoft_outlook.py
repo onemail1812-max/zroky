@@ -5,7 +5,7 @@ Minimal wrapper for listing unread mail and basic actions.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 import logging
 
 from app.services.brain.guardrails import redact_text
@@ -15,11 +15,48 @@ logger = logging.getLogger(__name__)
 
 
 class OutlookService:
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, token_refresher: Optional[Callable[[], Optional[str]]] = None, on_auth_failure: Optional[Callable[[], None]] = None):
         if not access_token:
             raise ValueError("Missing access token")
         self.access_token = access_token
+        self.token_refresher = token_refresher
+        self.on_auth_failure = on_auth_failure
         self.http = SafeRequester()
+
+    def _execute(self, method: str, url: str, **kwargs) -> Any:
+        """Execute request with 401 retry logic."""
+        # Ensure Authorization header is set
+        headers = kwargs.get("headers", {})
+        if "Authorization" not in headers:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+        kwargs["headers"] = headers
+
+        resp = self.http.request(method, url, **kwargs)
+        
+        # 1. Check for 401
+        if resp.status_code == 401:
+            logger.warning("Outlook API 401. Attempting refresh...")
+            if self.token_refresher:
+                new_token = self.token_refresher()
+                if new_token:
+                    self.access_token = new_token
+                    headers["Authorization"] = f"Bearer {self.access_token}"
+                    kwargs["headers"] = headers
+                    # Retry
+                    resp = self.http.request(method, url, **kwargs)
+            
+            # If still 401
+            if resp.status_code == 401:
+                logger.error("Outlook API 401 Persistence. Token revoked.")
+                if self.on_auth_failure:
+                    self.on_auth_failure()
+                resp.raise_for_status()
+
+        if not resp.ok:
+            logger.error(f"Outlook API {method} error {resp.status_code}: {redact_text(resp.text)}")
+            resp.raise_for_status()
+            
+        return resp.json() if resp.content else {}
 
     def list_unread_messages(self, max_results: int = 10) -> List[Dict[str, Any]]:
         """
@@ -32,17 +69,8 @@ class OutlookService:
             "$filter": "isRead eq false",
             "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,body,internetMessageHeaders,hasAttachments",
         }
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook API error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-
-        data = resp.json()
+        data = self._execute("GET", url, params=params, timeout=20)
+        
         items = data.get("value") or []
         results: List[Dict[str, Any]] = []
         for item in items:
@@ -82,19 +110,12 @@ class OutlookService:
         }
         
         # Note: $search returns best match, orderby is tricky with search.
-        
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook Search API error %s: %s", resp.status_code, redact_text(resp.text))
+        try:
+            data = self._execute("GET", url, params=params, timeout=20)
+        except Exception:
             # Fallback or tolerate?
             return []
 
-        data = resp.json()
         items = data.get("value") or []
         results: List[Dict[str, Any]] = []
         for item in items:
@@ -129,19 +150,13 @@ class OutlookService:
             "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,body,hasAttachments",
         }
         # params are ignored if delta_link is provided as it has them encoded
-        headers = {"Authorization": f"Bearer {self.access_token}"}
         
-        resp = self.http.get(
+        return self._execute(
+            "GET",
             url,
-            headers=headers,
             params=params if not delta_link else None,
             timeout=20,
         )
-        if not resp.ok:
-            logger.error("Outlook Delta API error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-            
-        return resp.json()
 
     def list_sent_messages(self, max_results: int = 5) -> List[Dict[str, Any]]:
         """Fetch recent sent messages for style analysis."""
@@ -151,17 +166,11 @@ class OutlookService:
             "$orderby": "sentDateTime desc",
             "$select": "id,conversationId,subject,toRecipients,sentDateTime,bodyPreview",
         }
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook API error (Sent) %s: %s", resp.status_code, redact_text(resp.text))
+        try:
+            data = self._execute("GET", url, params=params, timeout=20)
+        except Exception:
             return []
 
-        data = resp.json()
         items = data.get("value") or []
         results: List[Dict[str, Any]] = []
         for item in items:
@@ -187,16 +196,8 @@ class OutlookService:
         params = {
             "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,isRead,categories,body,internetMessageHeaders",
         }
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook get_message error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-        item = resp.json()
+        item = self._execute("GET", url, params=params, timeout=20)
+        
         sender = (((item.get("from") or {}).get("emailAddress") or {}).get("address")) if isinstance(item, dict) else None
         
         headers = {
@@ -225,17 +226,8 @@ class OutlookService:
             "$select": "id,conversationId,subject,from,receivedDateTime,bodyPreview,body",
             "$orderby": "receivedDateTime asc"
         }
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook get_thread error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-            
-        data = resp.json()
+        
+        data = self._execute("GET", url, params=params, timeout=20)
         items = data.get("value") or []
         
         messages = []
@@ -267,18 +259,8 @@ class OutlookService:
 
         categories.append(normalized)
         patch_url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}"
-        resp = self.http.patch(
-            patch_url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"categories": categories},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook apply_label error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
+        self._execute("PATCH", patch_url, json={"categories": categories}, timeout=20)
+        
         return {"status": "applied", "name": normalized, "id": normalized, "label_ids": categories}
 
     def remove_label(self, message_id: str, label_name: str, label_id: Optional[str] = None) -> Dict[str, Any]:
@@ -291,64 +273,23 @@ class OutlookService:
 
         next_categories = [value for value in categories if value not in {resolved, normalized}]
         patch_url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}"
-        resp = self.http.patch(
-            patch_url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"categories": next_categories},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook remove_label error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
+        self._execute("PATCH", patch_url, json={"categories": next_categories}, timeout=20)
+        
         return {"status": "removed", "name": normalized, "id": resolved, "label_ids": next_categories}
 
     def move_to_inbox(self, message_id: str) -> Dict[str, Any]:
         url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/move"
-        resp = self.http.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"destinationId": "inbox"},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook move_to_inbox error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-        data = resp.json()
+        data = self._execute("POST", url, json={"destinationId": "inbox"}, timeout=20)
         return {"status": "moved_to_inbox", "id": data.get("id")}
 
     def archive_message(self, message_id: str) -> Dict[str, Any]:
         url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/move"
-        resp = self.http.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json={"destinationId": "archive"},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook archive_message error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-        data = resp.json()
+        data = self._execute("POST", url, json={"destinationId": "archive"}, timeout=20)
         return {"status": "archived", "id": data.get("id")}
 
     def delete_draft(self, draft_id: str) -> Dict[str, Any]:
         url = f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}"
-        resp = self.http.delete(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook delete_draft error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
+        self._execute("DELETE", url, timeout=20)
         return {"status": "deleted", "draft_id": draft_id}
 
     def create_draft(self, recipient: str, subject: str, body: str) -> Dict[str, Any]:
@@ -359,19 +300,7 @@ class OutlookService:
             "body": {"contentType": "Text", "content": body},
             "toRecipients": [{"emailAddress": {"address": recipient}}],
         }
-        resp = self.http.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook draft error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-        data = resp.json()
+        data = self._execute("POST", url, json=payload, timeout=20)
         return {
             "id": data.get("id"),
             "conversation_id": data.get("conversationId"),
@@ -402,29 +331,15 @@ class OutlookService:
             "saveToSentItems": True,
         }
         
-        resp = self.http.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Outlook send error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
+        self._execute("POST", url, json=payload, timeout=20)
         return {"status": "sent"}
 
     def get_attachments(self, message_id: str) -> List[Dict[str, Any]]:
         """Fetch attachments for a specific message."""
         url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/attachments"
-        resp = self.http.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            timeout=10,
-        )
-        if not resp.ok:
-            logger.error("Outlook attachment error %s: %s", resp.status_code, redact_text(resp.text))
+        try:
+            data = self._execute("GET", url, timeout=10)
+            return data.get("value", [])
+        except Exception as e:
+            logger.error(f"Outlook attachment error: {e}")
             return []
-        return resp.json().get("value", [])

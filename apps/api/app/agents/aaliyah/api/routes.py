@@ -35,7 +35,8 @@ from app.agents.aaliyah.core.meeting_prep import MeetingPrepAgent
 from dataclasses import asdict
 from app.services.brain.guardrails import redact_text
 from app.core.queue import queue, JobType
-
+from app.services.audit_log_service import AuditLogService, AuditAction, AuditEntityType
+from app.agents.aaliyah.core.greeting_service import GreetingService
 router = APIRouter(
     prefix="/aaliyah",
     tags=["aaliyah"],
@@ -46,6 +47,7 @@ _orchestrators: dict[str, AaliyahOrchestrator] = {}
 
 _ask_rate_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60)
 _webhook_rate_limiter = InMemoryRateLimiter(max_requests=120, window_seconds=60)
+_sync_rate_limiter = InMemoryRateLimiter(max_requests=5, window_seconds=60)
 _idempotency_store = InMemoryIdempotencyStore(ttl_seconds=3600)
 _LIVE_TOKEN_TTL_SECONDS = 300
 
@@ -108,6 +110,11 @@ class AaliyahSettingsRequest(BaseModel):
 
     # Global Operations
     auto_send_enabled: bool = False
+    
+    # Approvals & Risk
+    always_require_approval: bool = True
+    approval_required_topics: list[str] = Field(default_factory=list)
+
 
 
 class SendDraftRequest(BaseModel):
@@ -257,6 +264,8 @@ class OnboardingCompleteRequest(BaseModel):
     signature: Optional[str] = Field(default=None, max_length=500)
     vips: list[str] = Field(default_factory=list)
     safe_auto_send: bool = False
+    always_require_approval: bool = True
+    approval_required_topics: list[str] = Field(default_factory=list)
 
 
 @router.get("/onboarding/status")
@@ -304,6 +313,8 @@ async def complete_onboarding(
         "signature": payload.signature,
         "auto_send_enabled": payload.safe_auto_send,
         "vip_senders": payload.vips,
+        "always_require_approval": payload.always_require_approval,
+        "approval_required_topics": payload.approval_required_topics,
         # Derived boolean flags for cross-form consistency
         "organize_inbox_enabled": "Organize inbox" in payload.capabilities,
         "draft_replies_enabled": "Draft email replies" in payload.capabilities,
@@ -338,12 +349,83 @@ async def complete_onboarding(
     user = db.query(User).filter(User.id == context.user_id).first()
     first_name = (user.full_name or "").split()[0] if user and user.full_name else None
 
+    # 3. Check health to determine welcome message (Truth Gating)
+    from app.services.integrations.health_service import ConnectorHealthService
+    health_svc = ConnectorHealthService(db, workspace.id)
+    health_info = health_svc.get_detailed_health()
+    
+    email_status = health_info.get("email", {}).get("status", "NOT_CONNECTED")
+    email_ok = email_status == "OK"
+
+    # Use first name in message if available
+    name_display = first_name or "there"
+    if email_ok:
+        welcome_msg = f"Done, {name_display} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here."
+    else:
+        welcome_msg = f"Protocols configured, {name_display}. However, your email is not connected.\nAuthorize Gmail or Outlook in settings to start syncing."
+
     return {
-        "status": "completed",
-        "first_name": first_name,
+        "status": "completed", 
+        "onboarding_status": "completed",
         "workspace_id": workspace.id,
-        "message": f"Done, {first_name or 'there'} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.",
+        "first_name": first_name,
+        "message": welcome_msg,
+        "health": health_info
     }
+
+
+@router.post("/preflight/run")
+async def run_preflight(
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Run morning preflight checks (Daily Gate)."""
+    from app.services.integrations.health_service import ConnectorHealthService
+    
+    workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+        
+    health_svc = ConnectorHealthService(db, workspace.id)
+    health_info = health_svc.get_detailed_health()
+    
+    email_status = health_info.get("email", {}).get("status", "NOT_CONNECTED")
+    email_ok = email_status == "OK"
+    
+    # Store result in settings
+    current_settings = dict(getattr(workspace, "settings_json", {}) or {})
+    if "aaliyah" not in current_settings:
+        current_settings["aaliyah"] = {}
+        
+    preflight_result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "OK" if email_ok else "RE-AUTHORIZE_REQUIRED",
+        "email_connected": email_ok,
+        "health": health_info
+    }
+    
+    current_settings["aaliyah"]["last_preflight_result"] = preflight_result
+    workspace.settings_json = current_settings
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(workspace, "settings_json")
+    db.commit()
+    
+    # Audit Log
+    AuditLogService.log_action(
+        db=db,
+        workspace_id=context.workspace_id,
+        user_id="ai_agent",
+        action=AuditAction.EXECUTE,
+        entity_type=AuditEntityType.INTEGRATION,
+        entity_id="preflight_check",
+        metadata={
+            "result_status": preflight_result["status"],
+            "email_connected": email_ok
+        },
+        explain_one_liner=f"Ran preflight check: {preflight_result['status']}"
+    )
+
+    return preflight_result
 
 
 @router.get("/briefing")
@@ -777,7 +859,7 @@ async def sync_inbox(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    _rate_limit_or_throw(_webhook_rate_limiter, key=f"sync_inbox:{context.user_id}:{workspace_id}")
+    _rate_limit_or_throw(_sync_rate_limiter, key=f"sync_inbox:{context.user_id}:{workspace_id}")
     
     # Gatekeeper: Email Health Check
     if not payload.force:
@@ -789,6 +871,22 @@ async def sync_inbox(
         
         if email_status != "OK":
              logger.warning(f"SYNC_BLOCKED: workspace={workspace_id} service=email reason={email_status} code={email_info.get('error_code')}")
+             
+             AuditLogService.log_action(
+                 db=db,
+                 workspace_id=workspace_id,
+                 user_id=context.user_id,
+                 action=AuditAction.EXECUTE,
+                 entity_type=AuditEntityType.INTEGRATION,
+                 entity_id=f"sync_inbox:{payload.provider}",
+                 metadata={
+                     "status": "blocked",
+                     "reason": email_status,
+                     "error_code": email_info.get("error_code")
+                 },
+                 explain_one_liner=f"Inbox sync blocked: {email_status}"
+             )
+
              return {
                  "status": "skipped",
                  "reason": f"GatekeeperBlocked: Email status is {email_status}",
@@ -815,6 +913,18 @@ async def sync_inbox(
     
     logger.info(f"SYNC_STARTED: workspace={workspace_id} job_id={job_id} type=inbox")
 
+    AuditLogService.log_action(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=context.user_id,
+        action=AuditAction.EXECUTE,
+        entity_type=AuditEntityType.INTEGRATION,
+        entity_id=f"sync_inbox:{payload.provider}",
+        metadata={"job_id": job_id, "status": "started"},
+        explain_one_liner="Started inbox sync"
+    )
+
+
     response = {"status": "queued", "job_id": job_id}
     if cache_key:
         _idempotency_store.set(cache_key, response)
@@ -829,7 +939,7 @@ async def sync_calendar(
     db: Session = Depends(get_db),
 ):
     workspace_id = _require_workspace_match(payload.workspace_id, context)
-    _rate_limit_or_throw(_webhook_rate_limiter, key=f"sync_calendar:{context.user_id}:{workspace_id}")
+    _rate_limit_or_throw(_sync_rate_limiter, key=f"sync_calendar:{context.user_id}:{workspace_id}")
     
     # Gatekeeper: Calendar Health Check
     if not payload.force:
@@ -841,6 +951,22 @@ async def sync_calendar(
         
         if cal_status != "OK":
              logger.warning(f"SYNC_BLOCKED: workspace={workspace_id} service=calendar reason={cal_status} code={cal_info.get('error_code')}")
+             
+             AuditLogService.log_action(
+                 db=db,
+                 workspace_id=workspace_id,
+                 user_id=context.user_id,
+                 action=AuditAction.EXECUTE,
+                 entity_type=AuditEntityType.INTEGRATION,
+                 entity_id=f"sync_calendar:{payload.provider}",
+                 metadata={
+                     "status": "blocked",
+                     "reason": cal_status,
+                     "error_code": cal_info.get("error_code")
+                 },
+                 explain_one_liner=f"Calendar sync blocked: {cal_status}"
+             )
+
              return {
                  "status": "skipped",
                  "reason": f"GatekeeperBlocked: Calendar status is {cal_status}",
@@ -866,6 +992,17 @@ async def sync_calendar(
     job_id = await queue.enqueue(JobType.SYNC_PROVIDER, job_payload)
 
     logger.info(f"SYNC_STARTED: workspace={workspace_id} job_id={job_id} type=calendar")
+
+    AuditLogService.log_action(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=context.user_id,
+        action=AuditAction.EXECUTE,
+        entity_type=AuditEntityType.INTEGRATION,
+        entity_id=f"sync_calendar:{payload.provider}",
+        metadata={"job_id": job_id, "status": "started"},
+        explain_one_liner="Started calendar sync"
+    )
 
     response = {"status": "queued", "job_id": job_id}
     if cache_key:
@@ -921,9 +1058,9 @@ async def get_aaliyah_settings(
         
         "vip_senders": aaliyah_settings.get("vip_senders", []),
         
-        # Read-only security caps for Sprint 2
-        "approval_required_topics": ["Financials", "Hiring", "External Strategy"],
-        "always_require_approval": True
+        # Security & Approvals
+        "approval_required_topics": aaliyah_settings.get("approval_required_topics", ["Financials", "Hiring", "External Strategy"]),
+        "always_require_approval": aaliyah_settings.get("always_require_approval", True)
     }
 
 
@@ -966,6 +1103,8 @@ async def update_aaliyah_settings(
         "signature": payload.signature,
         "examples": payload.examples,
         "vip_senders": payload.vip_senders,
+        "always_require_approval": payload.always_require_approval,
+        "approval_required_topics": payload.approval_required_topics,
     })
     
     workspace.settings_json = current_settings
@@ -1368,3 +1507,16 @@ async def live_websocket(websocket: WebSocket):
         pass
     except Exception:
         pass
+
+
+@router.get("/greeting")
+async def get_greeting(
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """
+    Get deterministic, state-based greeting for the current user.
+    Uses Integration health as source of truth.
+    """
+    service = GreetingService(db, context.workspace_id, context.user_id)
+    return service.get_greeting_state()

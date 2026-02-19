@@ -128,7 +128,10 @@ export interface OnboardingCompletePayload {
   signature?: string
   vips: string[]
   safe_auto_send: boolean
+  always_require_approval?: boolean
+  approval_required_topics?: string[]
 }
+
 
 export async function getOnboardingStatus(): Promise<OnboardingStatusResponse> {
   try {
@@ -153,6 +156,24 @@ export async function getStats(workspaceId?: string) {
     const response = await aaliyahApi.get("/stats", {
       params: workspaceId ? { workspace_id: workspaceId } : undefined,
     })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function runPreflight() {
+  try {
+    const response = await aaliyahApi.post("/preflight/run")
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getBriefing() {
+  try {
+    const response = await aaliyahApi.get("/briefing")
     return response.data
   } catch (error) {
     throw toApiError(error)
@@ -349,10 +370,11 @@ export interface AaliyahSettings {
   // VIPs
   vip_senders?: string[]
 
-  // Read-only info
+  // Security & Approvals
   approval_required_topics?: string[]
   always_require_approval?: boolean
 }
+
 
 export async function getAaliyahSettings() {
   try {

@@ -3,11 +3,12 @@ Google Gmail Service
 Wrapper around Google API Client for Email Operations.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 import time
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.auth.exceptions import RefreshError
 import logging
 from email.utils import parsedate_to_datetime
 from email.mime.text import MIMEText
@@ -19,10 +20,11 @@ from app.services.brain.guardrails import redact_text
 logger = logging.getLogger(__name__)
 
 class GmailService:
-    def __init__(self, token: Dict[str, Any]):
+    def __init__(self, token: Dict[str, Any], on_auth_failure: Optional[Callable[[], None]] = None):
         if not settings.google_client_id or not settings.google_client_secret:
             raise ValueError("Google OAuth settings missing (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)")
 
+        self.on_auth_failure = on_auth_failure
         self.creds = Credentials(
             token=token["access_token"],
             refresh_token=token.get("refresh_token"),
@@ -33,18 +35,30 @@ class GmailService:
         )
         self.service = build('gmail', 'v1', credentials=self.creds)
 
-    def _retry_execute(self, request, retries: int = 3):
+    def _retry_execute(self, request, retries: int = 5):
         """Execute a Google API request with retries for transient errors."""
-        for i in range(retries):
-            try:
-                return request.execute()
-            except HttpError as e:
-                if e.resp.status in {429, 500, 502, 503, 504} and i < retries - 1:
-                    wait = (2 ** i) * 0.5  # 0.5, 1.0, 2.0
-                    logger.warning(f"Gmail API {e.resp.status} error, retrying in {wait}s...")
-                    time.sleep(wait)
-                    continue
-                raise e
+        try:
+            for i in range(retries):
+                try:
+                    return request.execute()
+                except HttpError as e:
+                    if e.resp.status == 401:
+                        logger.error("Gmail API 401 Unauthorized - Token expired/revoked.")
+                        if self.on_auth_failure:
+                            self.on_auth_failure()
+                        raise e
+                    
+                    if e.resp.status in {429, 500, 502, 503, 504} and i < retries - 1:
+                        wait = (2 ** i) * 0.5
+                        logger.warning(f"Gmail API {e.resp.status} error, retrying in {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    raise e
+        except RefreshError as e:
+            logger.error(f"Gmail Token Refresh Failed: {e}")
+            if self.on_auth_failure:
+                self.on_auth_failure()
+            raise e
         return request.execute()
 
     def get_profile(self) -> Dict[str, Any]:

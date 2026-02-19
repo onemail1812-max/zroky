@@ -28,6 +28,7 @@ class IntegrationStatus(str, enum.Enum):
 
     DISCONNECTED = "DISCONNECTED"
     CONNECTED = "CONNECTED"
+    NEEDS_RECONNECT = "NEEDS_RECONNECT"
     ERROR = "ERROR"
 
 

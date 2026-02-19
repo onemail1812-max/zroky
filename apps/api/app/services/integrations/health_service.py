@@ -156,7 +156,11 @@ class ConnectorHealthService:
         Status: OK, EXPIRED, REVOKED, SCOPE_MISSING, ERROR, RATE_LIMIT, NETWORK_ERROR
         """
         
-        # 1. Scope Check
+        # 1. Status Check
+        if integration.status == IntegrationStatus.NEEDS_RECONNECT:
+            return "NEEDS_RECONNECT", "TOKEN_EXPIRED"
+
+        # 2. Scope Check
         if not self._supports_service(integration, service_type):
             return "SCOPE_MISSING", "MISSING_REQUIRED_SCOPES"
 
@@ -180,11 +184,6 @@ class ConnectorHealthService:
                 return "OK", "HEALTHY"
             
             if ping_result == "RATE_LIMIT":
-                return "OK", "RATE_LIMIT_WARNING" # Status OK because it's temporary, but warn. Or separate status.
-                # Story says: "auto retry with backoff". 
-                # If ping fails after retries, we return status ERROR but code RATE_LIMIT.
-                # However, for HEALTH check, we might want to say OK but degraded?
-                # Let's stick to returning the Error Status if it persists.
                 return "ERROR", "RATE_LIMIT_EXCEEDED"
 
             if ping_result == "NETWORK_ERROR":

@@ -661,13 +661,13 @@ export function CardFeed({
 
           case "response":
             return (
-              <div key={item.id} className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div key={item.id} className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-500" data-testid={`chat-response-${item.id}`}>
                 <div className="max-w-2xl">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="h-1.5 w-1.5 rounded-full bg-infoExecuting"></span>
                     <span className="text-[11px] font-semibold tracking-[0.14em] text-textMuted uppercase">AALIYAH</span>
                   </div>
-                  <div className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap">{item.text}</div>
+                  <div className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap" data-testid="chat-response-text">{item.text}</div>
                 </div>
               </div>
             )
@@ -732,7 +732,7 @@ export function CardFeed({
             return <div key={item.id} className="animate-in fade-in"><MiniScheduleGridArtifact title={item.title} slots={item.slots} /></div>
 
           case "health-report":
-            return <div key={item.id} className="animate-in fade-in"><HealthReportCard health={item.health} /></div>
+            return <div key={item.id} className="animate-in fade-in" data-testid="health-report-card"><HealthReportCard health={item.health} /></div>
 
           default:
             return null

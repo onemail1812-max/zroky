@@ -11,7 +11,7 @@ import { inboxService, EmailMessage } from "@/services/inbox.service"
 import GuidelinesForm from "@/components/aaliyah/forms/GuidelinesForm"
 import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
 import { CardFeed, type FeedItem, type Evidence } from "../main/CardFeed"
-import { sendChat, getThreadDetails, getOnboardingStatus } from "@/lib/aaliyah/api"
+import { sendChat, getThreadDetails, getOnboardingStatus, runPreflight, getBriefing } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { BrainCircuit, Loader2 } from "lucide-react"
 
@@ -107,14 +107,20 @@ function OnboardingGate({ firstName }: { firstName: string | null }) {
 }
 
 // ── Workspace Unlocked Message ──────────────────────────────────────
-function mkWelcomeBackItem(firstName: string | null): FeedItem {
+function mkWelcomeBackItem(firstName: string | null, health: any): FeedItem {
     const name = firstName || "there"
+    const isOk = health?.email_accessible === true
+
+    const text = isOk
+        ? `Done, ${name} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.`
+        : `Protocols ready, ${name}. However, your email is not yet connected. Please authorize Gmail or Outlook in Settings > Integrations to begin.`;
+
     return {
         id: `welcome_${Date.now()}`,
         type: "response",
         title: "Aaliyah",
-        text: `Done, ${name} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.`,
-        tone: "success" as any,
+        text: text,
+        tone: isOk ? "success" : "normal" as any,
     }
 }
 
@@ -143,12 +149,62 @@ export function WorkspaceLayout() {
     const [composerValue, setComposerValue] = React.useState("")
     const [isSubmitting, setIsSubmitting] = React.useState(false)
     const [workingStatus, setWorkingStatus] = React.useState<string | null>(null)
+    const [isPreflightRunning, setIsPreflightRunning] = React.useState(false)
 
     const {
         connectionHealth,
         fetchHealth,
-        isBackendConnected
+        isBackendConnected,
+        triggerSync
     } = useSystemStore()
+
+    // ── Daily Preflight Gate ─────────────────────────────────────────
+    const runMorningProtocols = React.useCallback(async () => {
+        if (isPreflightRunning) return
+        setIsPreflightRunning(true)
+        setWorkingStatus("Running morning preflight...")
+
+        try {
+            // 1. Health check is already handled by fetchHealth in loadCounts or manually here
+            const health = await fetchHealth()
+
+            // Re-read health from store or check direct result
+            // (Assuming fetchHealth updates connectionHealth in store)
+
+            // 2. Run Preflight Backend Gate
+            const preflight = await runPreflight()
+
+            if (preflight.status === 'OK') {
+                setWorkingStatus("Syncing inbox & briefings...")
+
+                // 3. Trigger Sync
+                await triggerSync()
+
+                // 4. Fetch Briefing
+                const briefing = await getBriefing()
+                if (briefing?.content) {
+                    setChatHistory(prev => [
+                        ...prev,
+                        {
+                            id: `briefing_${Date.now()}`,
+                            type: "response",
+                            title: "Morning Briefing",
+                            text: briefing.content,
+                            tone: "normal"
+                        }
+                    ])
+                }
+                setWorkingStatus(null)
+            } else {
+                setWorkingStatus("Connection required")
+            }
+        } catch (err) {
+            console.error("Preflight failed", err)
+            setWorkingStatus("Preflight failed")
+        } finally {
+            setIsPreflightRunning(false)
+        }
+    }, [fetchHealth, triggerSync])
 
     // ── Check onboarding on mount ────────────────────────────────────
     React.useEffect(() => {
@@ -182,10 +238,15 @@ export function WorkspaceLayout() {
 
     // Show welcome-back message once workspace unlocks
     React.useEffect(() => {
-        if (onboardingComplete && onboardingChecked && chatHistory.length === 0) {
-            setChatHistory([mkWelcomeBackItem(firstName)])
+        if (onboardingComplete && onboardingChecked && chatHistory.length === 0 && connectionHealth !== null) {
+            setChatHistory([mkWelcomeBackItem(firstName, connectionHealth)])
+
+            // Truth Gating: Only run morning protocols if email is healthy
+            if (connectionHealth.email_accessible) {
+                runMorningProtocols()
+            }
         }
-    }, [onboardingComplete, onboardingChecked])
+    }, [onboardingComplete, onboardingChecked, connectionHealth, runMorningProtocols])
 
 
 
@@ -221,7 +282,7 @@ export function WorkspaceLayout() {
                 const groundedItem: FeedItem = {
                     id: `ans_${Date.now()}`,
                     type: "grounded-answer",
-                    text: result.answer_text || result.reply || "I've processed your request.",
+                    text: result.answer_text || result.reply || result.answer || "I processed your request but couldn't generate a text response.",
                     evidence: result.evidence || [],
                     status: result.status || "found"
                 }
@@ -291,11 +352,14 @@ export function WorkspaceLayout() {
 
     // Initial Load & Polling
     const loadCounts = React.useCallback(() => {
-        inboxService.getCounts().then(res => {
-            setCounts(res)
-        }).catch(console.error)
+        // Truth Gating: only load counts if email is accessible
+        if (connectionHealth?.email_accessible) {
+            inboxService.getCounts().then(res => {
+                setCounts(res)
+            }).catch(console.error)
+        }
         fetchHealth().catch(console.error)
-    }, [refreshTrigger, fetchHealth])
+    }, [refreshTrigger, fetchHealth, connectionHealth?.email_accessible])
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
@@ -430,6 +494,7 @@ export function WorkspaceLayout() {
                     onNavigate={handleNavigate}
                     counts={uiCounts}
                     hasUnread={hasUnread}
+                    disabled={!connectionHealth?.email_accessible}
                 />
             </div>
 
@@ -504,14 +569,15 @@ export function WorkspaceLayout() {
 
                 {/* Connection Health Banner */}
                 {connectionHealth && !connectionHealth.email_accessible && onboardingComplete && (
-                    <div className="bg-amber-50 border-b border-amber-100 px-6 py-2 flex items-center justify-between">
+                    <div className="bg-amber-50 border-b border-amber-100 px-6 py-2 flex items-center justify-between" data-testid="connection-health-banner">
                         <div className="flex items-center gap-2">
                             <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-[11px] font-medium text-amber-800">Email connection is currently inactive. System is in read-only mode.</span>
+                            <span className="text-[11px] font-medium text-amber-800" data-testid="connection-health-message">Email connection is currently inactive. System is in read-only mode.</span>
                         </div>
                         <Link
                             href="/aaliyahonboarding"
                             className="text-[10px] font-bold uppercase tracking-wider text-amber-900 hover:underline"
+                            data-testid="authorize-email-cta"
                         >
                             Authorize Email
                         </Link>
@@ -556,10 +622,11 @@ export function WorkspaceLayout() {
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: 10 }}
                                     className="absolute -top-12 left-0 right-0 flex justify-center pointer-events-none"
+                                    data-testid="working-status-indicator"
                                 >
                                     <div className="bg-zinc-900 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-full flex items-center gap-2 shadow-2xl border border-white/10">
                                         <BrainCircuit className="h-3 w-3 animate-pulse text-purple-400" />
-                                        {workingStatus}
+                                        <span data-testid="working-status-text">{workingStatus}</span>
                                     </div>
                                 </motion.div>
                             )}
@@ -577,6 +644,7 @@ export function WorkspaceLayout() {
                                 onChange={(e) => setComposerValue(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && !isSubmitting && handleSend()}
                                 disabled={isSubmitting || !connectionHealth?.email_accessible}
+                                data-testid="chat-composer-input"
                             />
                             <button
                                 onClick={handleSend}

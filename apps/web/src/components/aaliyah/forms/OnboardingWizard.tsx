@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { connectorService } from "@/services/connector.service"
 
 // --- CSS ---
 const STYLE = `
@@ -62,6 +63,8 @@ type OnboardingState = {
   examples: string
   vips: string[]
   safeAutoSend: boolean
+  alwaysRequireApproval: boolean
+  approvalRequiredTopics: string[]
 }
 
 interface ScreenProps {
@@ -83,7 +86,9 @@ export default function OnboardingWizard() {
     signature: '',
     examples: '',
     vips: [],
-    safeAutoSend: false
+    safeAutoSend: false,
+    alwaysRequireApproval: true,
+    approvalRequiredTopics: ["Financials", "Hiring", "External Strategy"]
   })
 
   const next = () => setStep((s) => Math.min(s + 1, 7) as Step)
@@ -575,6 +580,16 @@ function Screen7({ state }: { state?: OnboardingState }) {
   const [saving, setSaving] = React.useState(false)
   const [done, setDone] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [healthStatus, setHealthStatus] = React.useState<any>(null)
+  const [serverMessage, setServerMessage] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    connectorService.getHealth().then(res => {
+      if (res && res.status === 'ok') {
+        setHealthStatus(res.data)
+      }
+    }).catch(console.error)
+  }, [])
 
   const handleLaunch = async () => {
     setSaving(true)
@@ -594,7 +609,13 @@ function Screen7({ state }: { state?: OnboardingState }) {
         signature: state?.signature || undefined,
         vips: state?.vips || [],
         safe_auto_send: state?.safeAutoSend || false,
+        always_require_approval: state?.alwaysRequireApproval ?? true,
+        approval_required_topics: state?.approvalRequiredTopics || [],
       })
+
+      if (res.message) {
+        setServerMessage(res.message)
+      }
 
       setDone(true)
 
@@ -611,7 +632,7 @@ function Screen7({ state }: { state?: OnboardingState }) {
       /* Redirect after brief success state */
       setTimeout(() => {
         router.push('/aaliyahworkspace')
-      }, 1500)
+      }, 2500)
     } catch (err: any) {
       console.error("Onboarding complete failed", err)
       setError(err?.message || "Protocol initialization failed. Please check connection.")
@@ -624,29 +645,48 @@ function Screen7({ state }: { state?: OnboardingState }) {
 
       {/* Modern Typography - Single Line */}
       <div className="space-y-6 mb-12">
-        <h1 className="text-6xl lg:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap">
+        <h1
+          className="text-6xl lg:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap"
+          data-testid="onboarding-status-title"
+        >
           {done ? "System Live." : "System Ready."}
         </h1>
-        <p className="text-zinc-500 font-medium text-xl leading-relaxed max-w-md mx-auto">
-          {done ? "Redirecting to Command Center..." : "Core protocols established. Aaliyah is standing by."}
+        <p
+          className="text-zinc-500 font-medium text-xl leading-relaxed max-w-md mx-auto"
+          data-testid="onboarding-status-message"
+        >
+          {done ? (serverMessage || "Redirecting to Command Center...") : "Core protocols established. Aaliyah is standing by."}
         </p>
       </div>
 
       {/* Terminal Check List */}
       <div className="w-full max-w-md bg-zinc-50/80 backdrop-blur-sm border border-zinc-200/50 rounded-2xl p-6 space-y-4 mb-12 text-left shadow-sm">
-        {["Workspace Connected", "Permissions Verified", "Draft & Schedule Engine Ready"].map((t, i) => (
+        {[
+          { label: "Workspace Connected", id: "workspace-connected", ok: true },
+          { label: "Permissions Verified", id: "permissions-verified", ok: true },
+          { label: "Email Account Connected", id: "email-connected", ok: healthStatus?.email_accessible === true }
+        ].map((item, i) => (
           <motion.div
             key={i}
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.2 + (i * 0.15) }}
             className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600"
+            data-testid={`checklist-item-${item.id}`}
           >
             <div className="flex items-center gap-3">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
-              {t}
+              <div className={cn(
+                "h-1.5 w-1.5 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse",
+                item.ok ? "bg-emerald-500" : "bg-amber-500 shadow-none"
+              )} />
+              {item.label}
             </div>
-            <span className="text-emerald-600/80 font-black">OK</span>
+            <span
+              className={cn("font-black", item.ok ? "text-emerald-600/80" : "text-amber-600/80")}
+              data-testid={`checklist-status-${item.id}`}
+            >
+              {item.ok ? "OK" : "PENDING"}
+            </span>
           </motion.div>
         ))}
       </div>

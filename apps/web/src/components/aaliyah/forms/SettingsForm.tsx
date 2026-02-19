@@ -20,7 +20,10 @@ import {
     Archive,
     Search,
     Mic,
-    Settings as SettingsIcon
+    Settings as SettingsIcon,
+    Users,
+    Trash2,
+    Plus
 } from "lucide-react"
 import { getAaliyahSettings, updateAaliyahSettings, AaliyahSettings } from "@/lib/aaliyah/api"
 import { cn } from "@/lib/utils"
@@ -58,6 +61,10 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
         // 4. Safe Auto-Send
         safeAutoSend: false,
 
+        // 5. Global Laws
+        alwaysRequireApproval: true,
+        approvalRequiredTopics: [] as string[],
+
         // Hidden state to prevent data loss
         capabilities: [] as string[],
         draftTone: 'Professional',
@@ -86,6 +93,8 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                         defaultDuration: data.default_meeting_duration,
                         notesMode: (data.notes_mode as any) || 'manual',
                         safeAutoSend: data.auto_send_enabled,
+                        alwaysRequireApproval: data.always_require_approval ?? true,
+                        approvalRequiredTopics: data.approval_required_topics || [],
                         capabilities: data.capabilities || [],
                         draftTone: data.draft_tone || 'Professional',
                         signature: data.signature || '',
@@ -115,9 +124,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                 default_meeting_duration: config.defaultDuration,
                 notes_mode: config.notesMode,
                 auto_send_enabled: config.safeAutoSend,
+                always_require_approval: config.alwaysRequireApproval,
+                approval_required_topics: config.approvalRequiredTopics,
                 capabilities: config.capabilities,
                 draft_tone: config.draftTone,
                 signature: config.signature,
+
                 examples: config.examples,
                 vip_senders: config.vip_senders
             }
@@ -336,8 +348,24 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                     )}
                                 </AnimatePresence>
                             </div>
+                            {/* VIP Registry */}
+                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm mt-6">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="h-8 w-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center"><Users className="h-4 w-4" /></div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-zinc-900">Priority Registry (VIPs)</h3>
+                                        <p className="text-xs text-zinc-500">Emails from these senders bypass filters and always require review.</p>
+                                    </div>
+                                </div>
+                                <ListManager
+                                    items={config.vip_senders}
+                                    placeholder="Enter email or domain (e.g. boss@corp.com)"
+                                    onChange={(vips) => setConfig({ ...config, vip_senders: vips })}
+                                />
+                            </div>
                         </div>
                     )}
+
 
                     {/* 2. Meetings */}
                     {activeTab === 'meetings' && (
@@ -472,54 +500,43 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                 )}
                             </div>
 
-                            {/* Locked Rules */}
-                            <div className="space-y-4 opacity-75">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Lock className="h-3 w-3 text-zinc-400" />
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Immutable Safety Laws</span>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    {["No silent sends", "No guessing / hallucinations", "No auto accept/decline meetings", "No destructive actions", "Always show “Why approval?”", "Restore to Inbox available"].map((rule, i) => (
-                                        <div key={i} className="flex items-center gap-2 text-xs font-medium text-zinc-500 bg-zinc-50 p-3 rounded-lg border border-zinc-100 cursor-not-allowed">
-                                            <Shield className="h-3 w-3 text-zinc-300" />
-                                            {rule}
+                            {/* Global Gate / Policy */}
+                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-8 w-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center"><Shield className="h-4 w-4" /></div>
+                                        <div>
+                                            <h3 className="text-sm font-bold text-zinc-900">Global Executive Review</h3>
+                                            <p className="text-xs text-zinc-500">Force review for ALL actionable outgoing emails.</p>
                                         </div>
-                                    ))}
+                                    </div>
+                                    <Toggle
+                                        enabled={config.alwaysRequireApproval}
+                                        onChange={() => setConfig({ ...config, alwaysRequireApproval: !config.alwaysRequireApproval })}
+                                    />
                                 </div>
                             </div>
 
-                            {/* Approvals Required */}
+                            {/* Approvals Required / Sensitive Topics */}
                             <div className="space-y-4">
                                 <div className="flex items-center gap-2 mb-2">
                                     <AlertTriangle className="h-3 w-3 text-amber-500" />
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Approvals Always Required</span>
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Sensitive Topic Registry</span>
                                 </div>
 
                                 <div className="bg-amber-50/50 rounded-2xl border border-amber-100 p-6">
-                                    <div className="grid grid-cols-2 gap-y-4 gap-x-8">
-                                        {[
-                                            "Pricing / discounts / proposals",
-                                            "Legal / contracts / NDA",
-                                            "Payments / invoices / refunds",
-                                            "Angry complaints / escalations",
-                                            "Hiring offers / rejections",
-                                            "Sensitive commitments",
-                                            "Unclear / Missing info",
-                                            "New recipients (first-time)"
-                                        ].map(item => (
-                                            <div key={item} className="flex items-center gap-2 text-xs font-bold text-amber-900/70">
-                                                <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                                {item}
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <p className="text-xs text-zinc-500 mb-4">Any email containing these keywords will be locked for review, even if Auto-Send is enabled.</p>
+                                    <ListManager
+                                        items={config.approvalRequiredTopics}
+                                        placeholder="Add keyword (e.g. 'Partnership')"
+                                        onChange={(topics) => setConfig({ ...config, approvalRequiredTopics: topics })}
+                                        dark={false}
+                                    />
                                 </div>
                             </div>
 
                         </div>
                     )}
-
                 </div>
 
                 {/* Footer Actions */}
@@ -532,10 +549,89 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         {saving ? "Saving..." : "Save Configuration"}
                     </button>
-
                 </div>
             </div>
         </motion.div>
+    )
+}
+
+function ListManager({ items, placeholder, onChange, dark = false }: { items: string[], placeholder: string, onChange: (items: string[]) => void, dark?: boolean }) {
+    const [input, setInput] = React.useState("")
+
+    const handleAdd = () => {
+        if (!input.trim()) return
+        if (items.includes(input.trim())) {
+            setInput("")
+            return
+        }
+        onChange([...items, input.trim()])
+        setInput("")
+    }
+
+    const handleRemove = (item: string) => {
+        onChange(items.filter(i => i !== item))
+    }
+
+    return (
+        <div className="space-y-3">
+            <div className="flex gap-2">
+                <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                    placeholder={placeholder}
+                    className={cn(
+                        "flex-1 px-3 py-2 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2",
+                        dark
+                            ? "bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:ring-white/20"
+                            : "bg-zinc-50 border-zinc-200 text-zinc-900 placeholder:text-zinc-400 focus:ring-zinc-900/5"
+                    )}
+                />
+                <button
+                    onClick={handleAdd}
+                    className={cn(
+                        "px-3 py-2 rounded-lg flex items-center justify-center transition-all",
+                        dark ? "bg-white/10 text-white hover:bg-white/20" : "bg-zinc-900 text-white hover:bg-zinc-800"
+                    )}
+                >
+                    <Plus className="h-4 w-4" />
+                </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+                <AnimatePresence>
+                    {items.map((item) => (
+                        <motion.div
+                            key={item}
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.8, opacity: 0 }}
+                            className={cn(
+                                "flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full border text-[10px] font-bold tracking-tight",
+                                dark
+                                    ? "bg-white/5 border-white/10 text-white/90"
+                                    : "bg-white border-zinc-200 text-zinc-600 shadow-sm"
+                            )}
+                        >
+                            <span>{item}</span>
+                            <button
+                                onClick={() => handleRemove(item)}
+                                className={cn(
+                                    "p-0.5 rounded-full transition-colors",
+                                    dark ? "hover:bg-white/10 text-white/50" : "hover:bg-zinc-100 text-zinc-400"
+                                )}
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+                {items.length === 0 && (
+                    <span className="text-[10px] text-zinc-400 italic py-2">No entries yet.</span>
+                )}
+            </div>
+        </div>
     )
 }
 

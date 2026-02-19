@@ -123,13 +123,33 @@ class EmailConnectorFactory:
             token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
             if not token:
                 raise ValueError("Gmail is not connected")
-            return GmailConnector(GmailService(token))
+            
+            def on_gmail_auth_failure():
+                self.token_manager.mark_needs_reconnect(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+
+            return GmailConnector(GmailService(token, on_auth_failure=on_gmail_auth_failure))
 
         if normalized in {"microsoft", "outlook"}:
             token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
             access_token = str((token or {}).get("access_token") or "")
             if not access_token:
                 raise ValueError("Outlook is not connected")
-            return OutlookConnector(OutlookService(access_token))
+            
+            def on_outlook_auth_failure():
+                self.token_manager.mark_needs_reconnect(self.workspace_id, IntegrationProvider.OUTLOOK)
+
+            def outlook_refresher() -> Optional[str]:
+                # We need the Integration object to refresh.
+                integration = self.token_manager.get_integration(self.workspace_id, IntegrationProvider.OUTLOOK)
+                if not integration:
+                    return None
+                refreshed = self.token_manager.refresh_integration_token(integration)
+                return refreshed.get("access_token") if refreshed else None
+
+            return OutlookConnector(OutlookService(
+                access_token, 
+                token_refresher=outlook_refresher,
+                on_auth_failure=on_outlook_auth_failure
+            ))
 
         raise ValueError(f"Unsupported provider '{provider}'")

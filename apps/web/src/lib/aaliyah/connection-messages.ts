@@ -41,7 +41,7 @@ export function getConnectionMessage(service: HealthServiceStatus, serviceName: 
     }
 
     // 3. EXPIRED / REVOKED
-    if (status === "EXPIRED" || status === "REVOKED" || error_code === "REFRESH_FAILED") {
+    if (status === "EXPIRED" || status === "REVOKED" || status === "NEEDS_RECONNECT" || error_code === "REFRESH_FAILED" || error_code === "TOKEN_EXPIRED") {
         return {
             title: "Connection Lost",
             description: "Your access expired or was revoked. Re-authorize to continue.",
@@ -66,7 +66,9 @@ export function getConnectionMessage(service: HealthServiceStatus, serviceName: 
     if (status === "ERROR" && (error_code === "RATE_LIMIT_EXCEEDED" || error_code === "NETWORK_TIMEOUT")) {
         return {
             title: "Temporary Issue",
-            description: error_code === "RATE_LIMIT_EXCEEDED" ? "Provider rate limit reached. Auto-retrying..." : "Network timeout. Auto-retrying...",
+            description: error_code === "RATE_LIMIT_EXCEEDED"
+                ? "Provider limits reached. Pausing sync - try again in a few minutes."
+                : "Network unstable. Retrying connection...",
             badge: "warning",
             ctaLabel: "Retry Now",
             ctaAction: "retry"

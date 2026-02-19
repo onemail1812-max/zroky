@@ -25,10 +25,10 @@ class SafeRequester:
 
     def __init__(
         self,
-        retries: int = 3,
-        backoff_factor: float = 0.5,
+        retries: int = 5,
+        backoff_factor: float = 1.0,
         status_forcelist: tuple[int, ...] = (500, 502, 503, 504, 429),
-        timeout: int = 15,
+        timeout: int = 20,
     ):
         self.timeout = timeout
         self.session = requests.Session()
@@ -44,6 +44,22 @@ class SafeRequester:
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        **kwargs
+    ) -> requests.Response:
+        """Generic safe request."""
+        if "timeout" not in kwargs:
+            kwargs["timeout"] = self.timeout
+            
+        try:
+            return self.session.request(method, url, **kwargs)
+        except requests.RequestException as e:
+            logger.error(f"SafeRequester {method} failed: {redact_text(str(e))}")
+            raise e
 
     def post(
         self,

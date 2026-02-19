@@ -118,6 +118,33 @@ export function ThreadReader({ thread }: { thread: EmailMessage }) {
                             <p className="whitespace-pre-wrap text-[14px] leading-relaxed font-medium text-zinc-200">
                                 {thread.draft.body}
                             </p>
+
+                            {/* Why this draft? Audit Panel */}
+                            {(thread.draft.intent || (thread.draft.sources_used && thread.draft.sources_used.length > 0) || (thread.draft.risk_labels && thread.draft.risk_labels.length > 0)) && (
+                                <div className="mt-6 pt-4 border-t border-white/10">
+                                    <div className="flex flex-wrap gap-2 items-center">
+                                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500 mr-2">Why this draft?</span>
+
+                                        {thread.draft.intent && (
+                                            <span className="text-[10px] bg-white/5 px-2 py-1 rounded text-zinc-300 border border-white/5 flex items-center gap-1">
+                                                <span>🎯</span> {thread.draft.intent}
+                                            </span>
+                                        )}
+
+                                        {thread.draft.sources_used?.map((source, i) => (
+                                            <span key={i} className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded border border-emerald-500/20 flex items-center gap-1">
+                                                <span>📚</span> {source}
+                                            </span>
+                                        ))}
+
+                                        {thread.draft.risk_labels?.map((risk, i) => (
+                                            <span key={i} className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-1 rounded border border-amber-500/20 flex items-center gap-1">
+                                                <span>⚠️</span> {risk}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mr-1">Aaliyah AI</span>
                     </div>

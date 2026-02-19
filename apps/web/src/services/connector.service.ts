@@ -23,7 +23,7 @@ export interface ConnectedAccount {
     scopes: string[];
     hasEmailAccess: boolean;
     hasCalendarAccess: boolean;
-    status: 'active' | 'expired' | 'revoked';
+    status: 'active' | 'expired' | 'revoked' | 'needs_reconnect';
     connectedAt: string;
     lastSyncAt?: string;
     isPrimary?: boolean;
@@ -38,7 +38,7 @@ export interface OAuthConfig {
 export interface HealthServiceStatus {
     connected: boolean;
     provider: string | null;
-    status: 'OK' | 'NOT_CONNECTED' | 'EXPIRED' | 'REVOKED' | 'SCOPE_MISSING' | 'ERROR';
+    status: 'OK' | 'NOT_CONNECTED' | 'EXPIRED' | 'REVOKED' | 'SCOPE_MISSING' | 'ERROR' | 'NEEDS_RECONNECT';
     last_sync_at: string | null;
     error_code: string;
 }
@@ -71,8 +71,7 @@ class ConnectorService {
             '';
 
         const headers: Record<string, string> = {
-            'x-tenant-id': this.getTenantId(),
-            'x-workspace-id': this.getTenantId(),
+            'x-workspace-id': this.getWorkspaceId(),
             'x-user-id': this.getUserId(),
         };
 
@@ -302,8 +301,8 @@ class ConnectorService {
         }
     }
 
-    private getTenantId(): string {
-        return localStorage.getItem('tenant_id') || 'default';
+    private getWorkspaceId(): string {
+        return localStorage.getItem('workspace_id') || localStorage.getItem('tenant_id') || 'default';
     }
 
     /**

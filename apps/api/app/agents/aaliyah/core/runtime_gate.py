@@ -55,14 +55,18 @@ def gate_email(
     risk_engine = RiskEngine()
     risk = risk_engine.score(subject=subject, body=body)
 
+    ctx = dict(context or {})
+    ctx.update({"subject": subject, "body": body})
+
     policy_engine = PolicyEngine(db)
     policy = policy_engine.evaluate(
         user_id=user_id,
         workspace_id=workspace_id,
         intent=canonical_intent,
         risk_domain=risk.domain,
-        context=context,
+        context=ctx,
     )
+
 
     # Default deny for unknown.
     if canonical_intent not in AUTONOMY and canonical_intent not in policy.allowed_actions:
@@ -208,10 +212,17 @@ def final_action_gate(
         return False
 
     # 5. Fallback: if not explicit approval, check if global auto-send is enabled
-    # Even then, we only allow it for low-risk items (checked above).
+    # Even then, we only allow it if "Always Require Approval" is OFF.
     if not is_explicit_approval:
-        auto_send_enabled = settings.get("aaliyah", {}).get("auto_send_enabled", False)
+        aaliyah_s = settings.get("aaliyah", {})
+        auto_send_enabled = aaliyah_s.get("auto_send_enabled", False)
+        always_require_approval = aaliyah_s.get("always_require_approval", True)
+        
+        if always_require_approval:
+            return False
+            
         if not auto_send_enabled:
             return False
 
     return True
+

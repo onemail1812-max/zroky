@@ -11,9 +11,21 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-export function LeftSidebar({ currentSection, onNavigate, counts, hasUnread }: { currentSection?: string; onNavigate?: (section: string) => void; counts?: any; hasUnread?: (section: string) => boolean }) {
+export function LeftSidebar({
+    currentSection,
+    onNavigate,
+    counts,
+    hasUnread,
+    disabled
+}: {
+    currentSection?: string;
+    onNavigate?: (section: string) => void;
+    counts?: any;
+    hasUnread?: (section: string) => boolean;
+    disabled?: boolean;
+}) {
     return (
-        <aside className="flex flex-col w-full h-full bg-white border-r border-zinc-100">
+        <aside className={cn("flex flex-col w-full h-full bg-white border-r border-zinc-100", disabled && "opacity-50 pointer-events-none grayscale")}>
             {/* Identity */}
             <div className="h-20 px-4 flex items-center gap-2.5 border-b border-zinc-100 shrink-0">
                 <div className="h-7 w-7 rounded-lg bg-zinc-900 flex items-center justify-center text-white text-xs font-bold">A</div>

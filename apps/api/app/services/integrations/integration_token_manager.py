@@ -180,4 +180,14 @@ class IntegrationTokenManager:
             timeout=15,
         )
         resp.raise_for_status()
-        return resp.json()
+    def mark_needs_reconnect(self, workspace_id: str, provider: IntegrationProvider):
+        """Mark integration as needing user reconnection."""
+        integration = (
+            self.db.query(Integration)
+            .filter(Integration.workspace_id == workspace_id, Integration.provider == provider)
+            .first()
+        )
+        if integration:
+            integration.status = IntegrationStatus.NEEDS_RECONNECT
+            self.db.commit()
+            logger.info(f"Marked integration {provider} for workspace {workspace_id} as NEEDS_RECONNECT")

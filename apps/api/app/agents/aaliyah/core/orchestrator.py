@@ -528,6 +528,7 @@ class AaliyahOrchestrator:
             )
             return {
                 "reply": "I prepared the request summary and flagged it for approval.",
+                "answer_text": "I've flagged this request for your approval before proceeding.",
                 "details": decision,
                 "tool_result": {"status": "approval_required"},
             }
@@ -557,6 +558,7 @@ class AaliyahOrchestrator:
                 self._patch_state(status="idle", active_task=None, pending_approvals=state.pending_approvals + 1)
                 return {
                     "reply": "I couldn't generate a high-confidence draft safely. Please provide details for manual review.",
+                    "answer_text": "I couldn't generate a safe draft for this. I've queued it for manual review.",
                     "details": decision,
                     "tool_result": {"status": "manual_review_required"},
                 }
@@ -589,14 +591,17 @@ class AaliyahOrchestrator:
                          explain="Updated user preferences from natural language instruction"
                     )
                     
+                    reply_msg = f"I've updated your preferences: {json.dumps(updates)}"
                     return {
-                        "reply": f"I've updated your preferences: {json.dumps(updates)}",
+                        "reply": reply_msg,
+                        "answer_text": reply_msg,
                         "details": decision,
                         "tool_result": {"status": "updated", "updates": updates}
                     }
                 else:
                      return {
                         "reply": "I understood you want to change settings, but I couldn't figure out exactly what to change. Could you be more specific?",
+                        "answer_text": "I couldn't identify the specific preference update you requested. Could you clarify?",
                         "details": decision,
                         "tool_result": {"status": "no_change"}
                     }
@@ -629,11 +634,12 @@ class AaliyahOrchestrator:
                 )
 
                 decision["tool"] = "search_engine"
+                answer = result.get("answer_text") or result.get("reply")
                 return {
                     "status": result.get("status", "found"),
-                    "answer_text": result.get("answer_text") or result.get("reply"),
+                    "answer_text": answer,
                     "evidence": result.get("evidence", []),
-                    "reply": result.get("answer_text") or result.get("reply"), # backward compatibility
+                    "reply": answer, # backward compatibility
                     "details": decision,
                     "tool_result": result.get("data", {})
                 }
@@ -669,13 +675,14 @@ class AaliyahOrchestrator:
              # If disconnected and trying to act, override reply
              email_status = health_info.get("email", {}).get("status", "NOT_CONNECTED")
              if email_status != "OK" and intent not in {"HEALTH_CHECK", "SEARCH"}:
+                 block_msg = f"Your email connection is currently {email_status}. Please re-authorize in settings."
                  return {
                      "reply": (
                          f"**Status**: action_blocked\n"
                          f"**Result**: I cannot {intent.lower()} because your email is disconnected.\n"
                          f"**Next step**: Please go to Settings > Integrations and authorize your email account."
                      ),
-                     "answer_text": f"Your email connection is currently {email_status}. Please re-authorize in settings.",
+                     "answer_text": block_msg,
                      "details": {**decision, "health": health_info},
                      "tool_result": {"status": "connection_required", "service": "email"}
                  }
@@ -1437,94 +1444,3 @@ class AaliyahOrchestrator:
         await self._emit("noop", "Webhook received but no handler matched", {"type": event_type})
         return {"event": "noop"}
 
-    async def handle_chat(self, db: Session, user_id: str, message: str) -> dict[str, Any]:
-        """
-        Sprint 10: Ask Aaliyah (Mail + Calendar Q&A).
-        """
-        # 1. Search for context (Fast Index)
-        query = message.strip()
-        
-        # Imports inside method to avoid cycles
-        from app.models.search_index import EmailIndex, CalendarIndex
-        from sqlalchemy import or_, desc, asc
-        
-        # Search Emails
-        # Simple heuristic: if query is short, exact/ilike match on key fields
-        email_hits = (
-            db.query(EmailIndex)
-            .filter(
-                EmailIndex.workspace_id == self.workspace_id,
-                or_(
-                    EmailIndex.searchable_text.ilike(f"%{query}%"),
-                    EmailIndex.subject.ilike(f"%{query}%"),
-                    EmailIndex.sender.ilike(f"%{query}%")
-                )
-            )
-            .order_by(desc(EmailIndex.last_message_at))
-            .limit(5)
-            .all()
-        )
-        
-        # Search Calendar
-        cal_hits = (
-            db.query(CalendarIndex)
-            .filter(
-                CalendarIndex.workspace_id == self.workspace_id,
-                or_(
-                    CalendarIndex.searchable_text.ilike(f"%{query}%"),
-                    CalendarIndex.title.ilike(f"%{query}%")
-                )
-            )
-            .order_by(desc(CalendarIndex.start_at))
-            .limit(5)
-            .all()
-        )
-        
-        # 2. Construct Context
-        context_str = ""
-        if email_hits:
-            context_str += "=== RELEVANT EMAILS ===\n"
-            for e in email_hits:
-                context_str += f"- [Email] Subject: {e.subject}\n  Sender: {e.sender}\n  Date: {e.last_message_at}\n  Snippet: {e.snippet}\n\n"
-        
-        if cal_hits:
-            context_str += "=== RELEVANT EVENTS ===\n"
-            for c in cal_hits:
-                context_str += f"- [Event] Title: {c.title}\n  Time: {c.start_at}\n  Location: {c.location}\n  Snippet: {c.description_snippet}\n\n"
-
-        # 3. Ask Brain
-        system_prompt = (
-            "You are Aaliyah, an intelligent executive assistant. "
-            "You have access to the user's email and calendar via searched context. "
-            "Your Goal: Answer the user's question based ONLY on the provided context. "
-            "Refusal Rule: If the context is empty or irrelevant to the query, say explicitly: "
-            "'I searched Gmail + Outlook and couldn't find it.' (or similar). "
-            "Do not invent facts. "
-            "If the user is just saying 'hi' or 'hello', identify yourself briefly."
-        )
-        
-        user_prompt = f"""
-Query: {message}
-
-Context:
-{context_str or "No relevant emails or events found."}
-
-Answer:
-"""
-        response = await self.brain.think(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            model_override="deepseek/deepseek-r1", 
-            temperature_override=0.2
-        )
-        
-        content = response.content.strip()
-        
-        return {
-            "answer": content,
-            "sources": [
-                {"type": "email", "id": e.thread_id, "subject": e.subject, "provider": e.provider} for e in email_hits
-            ] + [
-                {"type": "event", "id": e.event_id, "title": e.title, "provider": e.provider} for e in cal_hits
-            ]
-        }
