@@ -104,11 +104,34 @@ export default function WorkspaceShell() {
 
   React.useEffect(() => {
     let alive = true
-    void Promise.all([fetchStatus(), fetchInbox(), fetchHealth()]).finally(() => {
+
+    const boot = async () => {
+      // 1. Critical Health Check First
+      await fetchHealth()
+
+      // 2. Check if we should proceed (Gatekeeper)
+      const health = useSystemStore.getState().connectionHealth
+
+      // Block if Email is not accessible (Minimum Requirement)
+      if (!health?.email_accessible) {
+        console.warn("Workspace Boot Halted: connection required.")
+        if (alive) setIsBooting(false)
+        return // STOP HERE. No fetching inbox, no syncing.
+      }
+
+      // 3. System is Go
+      await Promise.all([fetchStatus(), fetchInbox()])
       if (alive) setIsBooting(false)
-    })
+    }
+
+    void boot()
+
     const interval = window.setInterval(() => {
-      void triggerSync()
+      // Periodic sync also gates itself inside triggerSync, but we can double check
+      const health = useSystemStore.getState().connectionHealth
+      if (health?.email_accessible) {
+        void triggerSync()
+      }
     }, 120_000)
 
     return () => {

@@ -580,26 +580,36 @@ function Screen7({ state }: { state?: OnboardingState }) {
   const [saving, setSaving] = React.useState(false)
   const [done, setDone] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [healthStatus, setHealthStatus] = React.useState<any>(null)
+
+  // Real Health State
+  const [health, setHealth] = React.useState<any>(null)
+  const [loadingHealth, setLoadingHealth] = React.useState(true)
   const [serverMessage, setServerMessage] = React.useState<string | null>(null)
 
+  // Polling for health check
   React.useEffect(() => {
-    connectorService.getHealth().then(res => {
-      if (res && res.status === 'ok') {
-        setHealthStatus(res.data)
-      }
-    }).catch(console.error)
+    let alive = true
+    const check = async () => {
+      try {
+        const res = await connectorService.getHealth()
+        if (alive && res?.data) {
+          setHealth(res.data)
+          setLoadingHealth(false)
+        }
+      } catch (e) { console.error(e) }
+    }
+
+    check()
+    const interval = setInterval(check, 5000) // Poll every 5s to catch auth completion
+    return () => { alive = false; clearInterval(interval) }
   }, [])
 
   const handleLaunch = async () => {
     setSaving(true)
     setError(null)
     try {
-      /* Dynamic import to avoid SSR issues if any */
       const { completeOnboarding } = await import("@/lib/aaliyah/api")
 
-      /* Submit configuration */
-      console.log("Submitting onboarding config:", state) // Debug log
       const res = await completeOnboarding({
         capabilities: state?.capabilities || [],
         working_hours_start: state?.workingHours?.start || "09:00 AM",
@@ -613,118 +623,137 @@ function Screen7({ state }: { state?: OnboardingState }) {
         approval_required_topics: state?.approvalRequiredTopics || [],
       })
 
-      if (res.message) {
-        setServerMessage(res.message)
-      }
-
+      if (res.message) setServerMessage(res.message)
       setDone(true)
 
-      /* Optimistic update for immediate UX */
       if (typeof window !== "undefined") {
         window.localStorage.setItem("aaliyah_onboarding_completed", "true")
         if (res.workspace_id) {
           window.localStorage.setItem("workspace_id", res.workspace_id)
           window.localStorage.setItem("tenant_id", res.workspace_id)
-          window.localStorage.setItem("x_workspace_id", res.workspace_id)
         }
       }
 
-      /* Redirect after brief success state */
-      setTimeout(() => {
-        router.push('/aaliyahworkspace')
-      }, 2500)
+      setTimeout(() => router.push('/aaliyahworkspace'), 2500)
     } catch (err: any) {
       console.error("Onboarding complete failed", err)
-      setError(err?.message || "Protocol initialization failed. Please check connection.")
+      setError(err?.message || "Protocol initialization failed.")
       setSaving(false)
     }
+  }
+
+  const connectProvider = (provider: 'google' | 'microsoft') => {
+    // Direct redirect to auth
+    connectorService.connect({ provider, serviceType: 'both' }).catch(console.error)
+  }
+
+  // Derived readiness
+  const emailOk = health?.email?.connected === true
+  const calendarOk = health?.calendar?.connected === true
+  const isReady = emailOk // Minimum requirement: Email. Calendar is bonus but preferred.
+
+  if (loadingHealth) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-4 animate-pulse">
+          <div className="h-12 w-12 rounded-full border-4 border-zinc-200 border-t-zinc-900 animate-spin" />
+          <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Verifying Connections...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col items-center justify-center text-center h-full w-full max-w-2xl mx-auto py-8">
 
-      {/* Modern Typography - Single Line */}
       <div className="space-y-6 mb-12">
-        <h1
-          className="text-6xl lg:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap"
-          data-testid="onboarding-status-title"
-        >
-          {done ? "System Live." : "System Ready."}
+        <h1 className="text-6xl lg:text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 via-zinc-700 to-zinc-400 whitespace-nowrap">
+          {done ? "System Live." : isReady ? "System Ready." : "Connection Required."}
         </h1>
-        <p
-          className="text-zinc-500 font-medium text-xl leading-relaxed max-w-md mx-auto"
-          data-testid="onboarding-status-message"
-        >
-          {done ? (serverMessage || "Redirecting to Command Center...") : "Core protocols established. Aaliyah is standing by."}
+        <p className="text-zinc-500 font-medium text-xl leading-relaxed max-w-md mx-auto">
+          {done ? (serverMessage || "Redirecting to Command Center...")
+            : isReady ? "Core protocols established. Aaliyah is standing by."
+              : "I need access to your communications stream to function."}
         </p>
       </div>
 
-      {/* Terminal Check List */}
-      <div className="w-full max-w-md bg-zinc-50/80 backdrop-blur-sm border border-zinc-200/50 rounded-2xl p-6 space-y-4 mb-12 text-left shadow-sm">
-        {[
-          { label: "Workspace Connected", id: "workspace-connected", ok: true },
-          { label: "Permissions Verified", id: "permissions-verified", ok: true },
-          { label: "Email Account Connected", id: "email-connected", ok: healthStatus?.email_accessible === true }
-        ].map((item, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.2 + (i * 0.15) }}
-            className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600"
-            data-testid={`checklist-item-${item.id}`}
-          >
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                "h-1.5 w-1.5 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse",
-                item.ok ? "bg-emerald-500" : "bg-amber-500 shadow-none"
-              )} />
-              {item.label}
-            </div>
-            <span
-              className={cn("font-black", item.ok ? "text-emerald-600/80" : "text-amber-600/80")}
-              data-testid={`checklist-status-${item.id}`}
-            >
-              {item.ok ? "OK" : "PENDING"}
-            </span>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Mega Launch Button */}
-      <div className="w-full max-w-md space-y-4">
-        <button
-          onClick={handleLaunch}
-          disabled={saving || done}
-          className="group relative w-full h-20 bg-zinc-900 hover:bg-black text-white rounded-[28px] overflow-hidden transition-all shadow-2xl hover:shadow-zinc-900/30 hover:-translate-y-1 active:scale-[0.98] disabled:opacity-80 disabled:cursor-not-allowed"
-        >
-          <div className="relative z-10 flex items-center justify-center gap-3 h-full px-8">
-            {saving ? (
-              <>
-                <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span className="font-bold tracking-wide text-lg">Initializing...</span>
-              </>
-            ) : (
-              <>
-                <span className="font-black text-lg tracking-wide">Launch Terminal</span>
-                <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform duration-300" />
-              </>
-            )}
+      {/* Connection Status List */}
+      <div className="w-full max-w-md bg-zinc-50/80 backdrop-blur-sm border border-zinc-200/50 rounded-2xl p-6 space-y-4 mb-8 text-left shadow-sm">
+        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600">
+          <div className="flex items-center gap-3">
+            <div className={cn("h-1.5 w-1.5 rounded-full", health ? "bg-emerald-500" : "bg-amber-500")} />
+            Workspace Connected
           </div>
-        </button>
+          <span className="text-emerald-600/80">OK</span>
+        </div>
 
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100 flex items-center justify-center gap-2"
-          >
-            <span className="block h-2 w-2 rounded-full bg-red-500" />
-            Error: {error}
-          </motion.div>
-        )}
+        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600">
+          <div className="flex items-center gap-3">
+            <div className={cn("h-1.5 w-1.5 rounded-full transition-colors", emailOk ? "bg-emerald-500" : "bg-red-500 animate-pulse")} />
+            Email Stream
+          </div>
+          <span className={cn(emailOk ? "text-emerald-600/80" : "text-red-500")}>
+            {emailOk ? "CONNECTED" : "DISCONNECTED"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between text-xs font-bold font-mono tracking-tight text-zinc-600">
+          <div className="flex items-center gap-3">
+            <div className={cn("h-1.5 w-1.5 rounded-full transition-colors", calendarOk ? "bg-emerald-500" : "bg-zinc-300")} />
+            Calendar Stream
+          </div>
+          <span className={cn(calendarOk ? "text-emerald-600/80" : "text-zinc-400")}>
+            {calendarOk ? "CONNECTED" : "OPTIONAL"}
+          </span>
+        </div>
       </div>
 
+      {/* Action Area */}
+      {!isReady ? (
+        <div className="w-full max-w-md grid gap-3">
+          <button onClick={() => connectProvider('google')}
+            className="h-16 bg-white border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-[20px] font-bold text-sm shadow-sm flex items-center justify-center gap-3 transition-all"
+          >
+            <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+            Authorize Google Account
+          </button>
+          <button onClick={() => connectProvider('microsoft')}
+            className="h-16 bg-white border border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50 text-zinc-900 rounded-[20px] font-bold text-sm shadow-sm flex items-center justify-center gap-3 transition-all"
+          >
+            <img src="https://www.microsoft.com/favicon.ico" className="w-5 h-5" alt="Microsoft" />
+            Authorize Outlook Account
+          </button>
+        </div>
+      ) : (
+        <div className="w-full max-w-md space-y-4">
+          <button
+            onClick={handleLaunch}
+            disabled={saving || done}
+            className="group relative w-full h-20 bg-zinc-900 hover:bg-black text-white rounded-[28px] overflow-hidden transition-all shadow-2xl hover:shadow-zinc-900/30 hover:-translate-y-1 active:scale-[0.98] disabled:opacity-80 disabled:cursor-not-allowed"
+          >
+            <div className="relative z-10 flex items-center justify-center gap-3 h-full px-8">
+              {saving ? (
+                <>
+                  <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="font-bold tracking-wide text-lg">Initializing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-black text-lg tracking-wide">Launch Terminal</span>
+                  <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform duration-300" />
+                </>
+              )}
+            </div>
+          </button>
+
+          {error && (
+            <div className="text-red-500 text-xs font-bold bg-red-50 p-3 rounded-xl border border-red-100 flex items-center justify-center gap-2">
+              <span className="block h-2 w-2 rounded-full bg-red-500" />
+              Error: {error}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
