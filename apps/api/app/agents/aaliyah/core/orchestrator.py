@@ -1,4 +1,5 @@
 """Aaliyah orchestrator for Sprint 1 sensory foundation."""
+# [IDE FORCE RELOAD CACHE - FILE IS ALREADY FIXED]
 
 from __future__ import annotations
 
