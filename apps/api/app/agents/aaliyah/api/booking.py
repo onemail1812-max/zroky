@@ -59,9 +59,41 @@ def confirm_booking(slug: str, payload: ConfirmBookingRequest, db: Session = Dep
     manager = BookingManager(db, link.workspace_id)
     try:
         updated_link = manager.confirm_booking(slug, payload.selected_slot)
-        # TODO: Trigger calendar invite creation here!
-        # For Sprint 5 we just mark it as booked.
-        # Ideally we'd call `CalendarSync.create_event(...)`
+        
+        # --- NEW: Trigger real calendar invite creation ---
+        try:
+            from app.services.integrations.token_store import get_valid_token
+            from app.services.integrations.google_calendar import GoogleCalendarService
+            from app.services.integrations.microsoft_calendar import MicrosoftCalendarService
+            
+            # 1. Resolve which token we have
+            token = get_valid_token(db, link.workspace_id, "google")
+            client = None
+            if token:
+                client = GoogleCalendarService(token)
+            else:
+                token = get_valid_token(db, link.workspace_id, "microsoft")
+                if token:
+                    client = MicrosoftCalendarService(token)
+            
+            if client:
+                # 2. Create the event
+                slot = payload.selected_slot
+                # The payload contains start_at and end_at in ISO format from the frontend/Aaliyah
+                client.create_event(
+                    title=f"Meeting: {link.subject or 'Aaliyah Workspace Connect'}",
+                    start_at=slot.get("start"),
+                    end_at=slot.get("end"),
+                    timezone="UTC", # Or dynamic from workspace settings
+                    attendees=[link.recipient_email] if link.recipient_email else [],
+                    description=f"Automated meeting booked via Aaliyah for {link.recipient_email or 'Requestor'}. \n\nSubject: {link.subject}"
+                )
+        except Exception as e:
+            # We don't want to fail the whole booking if the calendar sync fails, 
+            # but we should log it.
+            import logging
+            logging.getLogger(__name__).error(f"Failed to create calendar event for booking {slug}: {e}")
+
         return {"status": "success", "message": "Slot confirmed", "booked_slot": updated_link.booked_slot}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

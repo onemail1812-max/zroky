@@ -204,15 +204,90 @@ class PostgresVectorStore:
         return entry
 
     def similarity_search(self, query_text: str, top_k: int = 3) -> list[dict[str, Any]]:
-        """Find most similar memory entries."""
+        """
+        Level 5 Retrieval: Hybrid Search with Reciprocal Rank Fusion (RRF).
+        Combines Semantic (Vector) + Keyword (FTS) for best-in-class accuracy.
+        """
         query_embedding = self.embedding_client.embed(query_text)
 
-        # Try native pgvector first
+        # 1. Semantic Search
+        semantic_results = []
         if self._check_pgvector():
-            return self._pgvector_search(query_embedding, top_k)
+            semantic_results = self._pgvector_search(query_embedding, top_k=20)
+        else:
+            semantic_results = self._python_cosine_search(query_embedding, top_k=20)
 
-        # Fallback: Python-side cosine
-        return self._python_cosine_search(query_embedding, top_k)
+        # 2. Keyword Search (Full Text)
+        keyword_results = self._keyword_search(query_text, top_k=20)
+
+        # 3. Reciprocal Rank Fusion (RRF)
+        return self._rrf_merge(semantic_results, keyword_results, top_k)
+
+    def _keyword_search(self, query_text: str, top_k: int) -> list[dict[str, Any]]:
+        """Simple keyword search (SQL LIKE or POSIX regex for portability)."""
+        try:
+            # We use a broad search across source types and content
+            search_pattern = f"%{query_text}%"
+            sql = text("""
+                SELECT id, source_type, source_id, content_text, metadata_json
+                FROM memory_entries
+                WHERE workspace_id = :ws_id
+                  AND content_text ILIKE :query
+                LIMIT :limit
+            """)
+            result = self.db.execute(sql, {
+                "ws_id": self.workspace_id,
+                "query": search_pattern,
+                "limit": top_k
+            })
+            rows = result.fetchall()
+            return [
+                {
+                    "id": row.id,
+                    "source_type": row.source_type,
+                    "source_id": row.source_id,
+                    "content_text": row.content_text,
+                    "metadata": row.metadata_json or {},
+                    "similarity": 0.5, # Base similarity for keyword hits
+                }
+                for row in rows
+            ]
+        except Exception as e:
+            logger.warning("Keyword search failed: %s", e)
+            return []
+
+    def _rrf_merge(self, semantic: list[dict], keyword: list[dict], top_k: int, k_factor: int = 60) -> list[dict[str, Any]]:
+        """
+        Reciprocal Rank Fusion algorithm to merge multiple search result sets.
+        score = sum(1 / (k + rank))
+        """
+        scores: dict[str, float] = {}
+        items: dict[str, dict] = {}
+
+        # Process Semantic Rank
+        for rank, item in enumerate(semantic):
+            item_id = item["id"]
+            scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k_factor + rank + 1)
+            items[item_id] = item
+
+        # Process Keyword Rank
+        for rank, item in enumerate(keyword):
+            item_id = item["id"]
+            scores[item_id] = scores.get(item_id, 0.0) + 1.0 / (k_factor + rank + 1)
+            if item_id not in items:
+                items[item_id] = item
+
+        # Sort by fused score
+        fused_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        
+        final_results = []
+        for i_id in fused_ids[:top_k]:
+            item = items[i_id]
+            # Normalize fused score back to a pseudo-similarity for the UI
+            item["similarity"] = scores[i_id] * 10 
+            final_results.append(item)
+            
+        return final_results
 
     def _pgvector_search(self, query_embedding: list[float], top_k: int) -> list[dict[str, Any]]:
         """Use native pgvector cosine distance operator."""

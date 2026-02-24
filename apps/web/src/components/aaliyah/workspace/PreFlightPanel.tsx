@@ -62,7 +62,7 @@ export function PreFlightPanel() {
         setLoading(true)
         try {
             if (action === "connect" || action === "reconnect" || action === "update_scopes") {
-                window.location.href = "/settings/integrations"
+                window.location.href = "/brain"
             }
             if (action === "retry") {
                 await fetchHealth()

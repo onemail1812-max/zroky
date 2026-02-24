@@ -1,8 +1,12 @@
-"""FastAPI application entry point."""
+"""FastAPI application entry point — Stateless Proxy Architecture."""
 import logging
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from app.middleware.rate_limiter import RateLimiterMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from app.core.limiter import limiter
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 
@@ -19,10 +23,11 @@ from app.agents.aaliyah.api import (
     booking_router,
     knowledge_router,
 )
-from app.api.routes.inbox import router as inbox_router
-from app.routers.unified_inbox import router as unified_inbox_router
 from app.routers import oauth
 from app.routers import assist as assist_router
+from app.api.routes.inbox import router as inbox_router
+from app.api.routes.calendar import router as calendar_router
+from app.api.routes.meetings import router as meetings_router
 
 
 setup_logging()
@@ -31,11 +36,13 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    debug=settings.debug,
+    debug=False,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-print("--- ZROKY API STARTING ---")
-print(f"Router prefix: {aaliyah_router.prefix}")
+
+# ── Exception Handlers ──────────────────────────────────────────────────
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -66,61 +73,59 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", str(exc))
-    
+
     content = {
         "error": {
-            "code": "internal_error", 
+            "code": "internal_error",
             "message": "Internal server error"
         }
     }
-    
+
     if settings.debug:
         import traceback
         content["error"]["message"] = f"Internal server error: {str(exc)}"
         content["error"]["traceback"] = traceback.format_exc()
-        
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=content,
     )
 
 
+# ── Startup ─────────────────────────────────────────────────────────────
+
 @app.on_event("startup")
 async def startup_event() -> None:
-    # 0. Strict Env Validation (Fail Fast)
-    missing_vars = []
-    if not settings.google_client_id: missing_vars.append("GOOGLE_CLIENT_ID")
-    if not settings.google_client_secret: missing_vars.append("GOOGLE_CLIENT_SECRET")
-    if not settings.openrouter_api_key: missing_vars.append("OPENROUTER_API_KEY")
-    
-    if missing_vars:
-        logger.critical(f"🚨 FATAL: Missing critical environment variables: {', '.join(missing_vars)}")
-        logger.critical("Server cannot start without these configurations.")
-        import sys
-        sys.exit(1)
-
-    # 1. Security Config Check
-    if settings.env == "production":
-        if not settings.secret_key or len(settings.secret_key) < 32:
-            logger.critical("⚠️ PRODUCTION SECURITY WARNING: Weak or missing SECRET_KEY!")
-            # In strict mode we might want to raise SystemExit, but logging is a good first step
-        
-        if settings.oauth_encryption_key == "0123456789abcdef0123456789abcdef":
-             logger.critical("⚠️ PRODUCTION SECURITY WARNING: Using default OAUTH_ENCRYPTION_KEY! Rotations required immediately.")
-             
-        if not settings.clerk_jwks_url:
-             logger.critical("⚠️ PRODUCTION SECURITY WARNING: Clerk JWKS URL missing. Auth will fail.")
-
-    # 2. Ensure all models are registered before create_all.
+    # Ensure all models are registered before create_all.
     import app.models  # noqa: F401
+    import asyncio
 
-    # Dev-friendly: auto-create tables for SQLite to avoid "no such table" errors.
+    # Dev-friendly: auto-create tables for SQLite.
     if settings.database_url.startswith("sqlite"):
         Base.metadata.create_all(bind=engine)
-
-
-
+        
+    # Start the async background worker loop
+    from app.core.queue import queue, JobType
+    from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting
+    from app.workers.followup_worker import process_auto_followup
+    handlers = {
+        JobType.SYNC_PROVIDER.value: process_sync_provider,
+        JobType.AI_TRIAGE.value: process_ai_triage,
+        JobType.PROCESS_DRAFT.value: process_drafting,
+        JobType.AUTO_FOLLOWUP.value: process_auto_followup
+    }
     
+    # Run the worker listener
+    asyncio.create_task(queue.worker_loop(handlers))
+    
+    # Run the 24/7 auto-sync scheduler
+    asyncio.create_task(queue.scheduler_loop())
+
+    logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
+
+
+# ── CORS ─────────────────────────────────────────────────────────────────
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -129,17 +134,25 @@ app.add_middleware(
     allow_headers=settings.cors_headers,
 )
 
-# Phase-2 surfaces
-# ...
-app.include_router(aaliyah_router) # Aaliyah V2 (Autonomous Agent)
+app.add_middleware(RateLimiterMiddleware, requests_per_minute=120)  # Increased for rapid workspace sync
+
+
+# ── Routers ──────────────────────────────────────────────────────────────
+
+app.include_router(aaliyah_router)
 app.include_router(oauth.router)
 app.include_router(connectors_router)
 app.include_router(booking_router)
 app.include_router(knowledge_router, prefix="/aaliyah", tags=["knowledge"])
 app.include_router(inbox_router)
-app.include_router(unified_inbox_router)
+app.include_router(calendar_router)
+app.include_router(meetings_router)
+from app.api.webhooks import router as webhooks_router
+app.include_router(webhooks_router)
 app.include_router(assist_router.router, prefix="/assist", tags=["assist"])
 
+
+# ── Core Endpoints ───────────────────────────────────────────────────────
 
 @app.get("/")
 async def root():
@@ -150,41 +163,91 @@ async def root():
 async def health_check():
     return {"status": "ok", "service": "api"}
 
+
+@app.get("/health/workers")
+async def health_check_workers(db: Session = Depends(get_db)):
+    """Health metrics for background workers (SQLite queue)."""
+    from app.models.job import Job, JobStatus
+    from sqlalchemy import func
+    from app.core.queue import queue
+    
+    metrics = db.query(Job.status, func.count(Job.id)).group_by(Job.status).all()
+    status_counts = {status.value: count for status, count in metrics}
+    
+    return {
+        "status": "ok",
+        "worker_id": getattr(queue, "worker_id", "unknown"),
+        "metrics": {
+            "pending": status_counts.get(JobStatus.PENDING.value, 0),
+            "running": status_counts.get(JobStatus.RUNNING.value, 0),
+            "done": status_counts.get(JobStatus.DONE.value, 0),
+            "dlq": status_counts.get(JobStatus.DLQ.value, 0),
+            "total": sum(status_counts.values())
+        }
+    }
+
+
 @app.get("/health/providers")
 async def health_check_providers(
     db: Session = Depends(get_db),
     token_payload: dict = Depends(get_current_user),
 ):
     """
-    Check connectivity and token status for all integrations.
-    Returns detailed health states using the centralized health service.
+    Stateless provider health check.
+    In the new architecture, we just report whether the user has
+    connected accounts (Integration records with valid tokens and CONNECTED status).
     """
-    from app.services.integrations.health_service import ConnectorHealthService
-    from app.models.membership import Membership
+    from app.models.integration import Integration, IntegrationProvider, IntegrationStatus
 
     user_id = token_payload.get("sub")
     membership = db.query(Membership).filter(Membership.user_id == user_id).first()
     if not membership:
         raise HTTPException(status_code=404, detail="Workspace not found")
-        
-    service = ConnectorHealthService(db, membership.workspace_id)
-    detailed_health = service.get_detailed_health()
-    
-    # Map to the unified schema requested in Story A1
-    # We maintain backward compatibility with 'providers' key for now if needed,
-    # but the primary response model should match the requirement:
-    # { email: {...}, calendar: {...} }
-    
-    # Also adapt to the frontend expectation of { status: "ok", data: ... }
+
+    workspace_id = membership.workspace_id
+
+    # Check for Integration records with tokens
+    integrations = db.query(Integration).filter(
+        Integration.workspace_id == workspace_id
+    ).all()
+
+    google_connected = any(
+        i.provider in ("google", "google_gmail", "GOOGLE_GMAIL", IntegrationProvider.GOOGLE_GMAIL) 
+        and i.token_encrypted 
+        and i.status == IntegrationStatus.CONNECTED
+        for i in integrations
+    )
+    microsoft_connected = any(
+        i.provider in ("microsoft", "outlook", "OUTLOOK", IntegrationProvider.OUTLOOK) 
+        and i.token_encrypted 
+        and i.status == IntegrationStatus.CONNECTED
+        for i in integrations
+    )
+
+    email_accessible = google_connected or microsoft_connected
+
     return {
         "status": "ok",
         "data": {
-            "email_accessible": detailed_health["email"]["connected"],
-            "calendar_accessible": detailed_health["calendar"]["connected"],
-            "providers": detailed_health["providers"], # Legacy detailed map if frontend uses it
-            "email_health": detailed_health["email"],   # New unified object
-            "calendar_health": detailed_health["calendar"] # New unified object
-        }
+            "email_accessible": email_accessible,
+            "calendar_accessible": email_accessible,  # Calendar comes with same OAuth scope
+            "providers": {
+                "google_gmail": "CONNECTED" if google_connected else "NOT_CONNECTED",
+                "outlook": "CONNECTED" if microsoft_connected else "NOT_CONNECTED",
+            },
+            "email_health": {
+                "connected": email_accessible,
+                "provider": "google_gmail" if google_connected else ("outlook" if microsoft_connected else None),
+                "status": "OK" if email_accessible else "NO_TOKEN",
+                "error_code": None if email_accessible else "NO_INTEGRATION",
+            },
+            "calendar_health": {
+                "connected": email_accessible,
+                "provider": "google_calendar" if google_connected else ("outlook_calendar" if microsoft_connected else None),
+                "status": "OK" if email_accessible else "NO_TOKEN",
+                "error_code": None if email_accessible else "NO_INTEGRATION",
+            },
+        },
     }
 
 
@@ -206,7 +269,6 @@ async def get_current_user_profile(
     membership = db.query(Membership).filter(Membership.user_id == user_id).first()
 
     if not user or not membership:
-        # Auto-provision user + workspace on first login
         email = token_payload.get("email") or f"{user_id}@clerk.local"
         full_name = (
             token_payload.get("user_metadata", {}).get("full_name")

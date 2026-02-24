@@ -1,9 +1,9 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 
 const TOKEN_KEYS = ["auth_token", "clerk_token", "__session"]
-const WORKSPACE_KEYS = ["workspace_id", "tenant_id", "x_workspace_id"]
+export const WORKSPACE_KEYS = ["workspace_id", "tenant_id", "x_workspace_id"]
 
-function readLocalStorage(keys: string[]): string | null {
+export function readLocalStorage(keys: string[]): string | null {
   if (typeof window === "undefined") return null
   for (const key of keys) {
     const value = window.localStorage.getItem(key)
@@ -52,7 +52,7 @@ export const aaliyahApi = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 20000,
+  timeout: 60000,
 })
 
 aaliyahApi.interceptors.request.use((config) => withAuth(config))
@@ -62,7 +62,7 @@ export const assistApi = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 20000,
+  timeout: 60000,
 })
 
 assistApi.interceptors.request.use((config) => withAuth(config))
@@ -76,6 +76,67 @@ export async function sendChat(message: string, workspaceId?: string) {
     return response.data
   } catch (error) {
     throw toApiError(error)
+  }
+}
+
+/**
+ * Streams the chat response using Native SSE from DeepSeek-R1 via Aaliyah Orchestrator
+ */
+export async function sendChatStream(
+  message: string,
+  workspaceId: string | undefined,
+  onChunk: (chunk: any) => void,
+  onDone: () => void,
+  onError: (error: any) => void
+) {
+  try {
+    const response = await assistApi.post("/answer/stream",
+      { message, workspace_id: workspaceId },
+      {
+        responseType: "stream",
+        adapter: "fetch" // Required for streaming in axios with browser
+      }
+    );
+
+    // If using fetch adapter, response.data is a ReadableStream
+    if (response.data instanceof ReadableStream) {
+      const reader = response.data.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.replace('data: ', '').trim();
+            if (dataStr === '[DONE]') {
+              onDone();
+              return;
+            }
+            if (dataStr) {
+              try {
+                const parsed = JSON.parse(dataStr);
+                onChunk(parsed);
+              } catch (e) {
+                console.warn("Could not parse SSE JSON:", dataStr);
+              }
+            }
+          }
+        }
+      }
+      onDone();
+    } else {
+      // Fallback if not readable stream (e.g. testing environment)
+      console.warn("Response data is not a ReadableStream, falling back to simple resolve");
+      onDone();
+    }
+
+  } catch (error) {
+    onError(toApiError(error));
   }
 }
 
@@ -134,6 +195,18 @@ export interface OnboardingCompletePayload {
   max_follow_ups?: number
   always_require_approval?: boolean
   approval_required_topics?: string[]
+
+  // Rulebook Specifics
+  emoji_usage?: boolean
+  directness?: number // 1 to 5 (1=Soft, 5=Direct)
+  draft_disclosure?: boolean
+  project_keywords?: string[]
+  vip_roles?: string[]
+  buffer_time_mins?: number
+  focus_blocks?: string[]
+  morning_briefing_time?: string
+  newsletter_policy?: "archive" | "tab" | "ignore"
+  receipts_policy?: "auto_label" | "ignore"
 }
 
 
@@ -178,7 +251,7 @@ export async function runPreflight() {
 export async function getBriefing() {
   try {
     const response = await aaliyahApi.get("/briefing")
-    return response.data
+    return response.data.briefing
   } catch (error) {
     throw toApiError(error)
   }
@@ -284,7 +357,7 @@ export interface LabelingPreferencesPayload {
 export async function getLabelingPreferences() {
   try {
     const response = await aaliyahApi.get("/labeling/preferences")
-    return response.data
+    return response.data.preferences
   } catch (error) {
     throw toApiError(error)
   }
@@ -377,13 +450,33 @@ export interface AaliyahSettings {
   // Security & Approvals
   approval_required_topics?: string[]
   always_require_approval?: boolean
+
+  // ── 5-Point Rulebook ──
+
+  // 1. Style DNA
+  emoji_usage?: boolean
+  directness?: number // 1 to 5
+  draft_disclosure?: boolean
+
+  // 2. Priority Logic
+  project_keywords?: string[]
+  vip_roles?: string[]
+
+  // 3. Scheduling Protocols
+  buffer_time_mins?: number
+  focus_blocks?: string[]
+  morning_briefing_time?: string
+
+  // 4. Handling Noise
+  newsletter_policy?: "archive" | "tab" | "ignore"
+  receipts_policy?: "auto_label" | "ignore"
 }
 
 
 export async function getAaliyahSettings() {
   try {
     const response = await aaliyahApi.get("/settings")
-    return response.data as AaliyahSettings
+    return response.data.settings as AaliyahSettings
   } catch (error) {
     throw toApiError(error)
   }
@@ -446,6 +539,85 @@ export async function getActions(limit = 50) {
   try {
     const response = await aaliyahApi.get("/actions", { params: { limit } })
     return response.data as { items: ActionLogItem[] }
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getDebugSnapshot() {
+  try {
+    const response = await aaliyahApi.get("/debug/snapshot")
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export interface SyncProgressItem {
+  status: "syncing" | "done" | "waiting"
+  count: number
+  synced_at: string | null
+  message: string
+}
+
+export interface SyncStatusResponse {
+  workspace_id: string
+  runtime_status: string
+  inbox: SyncProgressItem
+  calendar: SyncProgressItem
+}
+
+export async function triggerInitialSync() {
+  try {
+    const response = await aaliyahApi.post("/sync/initial")
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getSyncStatus(): Promise<SyncStatusResponse> {
+  try {
+    const response = await aaliyahApi.get("/sync/status")
+    return response.data as SyncStatusResponse
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+// ── Booking (One-Tap Calendar Sync) ──────────────────────────────────
+
+export interface BookingSlot {
+  start: string
+  end?: string
+  label?: string
+}
+
+export interface BookingLinkData {
+  slug: string
+  recipient_email: string | null
+  subject: string | null
+  proposed_slots: BookingSlot[]
+  status: string
+  expires_at: string | null
+}
+
+export async function getBookingLink(slug: string): Promise<BookingLinkData> {
+  try {
+    const response = await aaliyahApi.get(`/booking/${slug}`)
+    return response.data as BookingLinkData
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function confirmBooking(slug: string, selectedSlot: BookingSlot, bookerEmail?: string) {
+  try {
+    const response = await aaliyahApi.post(`/booking/${slug}/confirm`, {
+      selected_slot: selectedSlot,
+      booker_email: bookerEmail,
+    })
+    return response.data
   } catch (error) {
     throw toApiError(error)
   }

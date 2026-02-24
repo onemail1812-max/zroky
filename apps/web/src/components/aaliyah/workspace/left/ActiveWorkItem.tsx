@@ -23,6 +23,22 @@ function statusDot(state: ConversationState) {
   return "bg-borderSubtle"
 }
 
+const LABEL_COLORS: Record<string, string> = {
+  "Urgent": "bg-rose-100 text-rose-700 border-rose-200/60",
+  "High Priority": "bg-red-100 text-red-700 border-red-200/60",
+  "Meeting": "bg-blue-100 text-blue-700 border-blue-200/60",
+  "Money": "bg-amber-100 text-amber-700 border-amber-200/60",
+  "Legal": "bg-purple-100 text-purple-700 border-purple-200/60",
+  "Complaint": "bg-orange-100 text-orange-700 border-orange-200/60",
+  "Hiring": "bg-teal-100 text-teal-700 border-teal-200/60",
+  "Awaiting Reply": "bg-sky-100 text-sky-700 border-sky-200/60",
+  "Newsletter": "bg-zinc-100 text-zinc-500 border-zinc-200/60",
+  "Receipt": "bg-emerald-100 text-emerald-700 border-emerald-200/60",
+  "FYI": "bg-indigo-100 text-indigo-600 border-indigo-200/60",
+}
+
+const DEFAULT_LABEL_COLOR = "bg-zinc-100 text-zinc-600 border-zinc-200/60"
+
 export function ActiveWorkItem({
   item,
   selected,
@@ -34,6 +50,8 @@ export function ActiveWorkItem({
   onOpen: (id: string) => void
   buttonRef?: React.Ref<HTMLButtonElement>
 }) {
+  const visibleLabels = (item.labels || []).filter(l => l !== "Actioned" && l !== "Cleaned" && l !== "Notification").slice(0, 3)
+
   return (
     <button
       ref={buttonRef}
@@ -57,6 +75,21 @@ export function ActiveWorkItem({
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold text-textPrimary leading-5">{item.title}</div>
           <div className="mt-2 truncate text-[12px] text-textSecondary leading-5">{item.subtitle}</div>
+          {visibleLabels.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {visibleLabels.map(label => (
+                <span
+                  key={label}
+                  className={cn(
+                    "inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border",
+                    LABEL_COLORS[label] || DEFAULT_LABEL_COLOR
+                  )}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="shrink-0 text-right">

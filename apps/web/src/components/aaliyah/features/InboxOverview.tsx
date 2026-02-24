@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/aaliyah/ui/Button"
 import { Chip } from "@/components/aaliyah/ui/Chip"
 import { cn } from "@/lib/utils"
+import { useSystemStore } from "@/lib/aaliyah/store"
+import { SkeletonEmail } from "@/components/ui/Skeleton"
 
 type InboxFeedItem = {
     id: string
@@ -61,13 +63,15 @@ export function InboxOverview() {
     const [syncing, setSyncing] = React.useState(false)
     const [sendingIds, setSendingIds] = React.useState<Set<string>>(new Set())
 
+    const lastSync = useSystemStore(state => state.lastSync)
+
     React.useEffect(() => {
         fetchData()
-    }, [])
+    }, [lastSync])
 
     async function fetchData() {
         try {
-            setLoading(true)
+            if (inboxItems.length === 0) setLoading(true)
             const [inbox, confs, ups] = await Promise.all([
                 getInbox({ limit: 10 }),
                 getCalendarConflicts(5),
@@ -146,102 +150,101 @@ export function InboxOverview() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold tracking-tight">Intelligence Feed</h2>
-                <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing}>
-                    <RefreshCw className={cn("mr-2 h-4 w-4", syncing && "animate-spin")} />
-                    Sync Now
-                </Button>
-            </div>
+            <h2 className="text-xl font-bold tracking-tight">Intelligence Feed</h2>
+
 
             {/* Calendar Conflicts Alert */}
-            {conflicts.length > 0 && (
-                <Card className="border-amber-200 bg-amber-50/50">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="flex items-center text-amber-800 text-sm">
-                            <AlertTriangle className="mr-2 h-4 w-4" />
-                            {conflicts.length} Calendar Conflicts Detected
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {conflicts.map((c) => (
-                            <div key={c.id} className="text-sm text-amber-900 border-b border-amber-200/50 pb-3 last:border-0 last:pb-0">
-                                <div className="flex justify-between font-medium">
-                                    <span>{c.explain || "Calendar conflict detected."}</span>
-                                    <span className="opacity-70 text-xs whitespace-nowrap ml-2">
-                                        {typeof c.conflict_minutes === "number" ? `${c.conflict_minutes}m` : ""}
-                                        {c.conflict_type ? ` ${c.conflict_type}` : ""}
-                                    </span>
-                                </div>
-
-                                {c.briefing && (
-                                    <div className="mt-2 text-xs bg-white/60 p-2 rounded border border-amber-100">
-                                        <div className="font-semibold text-amber-800 mb-1">Aaliyah Recommendation:</div>
-                                        <div className="mb-1">{c.briefing.recommendation}</div>
-                                        {c.briefing.talking_points?.length > 0 && (
-                                            <ul className="list-disc list-inside opacity-80 mt-1 space-y-0.5">
-                                                {c.briefing.talking_points.map((tp, i) => (
-                                                    <li key={i}>{tp}</li>
-                                                ))}
-                                            </ul>
-                                        )}
+            {
+                conflicts.length > 0 && (
+                    <Card className="border-amber-200 bg-amber-50/50">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="flex items-center text-amber-800 text-sm">
+                                <AlertTriangle className="mr-2 h-4 w-4" />
+                                {conflicts.length} Calendar Conflicts Detected
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {conflicts.map((c) => (
+                                <div key={c.id} className="text-sm text-amber-900 border-b border-amber-200/50 pb-3 last:border-0 last:pb-0">
+                                    <div className="flex justify-between font-medium">
+                                        <span>{c.explain || "Calendar conflict detected."}</span>
+                                        <span className="opacity-70 text-xs whitespace-nowrap ml-2">
+                                            {typeof c.conflict_minutes === "number" ? `${c.conflict_minutes}m` : ""}
+                                            {c.conflict_type ? ` ${c.conflict_type}` : ""}
+                                        </span>
                                     </div>
-                                )}
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
 
-            {/* Upcoming Briefings */}
-            {upcoming.some(u => u.meeting_prep) && (
-                <Card className="border-blue-200 bg-blue-50/50">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="flex items-center text-blue-800 text-sm">
-                            <FileText className="mr-2 h-4 w-4" />
-                            Upcoming Meeting Briefings
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {upcoming.filter(u => u.meeting_prep).map((u) => (
-                            <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
-                                <div className="flex justify-between font-medium">
-                                    <span>{u.title}</span>
-                                    <span className="opacity-70 text-xs whitespace-nowrap ml-2">
-                                        {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                </div>
-                                <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
-
-                                {u.meeting_prep && (
-                                    <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs">
-                                        <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
-                                        <div className="mb-1 italic">{u.meeting_prep.summary}</div>
-
-                                        {u.meeting_prep.recommendation && (
-                                            <div className="mt-2">
-                                                <span className="font-semibold text-blue-800">Strategy: </span>
-                                                {u.meeting_prep.recommendation}
-                                            </div>
-                                        )}
-
-                                        {u.meeting_prep.talking_points?.length > 0 && (
-                                            <div className="mt-2">
-                                                <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
-                                                <ul className="list-disc list-inside opacity-80 space-y-0.5">
-                                                    {u.meeting_prep.talking_points.map((tp, i) => (
+                                    {c.briefing && (
+                                        <div className="mt-2 text-xs bg-white/60 p-2 rounded border border-amber-100">
+                                            <div className="font-semibold text-amber-800 mb-1">Aaliyah Recommendation:</div>
+                                            <div className="mb-1">{c.briefing.recommendation}</div>
+                                            {c.briefing.talking_points?.length > 0 && (
+                                                <ul className="list-disc list-inside opacity-80 mt-1 space-y-0.5">
+                                                    {c.briefing.talking_points.map((tp, i) => (
                                                         <li key={i}>{tp}</li>
                                                     ))}
                                                 </ul>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                )
+            }
+
+            {/* Upcoming Briefings */}
+            {
+                upcoming.some(u => u.meeting_prep) && (
+                    <Card className="border-blue-200 bg-blue-50/50">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="flex items-center text-blue-800 text-sm">
+                                <FileText className="mr-2 h-4 w-4" />
+                                Upcoming Meeting Briefings
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            {upcoming.filter(u => u.meeting_prep).map((u) => (
+                                <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
+                                    <div className="flex justify-between font-medium">
+                                        <span>{u.title}</span>
+                                        <span className="opacity-70 text-xs whitespace-nowrap ml-2">
+                                            {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
                                     </div>
-                                )}
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
+                                    <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
+
+                                    {u.meeting_prep && (
+                                        <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs">
+                                            <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
+                                            <div className="mb-1 italic">{u.meeting_prep.summary}</div>
+
+                                            {u.meeting_prep.recommendation && (
+                                                <div className="mt-2">
+                                                    <span className="font-semibold text-blue-800">Strategy: </span>
+                                                    {u.meeting_prep.recommendation}
+                                                </div>
+                                            )}
+
+                                            {u.meeting_prep.talking_points?.length > 0 && (
+                                                <div className="mt-2">
+                                                    <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
+                                                    <ul className="list-disc list-inside opacity-80 space-y-0.5">
+                                                        {u.meeting_prep.talking_points.map((tp, i) => (
+                                                            <li key={i}>{tp}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                )
+            }
 
             {/* Recent Triaged Items */}
             <Card>
@@ -250,7 +253,11 @@ export function InboxOverview() {
                     <CardDescription>Latest analyzed messages from your inbox.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-0">
-                    {loading && <div className="p-4 text-center text-zinc-400">Loading feed...</div>}
+                    {loading && (
+                        <div className="divide-y divide-zinc-100">
+                            {[...Array(4)].map((_, i) => <SkeletonEmail key={i} />)}
+                        </div>
+                    )}
 
                     {!loading && inboxItems.length === 0 && (
                         <div className="p-8 text-center text-zinc-400 flex flex-col items-center">
@@ -370,6 +377,6 @@ export function InboxOverview() {
                     </div>
                 </CardContent>
             </Card>
-        </div>
+        </div >
     )
 }

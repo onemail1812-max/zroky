@@ -48,9 +48,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ------------------
-    # LLM Services (OpenRouter)
+    # LLM Services (OpenRouter / Custom Brain)
     # ------------------
-    OPENROUTER_API_KEY: str = Field(..., description="Required for Aaliyah intelligence.")
+    OPENROUTER_API_KEY: Optional[str] = Field(None, description="Optional if using custom Brain.")
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_APP_URL: str = "http://localhost:3000"
     OPENROUTER_APP_NAME: str = "Aaliyah AI"
@@ -59,7 +59,8 @@ class Settings(BaseSettings):
     AALIYAH_DRAFT_MODEL: str = "google/gemini-2.5-flash-lite"
     AALIYAH_VERIFY_MODEL: str = "deepseek/deepseek-r1"
     BRAIN_MODEL: str = "google/gemini-2.5-flash-lite"
-    BRAIN_API_KEY: Optional[str] = None
+    BRAIN_API_KEY: Optional[str] = Field(None, description="Primary key for Intelligence.")
+    GROQ_API_KEY: Optional[str] = Field(None, description="Groq API key for fast inference.")
     OPENROUTER_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
 
     # ------------------

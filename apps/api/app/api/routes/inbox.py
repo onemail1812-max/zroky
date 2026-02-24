@@ -1,38 +1,35 @@
-from __future__ import annotations
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+"""Inbox API — serves AI-triaged emails from the database.
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.responses import StreamingResponse, Response
-from sqlalchemy import func
-from sqlalchemy.orm import Session
-import io
+Primary source: triaged_emails table (populated by background sync).
+Fallback: live fetch from Gmail/Outlook if no triaged data exists.
+"""
+from __future__ import annotations
 import base64
+import logging
+import re
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func
 
 from app.database import get_db
 from app.dependencies import get_current_context, CurrentContext
+from app.models.integration import Integration, IntegrationProvider
 from app.models.triaged_email import TriagedEmail
-from app.models.triaged_thread import TriagedThread
-from app.agents.aaliyah.core.inbox_repository import TriagedInboxRepository
-from app.services.security.file_security import FileSecurityService
-from app.services.integrations.email_connector import EmailConnectorFactory
-from app.schemas.inbox import (
-    InboxThreadsListResponse,
-    InboxThreadResponse,
-    InboxCountsResponse,
-    ProviderTotalsResponse,
-    SnoozeRequest,
-    MoveRequest,
-)
-from app.services.llm.service import llm_service
-from app.models.email import EmailMessage
+from app.schemas.inbox_actions import MarkReadRequest
+from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+
+logger = logging.getLogger(__name__)
+
+from app.services.integrations.token_store import get_valid_token
 
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
 
 
-@router.get("/threads", response_model=InboxThreadsListResponse)
+@router.get("/threads")
 async def list_threads(
-    queue: Optional[str] = Query(None, description="priority | newsletter | etc"),
+    queue: Optional[str] = Query(None, description="Filter by category"),
     provider: str = Query("all", description="all | google | microsoft"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -40,389 +37,341 @@ async def list_threads(
     context: CurrentContext = Depends(get_current_context),
 ):
     """
-    List triaged email threads by queue and provider.
+    Inbox endpoint — serves pre-triaged emails from the database.
+    Background sync + AI triage populates the data automatically.
+    Falls back to live fetch if no triaged data exists yet.
     """
-    repo = TriagedInboxRepository(db, context.workspace_id)
-    p = "google" if provider in ["google", "gmail"] else ("microsoft" if provider in ["microsoft", "outlook"] else "all")
-    
-    threads, total = repo.list_threads(
-        queue=queue,
-        provider=p,
-        limit=limit,
-        offset=offset
+    # Build query from triaged_emails table
+    query = db.query(TriagedEmail).filter(
+        TriagedEmail.workspace_id == context.workspace_id
     )
 
-    return {
-        "items": [
-            InboxThreadResponse(
-                id=item.id,
-                thread_id=item.external_thread_id or "",
-                provider=item.provider,
-                sender=item.sender or "Unknown",
-                subject=item.subject or "(No Subject)",
-                snippet=item.snippet or "",
-                received_at=item.last_received_at,
-                category=item.category,
-                priority=item.priority,
-                is_noise=item.is_noise,
-                is_read=item.is_read,
-                confidence=item.confidence,
-                reasoning=item.reasoning,
-                requires_approval=item.requires_approval,
-                deadline_at=None,
-                awaiting_reply=item.awaiting_reply,
-                draft_preview="\n".join((item.draft_json or {}).get("body", "").splitlines()[:2]),
-                draft=item.draft_json,
-            )
-            for item in threads
-        ],
-        "count": total,
-    }
+    # Filter by provider if specified
+    if provider != "all":
+        query = query.filter(TriagedEmail.provider == provider)
+
+    # Filter by category if specified
+    if queue:
+        parsed_queue = queue.replace("_", " ").lower()
+        query = query.filter(func.lower(TriagedEmail.category) == parsed_queue)
+
+    # Get total count before pagination
+    total_count = query.count()
+
+    # If we have triaged emails, serve from DB
+    if total_count > 0:
+        rows = query.order_by(desc(TriagedEmail.received_at)).offset(offset).limit(limit).all()
+        items = []
+        for row in rows:
+            meta = row.metadata_json or {}
+            if isinstance(meta, str):
+                try:
+                    import json
+                    meta = json.loads(meta)
+                except:
+                    meta = {}
+            items.append({
+                "id": row.external_message_id or row.id,
+                "thread_id": row.thread_id,
+                "provider": row.provider or "google",
+                "sender": row.sender,
+                "subject": row.subject,
+                "snippet": row.snippet or "",
+                "received_at": row.received_at.isoformat() if hasattr(row.received_at, 'isoformat') else str(row.received_at) if row.received_at else None,
+                "category": row.category or "inbox",
+                "priority": row.priority or "normal",
+                "is_noise": row.is_noise or False,
+                "is_read": row.is_read or False,
+                "confidence": row.confidence,
+                "reasoning": row.reasoning,
+                "needs_clarity": row.needs_clarity or False,
+                "can_draft": row.can_draft or False,
+                "requires_approval": False,
+                "deadline_at": None,
+                "awaiting_reply": False,
+                "draft_preview": meta.get("draft", {}).get("body") if meta.get("draft") else None,
+                "draft": meta.get("draft"),
+            })
+        return {"items": items, "count": total_count}
+
+    # No triaged emails yet — return empty list.
+    # Zero-History Design: Only emails arriving AFTER onboarding
+    # are synced, triaged, and stored in the database.
+    # No historical/live fallback fetch is performed.
+    return {"items": [], "count": 0}
 
 
-@router.get("/threads/{thread_id}", response_model=List[InboxThreadResponse])
-async def get_thread_details(
-    thread_id: str,
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Get full details for a single thread.
-    """
-    items = (
-        db.query(TriagedEmail)
-        .filter(
-            TriagedEmail.thread_id == thread_id,
-            TriagedEmail.workspace_id == context.workspace_id,
-        )
-        .order_by(TriagedEmail.received_at.asc())
-        .all()
-    )
-
-    if not items:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    return [
-        InboxThreadResponse(
-            id=item.id,
-            thread_id=item.thread_id or "",
-            provider=item.provider,
-            sender=item.sender or "Unknown",
-            subject=item.subject or "(No Subject)",
-            snippet=item.snippet,
-            received_at=item.received_at,
-            category=item.category,
-            priority=item.priority,
-            is_noise=item.is_noise,
-            is_read=item.is_read,
-            confidence=item.confidence,
-            reasoning=item.reasoning,
-            requires_approval=item.requires_approval,
-            approval_reason=item.approval_reason,
-            deadline_at=item.deadline_at,
-            awaiting_reply=item.awaiting_reply,
-            draft_preview="\n".join((item.metadata_json or {}).get("draft", {}).get("body", "").splitlines()[:2]),
-            draft=(item.metadata_json or {}).get("draft"),
-        )
-        for item in items
-    ]
-
-
-@router.get("/counts", response_model=InboxCountsResponse)
-async def get_inbox_counts(
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Get aggregated counts for the inbox.
-    """
-    base_query = db.query(TriagedThread).filter(TriagedThread.workspace_id == context.workspace_id)
-
-    # Categories
-    categories = db.query(
-        TriagedThread.category, func.count(TriagedThread.id)
-    ).filter(TriagedThread.workspace_id == context.workspace_id).group_by(TriagedThread.category).all()
-    
-    # Priority
-    priorities = db.query(
-        TriagedThread.priority, func.count(TriagedThread.id)
-    ).filter(TriagedThread.workspace_id == context.workspace_id).group_by(TriagedThread.priority).all()
-
-    # Unread
-    unread_count = base_query.filter(TriagedThread.is_read == False).count()
-
-    return {
-        "by_category": {cat: count for cat, count in categories},
-        "by_priority": {pri: count for pri, count in priorities},
-        "total_unread": unread_count,
-    }
-
-
-@router.get("/stats/providers", response_model=ProviderTotalsResponse)
-async def get_provider_totals(
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Get breakdown of emails by provider.
-    """
-    google = db.query(TriagedThread).filter(
-        TriagedThread.workspace_id == context.workspace_id,
-        TriagedThread.provider == "google"
-    ).count()
-
-    microsoft = db.query(TriagedThread).filter(
-        TriagedThread.workspace_id == context.workspace_id,
-        TriagedThread.provider == "microsoft"
-    ).count()
-
-    return {
-        "google": google,
-        "microsoft": microsoft,
-        "total": google + microsoft
-    }
-
-
-@router.post("/{message_id}/snooze")
-async def snooze_email(
+@router.get("/{message_id}/body")
+async def get_email_body(
     message_id: str,
-    payload: SnoozeRequest,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
     """
-    Snooze an email message until a later time.
+    On-demand full body fetch for a single email.
+    Called when user opens an email in the thread view.
+    Fetches directly from Gmail/Outlook API with full format.
     """
-    row = db.query(TriagedEmail).filter(
-        TriagedEmail.id == message_id,
-        TriagedEmail.workspace_id == context.workspace_id
-    ).first()
+    # Try Google first
+    token = get_valid_token(db, context.workspace_id, "google")
+    if token:
+        try:
+            from app.integrations.gmail_client import GmailClient
+            client = GmailClient(token)
+            msg = await client.get_message(message_id, format="full")
+            body = _extract_body_from_gmail_message(msg)
+            return {"body": body, "format": "plain", "provider": "google"}
+        except Exception as e:
+            logger.warning(f"Gmail body fetch failed for {message_id}: {e}")
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Email not found")
+    # Try Microsoft
+    ms_token = get_valid_token(db, context.workspace_id, "microsoft")
+    if ms_token:
+        try:
+            from app.integrations.outlook_client import OutlookClient
+            client = OutlookClient(ms_token)
+            body = await client.get_message_body(message_id)
+            return {"body": body, "format": "plain", "provider": "microsoft"}
+        except Exception as e:
+            logger.warning(f"Outlook body fetch failed for {message_id}: {e}")
 
-    until = datetime.utcnow() + timedelta(days=payload.days, hours=payload.hours)
-    row.followup_snoozed_until = until
-    db.commit()
-
-    return {"status": "snoozed", "until": until}
-
-
-@router.post("/{message_id}/move")
-async def move_email(
-    message_id: str,
-    payload: MoveRequest,
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Move an email to a different category.
-    """
-    row = db.query(TriagedEmail).filter(
-        TriagedEmail.id == message_id,
-        TriagedEmail.workspace_id == context.workspace_id
-    ).first()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Email not found")
-
-    row.previous_category = row.category
-    row.category = payload.category
-    db.commit()
-
-    return {"status": "moved", "category": payload.category}
+    raise HTTPException(status_code=404, detail="Could not fetch email body. Check email integration.")
 
 
-@router.post("/archived/{message_id}")
+@router.post("/{message_id}/archive")
 async def archive_email(
     message_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
-    """
-    Archive an email message (move to 'archived' category).
-    """
-    row = db.query(TriagedEmail).filter(
-        TriagedEmail.id == message_id,
+    """Archive a single email via the provider API and remove it from the local queue."""
+    # Find the email in DB to get the provider
+    email_record = db.query(TriagedEmail).filter(
+        (TriagedEmail.id == message_id) | (TriagedEmail.external_message_id == message_id),
         TriagedEmail.workspace_id == context.workspace_id
     ).first()
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Email not found")
+    provider = email_record.provider if email_record else None
+    
+    if not provider:
+        # If not in DB, try to guess or return error
+        raise HTTPException(status_code=404, detail="Email record not found in local database")
+        
+    token = get_valid_token(db, context.workspace_id, provider)
+    if not token:
+        raise HTTPException(status_code=401, detail=f"No valid token for {provider}")
 
-    row.previous_category = row.category
-    row.category = "archived"
+    try:
+        if provider == "google":
+            from app.integrations.gmail_client import GmailClient
+            client = GmailClient(token)
+            await client.archive_message(email_record.external_message_id or message_id)
+        elif provider == "microsoft":
+            from app.integrations.outlook_client import OutlookClient
+            client = OutlookClient(token)
+            await client.archive_message(email_record.external_message_id or message_id)
+            
+        # If successful, remove from our local DB queue
+        db.delete(email_record)
+        db.commit()
+
+        # INSTANT COUNTS: Broadcast updated counts after archiving
+        from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+        orchestrator = AaliyahOrchestrator(context.workspace_id)
+        await orchestrator.broadcast_updates(db)
+
+        return {"status": "success", "action": "archived"}
+    except Exception as e:
+        logger.error(f"Failed to archive email {message_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to archive email on the provider")
+
+
+@router.post("/{message_id}/trash")
+async def trash_email(
+    message_id: str,
+    db: Session = Depends(get_db),
+    context: CurrentContext = Depends(get_current_context),
+):
+    """Move a single email to trash via the provider API and remove it from the local queue."""
+    email_record = db.query(TriagedEmail).filter(
+        (TriagedEmail.id == message_id) | (TriagedEmail.external_message_id == message_id),
+        TriagedEmail.workspace_id == context.workspace_id
+    ).first()
+
+    provider = email_record.provider if email_record else None
+    
+    if not provider:
+        raise HTTPException(status_code=404, detail="Email record not found in local database")
+        
+    token = get_valid_token(db, context.workspace_id, provider)
+    if not token:
+        raise HTTPException(status_code=401, detail=f"No valid token for {provider}")
+
+    try:
+        if provider == "google":
+            from app.integrations.gmail_client import GmailClient
+            client = GmailClient(token)
+            await client.trash_message(email_record.external_message_id or message_id)
+        elif provider == "microsoft":
+            from app.integrations.outlook_client import OutlookClient
+            client = OutlookClient(token)
+            await client.trash_message(email_record.external_message_id or message_id)
+            
+        # If successful, remove from our local DB queue
+        db.delete(email_record)
+        db.commit()
+
+        # INSTANT COUNTS: Broadcast updated counts after trashing
+        from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+        orchestrator = AaliyahOrchestrator(context.workspace_id)
+        await orchestrator.broadcast_updates(db)
+
+        return {"status": "success", "action": "trashed"}
+    except Exception as e:
+        logger.error(f"Failed to trash email {message_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to trash email on the provider")
+
+
+@router.post("/mark-read")
+async def mark_emails_read(
+    payload: MarkReadRequest,
+    db: Session = Depends(get_db),
+    context: CurrentContext = Depends(get_current_context),
+):
+    """Mark multiple threads/emails as read/unread in local DB and broadcast update."""
+    workspace_id = context.workspace_id
+    
+    # Update local DB
+    db.query(TriagedEmail).filter(
+        TriagedEmail.workspace_id == workspace_id,
+        (TriagedEmail.thread_id.in_(payload.thread_ids)) | (TriagedEmail.external_message_id.in_(payload.thread_ids))
+    ).update({"is_read": payload.is_read}, synchronize_session=False)
+    
     db.commit()
 
-    return {"status": "archived"}
+    # Broadcast updated counts to UI
+    orchestrator = AaliyahOrchestrator(workspace_id)
+    await orchestrator.broadcast_updates(db)
+    
+    return {"status": "success", "count": len(payload.thread_ids)}
 
 
-@router.post("/threads/{thread_id}/restore")
-async def restore_thread_action(
-    thread_id: str,
+def _extract_body_from_gmail_message(msg: dict) -> str:
+    """Extract and decode plain-text body from a Gmail message (format=full)."""
+    import html as html_module
+    payload = msg.get("payload", {})
+
+    # 1. Prefer text/plain — no stripping needed
+    text = _find_part(payload, "text/plain")
+
+    # 2. Fallback to text/html — strip tags
+    if not text:
+        raw_html = _find_part(payload, "text/html")
+        if raw_html:
+            text = re.sub(r"<[^>]+>", "", raw_html)
+
+    # 3. Last resort: snippet
+    if not text:
+        text = msg.get("snippet", "")
+
+    if text:
+        # Decode all HTML entities (&amp; &#39; &nbsp; etc.)
+        text = html_module.unescape(text)
+        # Remove raw angle-bracket URLs like <https://example.com>
+        text = re.sub(r"<(https?://[^>]+)>", r"\1", text)
+        # Remove other leftover angle-bracket artifacts
+        text = re.sub(r"<[^>]{0,200}>", "", text)
+        # Normalize excessive blank lines
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    return text or ""
+
+
+
+def _find_part(payload: dict, mime_type: str) -> str:
+    """Recursively search message parts for a given MIME type and decode base64."""
+    if payload.get("mimeType") == mime_type:
+        data = (payload.get("body") or {}).get("data")
+        if data:
+            try:
+                return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+
+    for part in payload.get("parts", []):
+        result = _find_part(part, mime_type)
+        if result:
+            return result
+
+    return ""
+
+
+@router.get("/counts")
+async def get_inbox_counts(
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
     """
-    Restore a thread from Cleaned/Noise to Inbox.
+    Returns real counts from the triaged_emails table.
     """
-    from app.agents.aaliyah.core.action_executor import ActionExecutor
-    executor = ActionExecutor(db)
-    result = await executor.restore_thread(
-        user_id=context.user_id,
-        workspace_id=context.workspace_id,
-        thread_id=thread_id
+    workspace_id = context.workspace_id
+
+    # Get category counts (only unread)
+    category_counts = db.query(
+        TriagedEmail.category, func.count(TriagedEmail.id)
+    ).filter(
+        TriagedEmail.workspace_id == workspace_id,
+        TriagedEmail.is_read == False
+    ).group_by(TriagedEmail.category).all()
+
+    counts = {cat: cnt for cat, cnt in category_counts}
+
+    # Check if any email integration is connected
+    integrations = db.query(Integration).filter(
+        Integration.workspace_id == workspace_id,
+    ).all()
+    has_email = any(
+        i.provider in (IntegrationProvider.GOOGLE_GMAIL, IntegrationProvider.OUTLOOK, "GOOGLE_GMAIL", "OUTLOOK") and i.token_encrypted
+        for i in integrations
     )
-    return result
 
-
-@router.post("/sync")
-async def sync_inbox_all(
-    force: bool = Query(False, description="Force sync even if health check fails (admin only)"),
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Trigger a global sync for all enabled connectors.
-    Enforces 'Sync Gatekeeper' rules: Inbox sync runs ONLY IF email status is OK.
-    """
-    from app.services.integrations.health_service import ConnectorHealthService
-    
-    # 1. Gatekeeper Check
-    health_service = ConnectorHealthService(db, context.workspace_id)
-    health = health_service.get_detailed_health()
-    
-    email_status = health.get("email", {}).get("status")
-    
-    if email_status != "OK" and not force:
-        error_code = health.get("email", {}).get("error_code", "UNKNOWN_ERROR")
-        logger.warning(f"Sync Gatekeeper Blocked: Email status is {email_status} ({error_code})")
-        
-        # Don't fail 500, return a status indicating skip
-        return {
-            "status": "skipped",
-            "reason": f"Gatekeeper blocked: {error_code}",
-            "health": health.get("email")
-        }
-
-    # 2. Proceed with Sync
-    # This would typically enqueue background jobs for each provider
-    logger.info(f"Manual sync triggered for workspace {context.workspace_id}")
-    
-    # In a real system, we'd enqueue here. For now, we just acknowledge.
     return {
-        "status": "queued", 
-        "workspace_id": context.workspace_id,
-        "mode": "forced" if force else "normal"
+        "priority": counts.get("priority", 0),
+        "fyi": counts.get("fyi", 0),
+        "needs_reply": counts.get("needs_reply", 0),
+        "approvals": counts.get("approvals", 0),
+        "follow_ups": counts.get("follow_up", 0),
+        "newsletter": counts.get("newsletter", 0),
+        "noise": counts.get("noise", 0),
+        "cleaned": 0,
+        "drafts": 0,
+        "total": sum(counts.values()),
+        "connected": has_email,
     }
 
 
-@router.get("/{message_id}/attachment/{attachment_id}")
-async def get_attachment_proxy(
-    message_id: str,
-    attachment_id: str,
+@router.post("/sync")
+async def sync_inbox(
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
     """
-    Proxy an attachment download from the provider.
+    Event-Driven Sync: Dispatches a background JobQueue task.
+    Returns instantly so the UI never hangs or times out.
     """
-    # 1. Verification
-    row = db.query(TriagedEmail).filter(
-        TriagedEmail.id == message_id,
-        TriagedEmail.workspace_id == context.workspace_id
-    ).first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Context not found")
+    from app.core.queue import queue, JobType
 
-    # 2. Get Connector
-    connector = await EmailConnectorFactory(db, context.workspace_id).get_connector(
-        context.user_id, row.provider
+    job_id = await queue.enqueue(
+        JobType.SYNC_PROVIDER.value,
+        payload={
+             "workspace_id": context.workspace_id,
+             "provider": "all"
+        },
+        dedupe_id=f"sync:{context.workspace_id}:all"
     )
 
-    # 3. Fetch
-    try:
-        raw_bytes, filename, mime_type = await connector.get_attachment(
-            message_id=row.external_message_id,
-            attachment_id=attachment_id
-        )
-    except Exception as e:
-        logger.error(f"Attachment fetch failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch attachment from provider")
-
-    # 4. Stream Response
-    file_io = io.BytesIO(raw_bytes)
-    return StreamingResponse(
-        file_io,
-        media_type=mime_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Content-Type-Options": "nosniff", # Enterprise security header
-        }
-    )
-
-
-@router.post("/threads/{thread_id}/snooze")
-async def snooze_thread(
-    thread_id: str,
-    payload: SnoozeRequest,
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Snooze a thread's follow-up due date efficiently.
-    """
-    thread = db.query(TriagedThread).filter(
-        TriagedThread.id == thread_id,
-        TriagedThread.workspace_id == context.workspace_id
-    ).first()
-
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    until = datetime.utcnow() + timedelta(days=payload.days, hours=payload.hours)
-    # Thread doesn't have a dedicated snooze column in schema yet, 
-    # but we agreed to use followup_due_at as the effective trigger.
-    # If we set followup_due_at to the future, it is effectively snoozed from the "Due" view.
-    thread.followup_due_at = until
-    
-    # Also snooze the latest message to keep data consistent if used there
-    latest_msg = db.query(TriagedEmail).filter(
-        TriagedEmail.thread_id == thread.external_thread_id,
-        TriagedEmail.workspace_id == context.workspace_id
-    ).order_by(TriagedEmail.received_at.desc()).first()
-    
-    if latest_msg:
-        latest_msg.followup_snoozed_until = until
-        
-    db.commit()
-    return {"status": "snoozed", "until": until}
-
-
-@router.post("/threads/{thread_id}/stop-tracking")
-async def stop_tracking_thread(
-    thread_id: str,
-    db: Session = Depends(get_db),
-    context: CurrentContext = Depends(get_current_context),
-):
-    """
-    Stop tracking follow-ups for a thread.
-    """
-    thread = db.query(TriagedThread).filter(
-        TriagedThread.id == thread_id,
-        TriagedThread.workspace_id == context.workspace_id
-    ).first()
-
-    if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
-
-    thread.awaiting_reply = False
-    thread.followup_due_at = None
-    
-    # Also update category if it was in followups
-    if thread.category == "followups":
-        thread.category = "inbox" # Return to inbox or done? Usually if we stop tracking it might be 'inbox' or we just leave it. 
-        # User said "Stop tracking removes it", likely from the followups queue.
-    
-    db.commit()
-    return {"status": "tracking_stopped"}
+    return {
+        "status": "queued",
+        "job_id": job_id or "duplicate_skipped",
+        "message": "Sync queued. Listening for SSE events for real-time updates.",
+    }

@@ -48,7 +48,8 @@ Draft a concise, polite reply.
                 temperature=0.7
             )
         except Exception as e:
-            print(f"Drafting failed: {e}")
+            import logging
+            logging.getLogger(__name__).error(f"Drafting failed: {e}")
             return "I received your email and will get back to you shortly." # Safe fallback
 
     async def summarize_thread(self, email: EmailMessage) -> List[str]:
@@ -96,9 +97,11 @@ Draft a concise, polite reply.
             return []
             
         except Exception as e:
-            print(f"Summarization failed: {e}")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Summarization failed: {e}")
             # Fallback to Gemini if Reasoning model fails (e.g. rate limit on free tier)
-            print("Falling back to draft model for summary...")
+            logger.info("Falling back to draft model for summary...")
             try:
                 return await self._summarize_fallback(email)
             except:

@@ -25,7 +25,7 @@ const vertexAI = new VertexAI({
 });
 
 // Context Caching Configuration for Chief of Staff
-const CHIEF_SYSTEM_PROMPT = `You are the Chief of Staff for an enterprise AI operating system called "Zroky".
+const CHIEF_SYSTEM_PROMPT = `You are the Executive Assistant for an enterprise AI operating system called "Zroky".
 
 Your role is to:
 1. Understand user requests and classify intent

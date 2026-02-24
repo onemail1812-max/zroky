@@ -11,7 +11,7 @@ class MeetingTranscript(Base):
 
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)
-    event_id = Column(String, ForeignKey("calendar_event_snapshots.id"), index=True, nullable=False)
+    event_id = Column(String, index=True, nullable=False)  # No FK — calendar_event_snapshots removed
     
     # Store the full raw text (potentially large)
     transcript_text = Column(Text, nullable=False)

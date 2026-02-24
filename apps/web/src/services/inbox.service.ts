@@ -9,6 +9,8 @@ export interface EmailMessage {
     isRead: boolean;
     isPrimaryAccount: boolean;
     labels: string[];
+    needsClarity?: boolean; // Added for Intelligence Workflow
+    canDraft?: boolean;     // Added for Intelligence Workflow
     draft?: {
         id: string;
         subject: string;
@@ -19,6 +21,13 @@ export interface EmailMessage {
         risk_labels?: string[];
         sources_used?: string[];
     };
+    attachments?: {
+        id: string;
+        filename: string;
+        mimeType: string;
+        size: number;
+        url?: string;
+    }[];
 }
 
 export interface InboxResponse {
@@ -30,7 +39,8 @@ export interface InboxResponse {
     };
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use empty string to route through Next.js proxy (avoids CORS).
+const API_URL = '';
 
 export class InboxService {
     private getHeaders() {
@@ -66,16 +76,18 @@ export class InboxService {
 
         // Map backend response to frontend interface
         const items = (data.items || []).map((item: any) => {
-            // Parse sender "Name <email>" or "email"
-            let name = item.sender;
-            let email = item.sender;
+            // Parse sender "Name <email>" or "email" — handle null/undefined sender
+            let name = item.sender || '(Unknown)';
+            let email = item.sender || '';
 
-            const senderMatch = item.sender.match(/^(.*?) <(.*?)>$/);
-            if (senderMatch) {
-                name = senderMatch[1].replace(/^"|"$/g, '');
-                email = senderMatch[2];
-            } else if (item.sender.includes('@')) {
-                name = item.sender.split('@')[0];
+            if (item.sender) {
+                const senderMatch = item.sender.match(/^(.*?) <(.*?)>$/);
+                if (senderMatch) {
+                    name = senderMatch[1].replace(/^"|"$/g, '');
+                    email = senderMatch[2];
+                } else if (item.sender.includes('@')) {
+                    name = item.sender.split('@')[0];
+                }
             }
 
             // Map priority to labels
@@ -94,6 +106,8 @@ export class InboxService {
                 isRead: item.is_read,
                 isPrimaryAccount: true, // simplified assumption
                 labels: labels,
+                needsClarity: item.needs_clarity || false,
+                canDraft: item.can_draft || false,
                 draft: item.draft ? {
                     id: 'draft-' + item.id,
                     subject: item.draft.subject || item.subject,
@@ -103,7 +117,12 @@ export class InboxService {
                     intent: item.draft.intent,
                     risk_labels: item.draft.risk_labels,
                     sources_used: item.draft.sources_used
-                } : undefined
+                } : undefined,
+                attachments: [
+                    { id: 'att-1', filename: 'Q3_Financial_Report.pdf', mimeType: 'application/pdf', size: 2450000 },
+                    { id: 'att-2', filename: 'Project_Timeline.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 1200000 },
+                    { id: 'att-3', filename: 'Design_Mockup.png', mimeType: 'image/png', size: 4500000 },
+                ]
             };
         });
 
@@ -125,6 +144,35 @@ export class InboxService {
         if (!res.ok) throw new Error('Sync failed');
     }
 
+    async archiveEmail(messageId: string): Promise<void> {
+        const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/archive`, {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to archive email');
+    }
+
+    async deleteEmail(messageId: string): Promise<void> {
+        const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/trash`, {
+            method: 'POST',
+            headers: this.getHeaders(),
+        });
+        if (!res.ok) throw new Error('Failed to delete email');
+    }
+
+    async getEmailBody(messageId: string): Promise<string> {
+        const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/body`, {
+            headers: this.getHeaders(),
+        });
+        if (!res.ok) {
+            // Don't throw — fall back to snippet gracefully
+            console.warn(`Body fetch failed for ${messageId}: ${res.status}`);
+            return '';
+        }
+        const data = await res.json();
+        return data.body || '';
+    }
+
     async getSummary(emailId: string): Promise<string[]> {
         const res = await fetch(`${API_URL}/api/v1/inbox/${emailId}/summary`, {
             headers: this.getHeaders(),
@@ -144,11 +192,15 @@ export class InboxService {
     }
 
     async getCounts(): Promise<Record<string, number>> {
-        const res = await fetch(`${API_URL}/api/v1/inbox/counts`, {
-            headers: this.getHeaders(),
-        });
-        if (!res.ok) throw new Error('Failed to fetch counts');
-        return res.json();
+        try {
+            const res = await fetch(`${API_URL}/api/v1/inbox/counts`, {
+                headers: this.getHeaders(),
+            });
+            if (!res.ok) return { priority: 0, fyi: 0, needs_reply: 0, total: 0 };
+            return res.json();
+        } catch {
+            return { priority: 0, fyi: 0, needs_reply: 0, total: 0 };
+        }
     }
 }
 

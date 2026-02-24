@@ -56,7 +56,8 @@ class PolicyEngine:
         aaliyah_settings = settings.get("aaliyah", {})
         
         vip_senders = aaliyah_settings.get("vip_senders", [])
-        always_require_approval = aaliyah_settings.get("always_require_approval", True)
+        # MANDATORY: Human-in-the-loop is now an ironclad requirement.
+        always_require_approval = True 
         required_topics = aaliyah_settings.get("approval_required_topics", ["Financials", "Hiring", "External Strategy"])
 
         allowed_actions: Set[str] = {

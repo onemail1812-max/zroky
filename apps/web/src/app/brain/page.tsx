@@ -107,118 +107,7 @@ function UniversalHero() {
     )
 }
 
-function IntegrationGrid() {
-    const [accounts, setAccounts] = React.useState<ConnectedAccount[]>([])
 
-    // Load accounts
-    const loadAccounts = async () => {
-        try {
-            const data = await connectorService.listAccounts()
-            setAccounts(data)
-        } catch (err) {
-            console.error(err)
-        }
-    }
-
-    React.useEffect(() => {
-        loadAccounts()
-    }, [])
-
-    const handleConnect = async (provider: Provider, type: ServiceType) => {
-        try {
-            await connectorService.connect({ provider, serviceType: type })
-        } catch (err) {
-            console.error(err)
-        }
-    }
-
-    const handleDisconnect = async (id: string) => {
-        if (!confirm("Disconnect this account?")) return
-        await connectorService.revokeAccount(id)
-        loadAccounts()
-    }
-
-    const handleSetPrimary = async (provider: Provider) => {
-        // Optimistic UI update
-        setAccounts(prev => prev.map(a => ({
-            ...a,
-            isPrimary: a.hasEmailAccess && a.provider === provider
-        })));
-        await connectorService.setPrimaryAccount(provider);
-        loadAccounts();
-    }
-
-    // Prepare unified cards
-    // We want 4 main cards: Gmail, GCal, Outlook, OutlookCal
-    // Map them to actual accounts
-
-    const getStatus = (provider: Provider, type: ServiceType): { status: IntegrationStatus, id?: string, isPrimary?: boolean } => {
-        const connected = accounts.find(a => a.provider === provider && a.status === 'active' &&
-            (type === 'email' ? a.hasEmailAccess : a.hasCalendarAccess))
-
-        if (connected) return { status: 'connected', id: connected.id, isPrimary: connected.isPrimary }
-        return { status: 'disconnected' }
-    }
-
-    const CARDS = [
-        { key: 'gmail', name: 'Gmail', provider: 'google' as Provider, type: 'email' as ServiceType, icon: Mail, color: 'text-red-500' },
-        { key: 'gcal', name: 'Google Calendar', provider: 'google' as Provider, type: 'calendar' as ServiceType, icon: Calendar, color: 'text-blue-500' },
-        { key: 'outlook', name: 'Outlook', provider: 'microsoft' as Provider, type: 'email' as ServiceType, icon: Mail, color: 'text-blue-600' },
-        { key: 'ocal', name: 'Outlook Calendar', provider: 'microsoft' as Provider, type: 'calendar' as ServiceType, icon: Calendar, color: 'text-blue-700' },
-    ]
-
-    return (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 px-10 -mt-10 relative z-20">
-            {CARDS.map((card) => {
-                const { status, id, isPrimary } = getStatus(card.provider, card.type)
-
-                return (
-                    <div
-                        key={card.key}
-                        onClick={() => status === 'disconnected' ? handleConnect(card.provider, card.type) : null}
-                        className="p-6 bg-white border border-zinc-100 rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.04)] flex flex-col items-center text-center group cursor-pointer hover:border-black transition-all relative overflow-hidden"
-                    >
-                        {/* Primary Badge */}
-                        {isPrimary && (
-                            <div className="absolute top-4 right-4 text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-widest">
-                                Primary
-                            </div>
-                        )}
-
-                        <div className={cn("h-12 w-12 rounded-2xl bg-zinc-50 flex items-center justify-center mb-5 group-hover:bg-black group-hover:text-white transition-all relative")}>
-                            <card.icon className={cn("h-6 w-6 transition-colors", status !== 'disconnected' ? card.color : 'text-zinc-300')} />
-                        </div>
-                        <h4 className="text-sm font-bold text-black group-hover:text-zinc-900">{card.name}</h4>
-
-                        <div className="mt-4 flex items-center gap-2">
-                            {status === 'connected' ? (
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleDisconnect(id!) }}
-                                        className="text-[9px] font-bold text-red-400 hover:text-red-600 uppercase tracking-widest px-2 py-1 bg-red-50 rounded-lg"
-                                    >
-                                        Revoke
-                                    </button>
-
-                                    {card.type === 'email' && !isPrimary && (
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleSetPrimary(card.provider) }}
-                                            className="text-[9px] font-bold text-zinc-400 hover:text-black uppercase tracking-widest px-2 py-1 bg-zinc-50 rounded-lg"
-                                        >
-                                            Set Primary
-                                        </button>
-                                    )}
-                                </div>
-                            ) : (
-                                <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-widest">Connect</span>
-                            )}
-                        </div>
-                    </div>
-                )
-            })}
-        </div>
-    )
-}
 
 
 function KnowledgeRow({ item }: { item: KnowledgeItem }) {
@@ -485,9 +374,7 @@ export default function BrainPage() {
                 <main className="flex-1 overflow-y-auto px-10 pb-40 scroll-smooth">
                     <div className="max-w-7xl mx-auto flex flex-col gap-12">
 
-                        <UniversalHero />
-
-                        <IntegrationGrid />
+                        <div className="h-10"></div>
 
                         <div className="flex justify-center px-10">
                             <div className="w-full max-w-4xl flex flex-col gap-16">

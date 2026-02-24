@@ -138,6 +138,19 @@ class DraftingAgent:
 
         sender_query = email.sender or ""
         kg_context = self.kg.summarize_for_prompt(query=sender_query)
+        
+        # New: Relationship Summary from triage
+        rel_summary = (email.metadata_json or {}).get("relationship_summary", "")
+        if rel_summary:
+            kg_context += f"\n\n**Interaction History:**\n{rel_summary}"
+
+        # New: Vision Analysis from triage
+        vision_context = ""
+        vision_data = (email.metadata_json or {}).get("vision_analysis", [])
+        if vision_data:
+            vision_context = "**AI Vision Analysis of Attachments:**\n"
+            for v in vision_data:
+                vision_context += f"- File: {v.get('filename')}\n  Analysis: {json.dumps(v.get('analysis'))}\n"
 
         workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
         aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
@@ -171,58 +184,48 @@ class DraftingAgent:
                 availability_context += "\nIf the recipient's timezone is unknown, ASK exactly one question about their location or preferred timezone."
 
         system_prompt = (
-            "You are Aaliyah, an elite Executive Chief of Staff. "
+            "You are Aaliyah, an elite Executive Assistant. "
             "Your goal is to draft a grounded, professional, and CONCISE reply that sounds like your principal. "
-            "STYLE RULE: Be brief. Use 1-3 sentences maximum unless a complex explanation is unavoidable. "
-            f"Tone: {tone}. "
+            "**STRICT HUMANIZATION PROTOCOL (Anti-AI Writing):**\n"
+            "1. NO AI FILLER: Do not use 'delve', 'tapestry', 'testament', 'underscores', 'pivotal', 'crucial', or 'vibrant'.\n"
+            "2. NO COPULA AVOIDANCE: Use simple 'is' or 'are'. Avoid 'serves as', 'represents a shift', or 'boasts'.\n"
+            "3. VARY THE RHYTHM: Use a mix of short, punchy sentences and longer, thoughtful ones. Avoid same-length sentence monotony.\n"
+            "4. NO AI GREETINGS: Avoid 'I hope this finds you well' or 'Best regards'. Match the principal's signature.\n"
+            "5. BE OPINIONATED: Reflect the executive's decisiveness. Do not be neutrally objective.\n"
+            f"Tone: {tone}.\n"
             f"\n{style_context}\n"
             "STRICT NO HALLUCINATION POLICY:\n"
-            "- NEVER invent: pricing, timelines, policies, or contract terms.\n"
-            "- If any required fact is missing from Knowledge Context, ASK EXACTLY ONE clarifying question or state you will check with the principal.\n"
-            "- If unsure, keep the line neutral or state as a placeholder [CONFIRM WITH PRINCIPAL]."
+            "- NEVER invent pricing, timelines, or contract terms. If missing, ASK one clarifying question.\n"
         )
-
-        if is_followup:
-            followup_hint = "\n**Important: NO RESPONSE RECEIVED.** This is a follow-up message because we haven't heard back since our last outbound email.\n"
-        else:
-            followup_hint = ""
 
         user_prompt = f"""
 Analyze the latest message and draft a reply.
 {followup_hint}
 
-**Knowledge Context (Grounding):**
+**Knowledge Context:**
 {kg_context}
 
 **Style Guidance:**
 {style_context}
 
-{availability_context}
+**Vision Analysis:**
+{vision_context}
 
-**Latest Message to Reply To:**
+**Latest Message:**
 From: {email.sender}
 Subject: {email.subject}
 Content: {latest_content}
 
 **Task:**
-1. Determine the intent: meeting request, follow-up, info request, risk-related (pricing/legal/payment), or ignore.
-2. If info is missing (e.g. they asked for pricing not in context), DO NOT MAKE IT UP. Ask 1 question.
-3. If they want a meeting, use the available slots and add [BOOKING_LINK].
-4. Return a one-line rationale for the user in 'rationale'.
-
-**Output JSON Structure:**
-{{
-  "action": "reply" | "ignore",
-  "intent": "meeting request" | "follow-up" | "info request" | "risk-related" | "other",
-  "subject": "Re: ...",
-  "body": "The clean, concise email body...",
-  "risk_labels": ["Money", "Legal", "Complaint", "Hiring"] (list any detected),
-  "missing_info": "Explain what you don't know if applicable",
-  "rationale": "Short explanation for the user."
-}}
+1. Determine intent. 
+2. Match style exactly. 
+3. Propose meeting slots if applicable.
+4. INCORPORATE visual facts from Vision Analysis if they are relevant to the reply.
+5. Return strict JSON.
 """
 
         try:
+            # Phase 1: Thought (DeepSeek-R1)
             response = await self.brain.think(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
@@ -230,46 +233,76 @@ Content: {latest_content}
                 temperature_override=0.2
             )
             
-            content = response.content.strip()
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
+            draft_data = self._parse_llm_json(response.content)
             
-            data = json.loads(content)
+            # Phase 2: Critic (Fast Model)
+            critic_prompt = f"""
+            Critique this draft for 'AI patterns' and 'Human soul'.
+            Draft: {draft_data.get('body')}
             
-            if data.get("action") == "ignore":
+            RULES:
+            - Is it too robotic?
+            - Does it use forbidden words (delve, testament, etc.)?
+            - Is it grounded in the knowledge provided?
+            
+            Return JSON: {{"must_refine": bool, "issues": list[str]}}
+            """
+            critic_resp = await self.brain.think(prompt=critic_prompt, system_prompt="You are a strict editorial critic.", temperature_override=0.0)
+            critic_data = self._parse_llm_json(critic_resp.content)
+            
+            if critic_data.get("must_refine"):
+                refine_prompt = f"Refine this draft to fix these issues: {critic_data.get('issues')}\nDraft: {draft_data.get('body')}"
+                refined_resp = await self.brain.think(prompt=refine_prompt, system_prompt=system_prompt, model_override="deepseek/deepseek-r1")
+                refined_data = self._parse_llm_json(refined_resp.content)
+                draft_data.update(refined_data)
+
+            if draft_data.get("action") == "ignore":
                 return None
                 
-            draft_body = data.get("body", "")
+            draft_body = draft_data.get("body", "")
             
             if "[BOOKING_LINK]" in draft_body and is_scheduling_intent:
                 bm = BookingManager(self.db, self.workspace_id)
                 link = bm.create_link(slots=slots[:5] if 'slots' in locals() else [], recipient_email=email.sender, subject=f"Meeting: {email.subject}")
                 public_url = f"{settings.public_app_url}/booking/{link.slug}"
-                draft_body = draft_body.replace("[BOOKING_LINK]", f"You can book one of these slots here: {public_url}")
+                draft_body = draft_body.replace("[BOOKING_LINK]", f"You can book here: {public_url}")
 
             sources_used = []
             if kg_context and "No relevant context" not in kg_context:
-                sources_used.append("Knowledge Graph Context")
+                sources_used.append("Knowledge Graph")
             if style_context and "Style Baseline" in style_context:
-                 sources_used.append("Style Profile (Historical Sends)")
+                 sources_used.append("Style Profile")
             if availability_context:
-                 sources_used.append("Calendar Availability Engine")
+                 sources_used.append("Calendar Engine")
+            if vision_context:
+                 sources_used.append("Visual Analysis")
+            if rel_summary:
+                 sources_used.append("Interaction Insights")
 
             return DraftResponse(
-                subject=data.get("subject", f"Re: {email.subject}"),
+                subject=draft_data.get("subject", f"Re: {email.subject}"),
                 body=draft_body,
-                rationale=data.get("rationale", "Automated draft."),
-                intent=data.get("intent", "other"),
-                risk_labels=data.get("risk_labels", []),
-                missing_info=data.get("missing_info"),
+                rationale=draft_data.get("rationale", "Reflective humanized draft."),
+                intent=draft_data.get("intent", "other"),
+                risk_labels=draft_data.get("risk_labels", []),
+                missing_info=draft_data.get("missing_info"),
                 sources_used=sources_used
             )
 
         except Exception as e:
             logger.error("Failed to generate draft: %s", e)
             return None
+
+    def _parse_llm_json(self, content: str) -> dict:
+        text = content.strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        try:
+            return json.loads(text)
+        except:
+            return {}
 
     async def save_draft(self, email_id: str, draft: DraftResponse) -> bool:
         """Persist the draft and log audit event."""

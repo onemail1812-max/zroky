@@ -1,6 +1,6 @@
 # 🚀 Aaliyah "Masterpiece" Sprint Plan: Zero to World-Class
 
-**Objective:** Build Aaliyah (EVA), a fully autonomous, enterprise-grade AI Chief of Staff.
+**Objective:** Build Aaliyah (EVA), a fully autonomous, enterprise-grade AI Executive Assistant.
 **Timeline:** 6 Sprints (12 Weeks)
 **Philosophy:** Vertical Slices. Every sprint delivers a *working* capability, not just infrastructure.
 

@@ -10,7 +10,7 @@ const hatchet = Hatchet.init({
 });
 
 /**
- * Input Schema for Chief Router
+ * Input Schema for EA Router
  */
 const ChiefRouterInput = z.object({
     userId: z.string(),
@@ -22,7 +22,7 @@ const ChiefRouterInput = z.object({
 type ChiefRouterInput = z.infer<typeof ChiefRouterInput>;
 
 /**
- * Output Schema for Chief Router
+ * Output Schema for EA Router
  */
 const ChiefRouterOutput = z.object({
     action: z.enum(['RESPOND', 'DELEGATE', 'COORDINATE']),
@@ -35,7 +35,7 @@ const ChiefRouterOutput = z.object({
 type ChiefRouterOutput = z.infer<typeof ChiefRouterOutput>;
 
 /**
- * MAIN WORKFLOW: Chief of Staff Router
+ * MAIN WORKFLOW: Executive Assistant Router
  * 
  * This is the entry point for all user requests.
  * It classifies intent and either responds directly or delegates to agents.
@@ -53,7 +53,7 @@ export const chiefRouterWorkflow = hatchet.workflow({
             run: async (ctx) => {
                 const input = ChiefRouterInput.parse(ctx.workflowInput());
 
-                console.log(`[Chief Router] Recalling context for user: ${input.userId}`);
+                console.log(`[EA Router] Recalling context for user: ${input.userId}`);
 
                 const context = await recallContext(input.userId, input.message);
 
@@ -71,11 +71,11 @@ export const chiefRouterWorkflow = hatchet.workflow({
                 const input = ChiefRouterInput.parse(ctx.workflowInput());
                 const { formattedContext } = ctx.stepOutput('recall-context');
 
-                console.log(`[Chief Router] Classifying intent for: "${input.message}"`);
+                console.log(`[EA Router] Classifying intent for: "${input.message}"`);
 
                 const intent = await classifyIntent(input.message, input.userId);
 
-                console.log(`[Chief Router] Intent: ${intent.action} (confidence: ${intent.confidence})`);
+                console.log(`[EA Router] Intent: ${intent.action} (confidence: ${intent.confidence})`);
 
                 return intent;
             },
@@ -89,7 +89,7 @@ export const chiefRouterWorkflow = hatchet.workflow({
                 const intent = ctx.stepOutput('classify-intent') as z.infer<typeof IntentSchema>;
                 const { formattedContext } = ctx.stepOutput('recall-context');
 
-                console.log(`[Chief Router] Executing action: ${intent.action}`);
+                console.log(`[EA Router] Executing action: ${intent.action}`);
 
                 // RESPOND: Answer directly
                 if (intent.action === 'RESPOND') {
@@ -118,7 +118,7 @@ export const chiefRouterWorkflow = hatchet.workflow({
                     for (const agent of intent.delegateTo) {
                         const workflowName = `${agent}-workflow`;
 
-                        console.log(`[Chief Router] Delegating to ${agent}`);
+                        console.log(`[EA Router] Delegating to ${agent}`);
 
                         try {
                             const workflow = await hatchet.admin.runWorkflow(workflowName, {
@@ -130,7 +130,7 @@ export const chiefRouterWorkflow = hatchet.workflow({
 
                             workflowIds.push(workflow.workflowRunId);
                         } catch (error) {
-                            console.error(`[Chief Router] Failed to delegate to ${agent}:`, error);
+                            console.error(`[EA Router] Failed to delegate to ${agent}:`, error);
                         }
                     }
 
@@ -171,22 +171,22 @@ export const chiefRouterWorkflow = hatchet.workflow({
 export async function registerChiefRouter() {
     try {
         await hatchet.worker.registerWorkflow(chiefRouterWorkflow);
-        console.log('[Chief Router] Workflow registered successfully');
+        console.log('[EA Router] Workflow registered successfully');
     } catch (error) {
-        console.error('[Chief Router] Failed to register workflow:', error);
+        console.error('[EA Router] Failed to register workflow:', error);
         throw error;
     }
 }
 
 /**
- * Trigger the Chief Router workflow
+ * Trigger the EA Router workflow
  */
 export async function triggerChiefRouter(input: ChiefRouterInput): Promise<string> {
     try {
         const workflow = await hatchet.admin.runWorkflow('chief-router', input);
         return workflow.workflowRunId;
     } catch (error) {
-        console.error('[Chief Router] Failed to trigger workflow:', error);
+        console.error('[EA Router] Failed to trigger workflow:', error);
         throw error;
     }
 }
@@ -204,7 +204,7 @@ export async function getWorkflowResult(workflowRunId: string): Promise<ChiefRou
 
         return null;
     } catch (error) {
-        console.error('[Chief Router] Failed to get workflow result:', error);
+        console.error('[EA Router] Failed to get workflow result:', error);
         return null;
     }
 }

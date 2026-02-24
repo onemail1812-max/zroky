@@ -47,7 +47,7 @@ export default function SettingsPage() {
             <div className="mt-2 text-sm font-bold text-zinc-900">Connectors & Basics</div>
             <p className="mt-1 text-xs text-zinc-500">Re-run the setup wizard to change email providers.</p>
             <Link
-              href="/settings/integrations"
+              href="/brain"
               className="mt-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-bold text-zinc-900 hover:bg-zinc-50 transition-colors"
             >
               Manage Integrations

@@ -5,12 +5,9 @@
  */
 
 // Connector API base URL.
-// Prefer env so dev/prod can swap between Python API / connector service cleanly.
-const CONNECTOR_API_URL =
-    process.env.NEXT_PUBLIC_CONNECTOR_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    'http://localhost:8000';
+// Use empty string to route through Next.js proxy (avoids CORS issues).
+// The Next.js rewrites in next.config.ts handle /api/v1/* → backend.
+const CONNECTOR_API_URL = '';
 
 export type Provider = 'google' | 'microsoft';
 export type ServiceType = 'email' | 'calendar' | 'both';
@@ -192,6 +189,7 @@ class ConnectorService {
                 },
                 body: JSON.stringify({
                     code,
+                    state,
                     redirectUri: `${window.location.origin}/oauth/callback`,
                     serviceType
                 })

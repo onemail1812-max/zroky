@@ -42,7 +42,7 @@ async def generate_draft(db: Session, email: EmailMessage, llm_client: OpenRoute
                 
                 slots_context = "\nAvailability: The user is free at these times (choose 3 if needed): \n- " + "\n- ".join(slot_strs)
         except Exception as e:
-            print(f"Calendar check failed: {e}")
+            logger.error(f"Calendar check failed: {e}")
             slots_context = ""
 
     try:
@@ -75,7 +75,7 @@ async def generate_draft(db: Session, email: EmailMessage, llm_client: OpenRoute
         is_safe, reason, confidence = evaluate_safety(draft, email, is_primary)
 
         if auto_send_enabled and is_safe:
-            print(f"Auto-sending safe draft for {email.id}: {reason}")
+            logger.info(f"Auto-sending safe draft for {email.id}: {reason}")
             try:
                 # Flush first to ensure draft exists (though maybe not needed as ID is pre-gen, but relationship might need it)
                 db.flush() 
@@ -87,7 +87,7 @@ async def generate_draft(db: Session, email: EmailMessage, llm_client: OpenRoute
                 draft.status = DraftStatus.SENT
                 draft.ai_generated_reasoning += f" [Auto-sent: {reason}]"
             except Exception as e:
-                print(f"Auto-send failed: {e}")
+                logger.error(f"Auto-send failed: {e}")
                 draft.status = DraftStatus.FAILED
                 draft.ai_generated_reasoning += f" [Send Failed: {str(e)}]"
         else:
@@ -104,5 +104,5 @@ async def generate_draft(db: Session, email: EmailMessage, llm_client: OpenRoute
         return draft
         
     except Exception as e:
-        print(f"Draft generation failed for {email.id}: {e}")
+        logger.error(f"Draft generation failed for {email.id}: {e}")
         return None

@@ -35,6 +35,72 @@ class CallbackRequest(BaseModel):
     code: str
     redirectUri: str
     serviceType: Optional[str] = None
+    state: Optional[str] = None
+
+
+@router.post("/oauth/{provider}/callback")
+async def connector_oauth_callback_post(
+    provider: str,
+    payload: CallbackRequest,
+    db: Session = Depends(get_db),
+):
+    provider = provider.lower()
+    if provider not in {"google", "microsoft"}:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+
+    # Use state from payload if present
+    state = payload.state
+    code = payload.code
+    serviceType = payload.serviceType
+
+    decoded: Optional[dict] = None
+    if state:
+        try:
+            decoded = decode_state(state)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
+    
+    if not decoded:
+        # Try finding state in memory/db via code? No, stateless.
+        raise HTTPException(status_code=400, detail="Invalid or missing state")
+
+    workspace_id = decoded.get("workspace_id")
+    if not workspace_id:
+        raise HTTPException(status_code=400, detail="Missing workspace context")
+
+    scopes = decoded.get("scopes") or []
+    # service_type from decoded state overrides payload if present (or vice versa? State is trusted source)
+    service_type = decoded.get("service_type") or serviceType or "email"
+
+    _provider_enabled(provider)
+    redirect_uri = settings.google_redirect_uri if provider == "google" else settings.microsoft_redirect_uri
+    # Use the redirectUri from payload (frontend origin) if configured to allow dynamic
+    # But usually backend MUST match exactly what was sent in auth request
+    # Since we built auth request with settings.*_redirect_uri, we must use that here too.
+    # The payload.redirectUri is what the frontend *thinks* it is.
+    # Wait, 'messgaing' service might be different.
+    # Let's trust the settings one for backend exchange.
+    
+    token = _exchange_code(provider, code, redirect_uri, scopes)
+    
+    integration = _store_integration(
+        db=db,
+        workspace_id=str(workspace_id),
+        provider=provider,
+        service_type=str(service_type),
+        scopes=[str(s) for s in scopes],
+        token=token,
+    )
+
+    return {
+        "success": True,
+        "account": {
+            "id": integration.id,
+            "provider": provider,
+            "status": "active",
+            "connectedAt": integration.created_at.isoformat(),
+        }
+    }
 
 
 def _assert_workspace_header_consistency(request: Request, workspace_id: str) -> None:
@@ -258,6 +324,8 @@ def _store_integration(
     token: Dict[str, Any],
 ) -> Integration:
     token_encrypted = encrypt_token(token)
+    if isinstance(token_encrypted, dict):
+        token_encrypted = json.dumps(token_encrypted)
 
     if provider == "google":
         providers = []
@@ -333,10 +401,7 @@ async def connect_provider(
         "scopes": payload.scopes,
     }
     
-    state = encode_state(
-        state_payload,
-        secret=settings.secret_key or "dev-secret",
-    )
+    state = encode_state(state_payload)
 
     redirect_uri = settings.google_redirect_uri if provider == "google" else settings.microsoft_redirect_uri
     if payload.returnUrl and "localhost" in payload.returnUrl:
@@ -375,7 +440,10 @@ async def _handle_oauth_callback(
 
     decoded: Optional[dict] = None
     if state:
-        decoded = decode_state(state, secret=settings.secret_key or "dev-secret")
+        try:
+            decoded = decode_state(state)
+        except Exception:
+            return _redirect_with_error(fallback_return_url, "invalid_state", "Invalid state parameter")
 
     return_url = (decoded or {}).get("return_url") or fallback_return_url
 

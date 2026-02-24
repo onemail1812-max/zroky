@@ -14,4 +14,5 @@ export interface ConversationSummary {
   subtitle: string
   timestamp: string
   status: ConversationState
+  labels?: string[]
 }

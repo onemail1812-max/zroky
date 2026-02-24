@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Force Light Mode everywhere by pointing dark variant to a non-existent class */
+@custom-variant dark (&:where(.never, .never *));
+
 :root {
   /* 
     PREMIUM MINIMALIST PALETTE (Obsidian & Vapor)
@@ -158,3 +161,17 @@ body {
   animation: pulse-sheen 3s infinite ease-in-out;
 }
 
+/* Shimmer — used by Skeleton loading components */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* Slide-in soft — used by cards that animate in */
+@keyframes slide-in-soft {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-in-soft {
+  animation: slide-in-soft 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}

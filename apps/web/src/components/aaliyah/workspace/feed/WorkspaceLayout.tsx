@@ -1,37 +1,77 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import Link from "next/link"
 import { LeftSidebar } from "./LeftSidebar"
 import { ThreadList } from "./ThreadList"
 import { ThreadReader } from "./ThreadReader"
-import { Search, Settings, Paperclip, SendHorizontal, BookOpen, X, ArrowRight } from "lucide-react"
+import { Search, Settings, Paperclip, SendHorizontal, BookOpen, X, ArrowRight, CornerUpLeft } from "lucide-react"
 import { inboxService, EmailMessage } from "@/services/inbox.service"
 import GuidelinesForm from "@/components/aaliyah/forms/GuidelinesForm"
 import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
-import { CardFeed, type FeedItem, type Evidence } from "../main/CardFeed"
-import { sendChat, getThreadDetails, getOnboardingStatus, runPreflight, getBriefing } from "@/lib/aaliyah/api"
+import OnboardingWizard from "@/components/aaliyah/forms/OnboardingWizard"
+import { CardFeed, type FeedItem, type Evidence, type CardAction } from "../main/CardFeed"
+import { getThreadDetails, getOnboardingStatus, runPreflight, getBriefing, aaliyahApi, sendDraft, updateDraft, readLocalStorage, WORKSPACE_KEYS } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { BrainCircuit, Loader2, WifiOff, ShieldAlert, AlertTriangle } from "lucide-react"
 import { getConnectionMessage } from "@/lib/aaliyah/connection-messages"
 import { cn } from "@/lib/utils"
+import { SyncStatusWidget } from "./SyncStatusWidget"
+import { AttachmentViewer } from "./AttachmentViewer"
+import { useAaliyahChat } from "@/lib/aaliyah/useAaliyahChat"
+import { ChatMessage } from "./ChatMessage"
+import { ChatInput } from "./ChatInput"
 
-// ── Workspace Unlocked Message ──────────────────────────────────────
-function mkWelcomeBackItem(firstName: string | null, health: any): FeedItem {
+// ── Workspace Unlocked Message (Stateless) ─────────────────────────
+function mkWelcomeBackItem(
+    firstName: string | null,
+    health: any,
+    triagedCount: number,
+    onSync: () => void,
+    onboardingDone: boolean,
+    onStartOnboarding?: () => void
+): FeedItem {
     const name = firstName || "there"
     const isOk = health?.email_accessible === true
 
-    const text = isOk
-        ? `Done, ${name} ✅\nI'm now syncing your inbox and preparing drafts. You'll see updates here.`
-        : `Protocols ready, ${name}. However, your email is not yet connected. Please authorize Gmail or Outlook in Settings > Integrations to begin.`;
+    // ✅ Check onboarding FIRST — new users always see a greeting
+    if (!onboardingDone) {
+        return {
+            id: `welcome_onboarding_${Date.now()}`,
+            type: "response",
+            title: "Aaliyah",
+            text: `Hey ${name}. I'm **Aaliyah** — your executive assistant.\n\nI handle your inbox, meetings, and follow-ups, so you can focus on what actually matters. I work quietly in the background, using your rules and your voice.\n\nLet's get me configured. It takes under 2 minutes.`,
+            tone: "normal" as any,
+        }
+    }
+
+    // Onboarded + connected → time-aware greeting
+    const hour = new Date().getHours()
+    const timeGreeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+
+    // Email NOT connected → show connect CTA (only for already-onboarded users)
+    if (!isOk) {
+        return {
+            id: `welcome_health_${Date.now()}`,
+            type: "response",
+            title: "Aaliyah",
+            text: `${timeGreeting}, ${name}. I'm active and ready.\n\nOne thing — your email isn't connected yet, so I can't see your inbox. Head to **Settings → Connect Email** and I'll take it from there.`,
+            tone: "normal" as any,
+        }
+    }
+
+    const message = triagedCount === 0
+        ? `${timeGreeting}, ${name}. Your workspace is ready — ask me anything or connect your email in Settings to unlock inbox intelligence.`
+        : `${timeGreeting}, ${name}. You have ${triagedCount} item${triagedCount === 1 ? "" : "s"} triaged in your inbox. Want a briefing?`
 
     return {
         id: `welcome_${Date.now()}`,
         type: "response",
         title: "Aaliyah",
-        text: text,
-        tone: isOk ? "success" : "normal" as any,
+        text: message,
+        tone: "normal" as any,
     }
 }
 
@@ -100,15 +140,21 @@ function OnboardingGate({ firstName }: { firstName: string | null }) {
                         <div className="mt-12 space-y-8">
                             <a
                                 href="/aaliyahonboarding"
-                                className="group relative flex items-center justify-between px-8 py-5 bg-zinc-900 hover:bg-black text-white rounded-[20px] transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-zinc-900/20 hover:-translate-y-1 w-full"
+                                className="group relative flex items-center justify-between px-8 py-6 bg-zinc-900 hover:bg-black text-white rounded-[24px] transition-all duration-500 shadow-2xl hover:shadow-zinc-900/30 hover:-translate-y-1.5 w-full overflow-hidden"
                             >
-                                <span className="text-lg font-bold tracking-tight z-10">Initialize System</span>
-                                <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-white/20 transition-all duration-300 z-10">
-                                    <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-0.5" />
+                                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+
+                                <div className="flex flex-col items-start z-10 text-left">
+                                    <span className="text-xl font-black tracking-tight">Begin My Onboarding</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 group-hover:text-zinc-300 transition-colors">Initialize Executive Protocols</span>
                                 </div>
 
-                                {/* Button Glow */}
-                                <div className="absolute inset-0 rounded-[20px] ring-1 ring-white/10 pointer-events-none" />
+                                <div className="h-12 w-12 rounded-2xl bg-white/10 flex items-center justify-center group-hover:bg-white text-white group-hover:text-black transition-all duration-500 z-10 shadow-inner">
+                                    <ArrowRight className="h-6 w-6 transition-transform duration-500 group-hover:translate-x-1" />
+                                </div>
+
+                                {/* Animated Glow */}
+                                <div className="absolute -inset-full bg-gradient-to-r from-transparent via-white/5 to-transparent rotate-45 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />
                             </a>
 
                             <div className="flex items-center justify-center gap-6 opacity-60 hover:opacity-100 transition-opacity duration-500">
@@ -155,7 +201,7 @@ function HealthGate({ health, onRetry }: { health: any, onRetry: () => void }) {
                 <div className="space-y-4">
                     {msg.ctaAction === 'connect' || msg.ctaAction === 'reconnect' ? (
                         <a
-                            href="/settings/integrations"
+                            href="/brain"
                             className="flex items-center justify-center w-full px-8 py-4 bg-zinc-900 text-white rounded-[20px] font-bold text-lg hover:bg-black transition-all shadow-xl"
                             data-testid="health-gate-cta"
                         >
@@ -189,7 +235,10 @@ export function WorkspaceLayout() {
 
     // Workspace state
     const [settingsOpen, setSettingsOpen] = React.useState(false)
+    const [guidelinesOpen, setGuidelinesOpen] = React.useState(false)
+    const [onboardingOpen, setOnboardingOpen] = React.useState(false)
     const [selectedThread, setSelectedThread] = React.useState<EmailMessage | null>(null)
+    const [activeAttachment, setActiveAttachment] = React.useState<any | null>(null)
     const [currentSection, setCurrentSection] = React.useState<string>("")
     const [queueOpen, setQueueOpen] = React.useState(false)
     const [counts, setCounts] = React.useState<Record<string, number>>({
@@ -201,177 +250,317 @@ export function WorkspaceLayout() {
     const [refreshTrigger, setRefreshTrigger] = React.useState(0)
     const [toasts, setToasts] = React.useState<{ id: string, message: string, type: 'info' | 'success' }[]>([])
     const [seenDemoIds, setSeenDemoIds] = React.useState<Set<string>>(new Set())
-    const [chatHistory, setChatHistory] = React.useState<FeedItem[]>([])
-    const [composerValue, setComposerValue] = React.useState("")
-    const [isSubmitting, setIsSubmitting] = React.useState(false)
     const [workingStatus, setWorkingStatus] = React.useState<string | null>(null)
     const [isPreflightRunning, setIsPreflightRunning] = React.useState(false)
+
+    // Custom Aaliyah Chat hook (clean SSE, no external deps)
+    const { messages, input, setInput, isLoading, sendMessage, setMessages } = useAaliyahChat({
+        api: "/assist/chat",
+    })
 
     const {
         connectionHealth,
         fetchHealth,
         isBackendConnected,
-        triggerSync
+        triggerSync,
+        triggerInitialSync,
+        syncProgress,
+        triagedCount,
+        syncError,
+        isSyncing,
+        resetSyncError
     } = useSystemStore()
 
-    // ── Daily Preflight Gate ─────────────────────────────────────────
+    const [showSyncWidget, setShowSyncWidget] = React.useState(false)
+    const [lastSyncedAt, setLastSyncedAt] = React.useState<Date | null>(null)
+    const [syncTick, setSyncTick] = React.useState(0) // force re-render for relative time
+    const [isMounted, setIsMounted] = React.useState(false)
+
+    React.useEffect(() => {
+        setIsMounted(true)
+    }, [])
+
+    // ── Daily Preflight Gate (3-step visible progress) ───────────────
     const runMorningProtocols = React.useCallback(async () => {
         if (isPreflightRunning) return
         setIsPreflightRunning(true)
-        setWorkingStatus("Running morning preflight...")
+
+        const STEPS = [
+            "Step 1 of 3 — Checking connections...",
+            "Step 2 of 3 — Syncing inbox & calendar...",
+            "Step 3 of 3 — Preparing your briefing...",
+        ]
+
+        setWorkingStatus(STEPS[0])
 
         try {
-            // 1. Health check is already handled by fetchHealth in loadCounts or manually here
-            const health = await fetchHealth()
+            // Step 1 – health + preflight handled inside triggerSync
+            await triggerSync()
 
-            // Re-read health from store or check direct result
-            // (Assuming fetchHealth updates connectionHealth in store)
+            // Step 2 – Sync visible confirmation
+            setWorkingStatus(STEPS[1])
+            await new Promise(r => setTimeout(r, 400)) // allow UI to render
 
-            // 2. Run Preflight Backend Gate
-            const preflight = await runPreflight()
+            // Step 3 – Briefing
+            setWorkingStatus(STEPS[2])
+            const briefing = await getBriefing()
 
-            if (preflight.status === 'OK') {
-                setWorkingStatus("Syncing inbox & briefings...")
-
-                // 3. Trigger Sync
-                await triggerSync()
-
-                // 4. Fetch Briefing
-                const briefing = await getBriefing()
-                if (briefing?.content) {
-                    setChatHistory(prev => [
-                        ...prev,
-                        {
-                            id: `briefing_${Date.now()}`,
-                            type: "response",
-                            title: "Morning Briefing",
-                            text: briefing.content,
-                            tone: "normal"
-                        }
-                    ])
-                }
-                setWorkingStatus(null)
-            } else {
-                setWorkingStatus("Connection required")
+            if (briefing?.content) {
+                setMessages(prev => [
+                    ...prev,
+                    {
+                        id: `briefing_${Date.now()}`,
+                        role: "assistant",
+                        content: briefing.content,
+                    }
+                ])
             }
+            setWorkingStatus(null)
         } catch (err) {
-            console.error("Preflight failed", err)
-            setWorkingStatus("Preflight failed")
+            console.error("Protocols failed", err)
+            setWorkingStatus("⚠ Protocol check failed — tap retry or check Settings.")
+            setTimeout(() => setWorkingStatus(null), 5000)
         } finally {
             setIsPreflightRunning(false)
         }
-    }, [fetchHealth, triggerSync])
+    }, [triggerSync])
+
+    // ── OAuth Completion Listener ───────────────────────────────────
+    React.useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            if (event.data?.type === "oauth_complete") {
+                // OAuth complete
+                if (event.data.success) {
+                    // ✅ Step 1: Instant confirmation (0–1s)
+                    const provider = event.data.provider || "Email"
+                    const providerLabel = provider === "google" ? "Gmail" : provider === "microsoft" ? "Outlook" : provider
+                    const instantCard = {
+                        id: `oauth_confirm_${Date.now()}`,
+                        role: "assistant" as const,
+                        content: `✅ ${providerLabel} connected.\n\nStarting your first sync — inbox and calendar data will appear here as it arrives. You don't need to wait.`,
+                    }
+                    setMessages(prev => [...prev, instantCard])
+
+                    // ✅ Step 2: Fire-and-return: queue jobs + start polling
+                    setShowSyncWidget(true)
+                    triggerInitialSync().catch((err: any) => {
+                        console.warn("[WorkspaceLayout] OAuth triggerInitialSync failed:", err?.message)
+                    })
+
+                    // Refresh health (non-blocking)
+                    fetchHealth().catch(() => { })
+                } else {
+                    setWorkingStatus(`Connection failed: ${event.data.error || 'Unknown'}`)
+                    setTimeout(() => setWorkingStatus(null), 5000)
+                }
+            }
+        }
+        window.addEventListener("message", handleMessage)
+        return () => window.removeEventListener("message", handleMessage)
+    }, [triggerInitialSync, fetchHealth])
+
+    // ── SSE Live Stream ──────────────────────────────────────────────
+    const { setIsLiveOffline } = useSystemStore()
+    React.useEffect(() => {
+        if (!onboardingComplete || !onboardingChecked) return
+
+        let es: EventSource | null = null
+        let alive = true
+
+        const connect = async () => {
+            try {
+                const { getLiveToken } = await import("@/lib/aaliyah/api")
+                const token = await getLiveToken()
+                if (!alive) return
+
+                // Use the consolidated canonical endpoint
+                es = new EventSource(`/aaliyah/live/stream?stream_token=${token}`)
+
+                es.onopen = () => setIsLiveOffline(false)
+                es.onerror = () => {
+                    setIsLiveOffline(true)
+                    // Optional: Attempt reconnect after delay
+                }
+
+                es.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data)
+
+                        // Handle proactive assistant messages (Conversational Voice)
+                        if (data.type === "assistant_message") {
+                            const assistantMsg = {
+                                id: `proactive_${Date.now()}`,
+                                role: "assistant" as const,
+                                content: data.message || data.payload?.text || "",
+                            }
+                            setMessages(prev => [...prev, assistantMsg])
+                        }
+
+                        // Handle update events
+                        if (data.type === "update" || data.type === "thread_updated" || data.type === "thread_moved" || data.type === "sync_complete") {
+                            // SSE Update
+                            setRefreshTrigger(t => t + 1)
+                            fetchHealth().catch(() => { })
+                        }
+
+                        // Handle two-way sync deletion
+                        if (data.type === "message_deleted") {
+                            // Remote deletion detection
+                            setRefreshTrigger(t => t + 1)
+                            if (typeof window !== "undefined" && data.payload?.message_id) {
+                                window.dispatchEvent(new CustomEvent('aaliyah_message_deleted', {
+                                    detail: { id: data.payload.message_id }
+                                }))
+                            }
+                        }
+
+                        // Handle instant count updates
+                        if (data.type === "counts_update") {
+                            useSystemStore.getState().updateCountsFromPayload(data.payload)
+                        }
+                        // Handle live email arrival (slide-in)
+                        if (data.type === "new_email_arrival") {
+                            const arrivalItem = {
+                                id: `arrival_${data.payload.id}_${Date.now()}`,
+                                type: "new-email-arrival",
+                                sender: data.payload.sender_name || data.payload.sender,
+                                subject: data.payload.subject,
+                                snippet: data.payload.snippet,
+                                timestamp: "Just now"
+                            }
+                            setMessages(prev => [...prev, arrivalItem])
+                        }
+
+                        // Handle auto-followup nudges
+                        if (data.type === "followup_nudge") {
+                            const nudgeItem = {
+                                id: `nudge_${data.payload.thread_id}_${Date.now()}`,
+                                type: "followup-nudge",
+                                sender: data.payload.sender,
+                                subject: data.payload.subject,
+                                threadId: data.payload.thread_id,
+                                timestamp: "Just now"
+                            }
+                            setMessages(prev => [...prev, nudgeItem])
+                        }
+
+                        // Add to action logs if message exists
+                        if (data.message && data.type !== "assistant_message" && data.type !== "new_email_arrival" && data.type !== "counts_update") {
+                            useSystemStore.getState().addLog(data.type, data.message)
+                        }
+                    } catch (e) {
+                        // ignore malformed json
+                    }
+                }
+            } catch (err) {
+                console.error("[SSE] Connection failed:", err)
+                if (alive) setIsLiveOffline(true)
+            }
+        }
+
+        connect()
+        return () => {
+            alive = false
+            es?.close()
+        }
+    }, [onboardingComplete, onboardingChecked, setIsLiveOffline, fetchHealth])
 
     // ── Check onboarding on mount ────────────────────────────────────
     React.useEffect(() => {
-        // optimistically check local storage to prevent flicker
-        if (typeof window !== "undefined" && window.localStorage.getItem("aaliyah_onboarding_completed") === "true") {
+        // Check localStorage immediately — returning users unlock instantly
+        const localDone = typeof window !== "undefined" && window.localStorage.getItem("aaliyah_onboarding_completed") === "true"
+        if (localDone) {
             setOnboardingComplete(true)
+            setOnboardingChecked(true)  // skip loading screen right away
+            fetchHealth().catch(() => { })
+            return
         }
 
-        console.log("Checking onboarding status...");
+        // Safety timeout: if API hangs, unblock after 2s
+        const timer = setTimeout(() => {
+            setOnboardingChecked(true)
+        }, 2000)
+
         getOnboardingStatus()
             .then((res) => {
-                console.log("Onboarding Response:", res);
+                clearTimeout(timer)
                 setFirstName(res.first_name)
-                // Case-insensitive check
                 if (String(res.onboarding_status).toLowerCase() === "completed") {
                     setOnboardingComplete(true)
+                    if (typeof window !== "undefined") {
+                        window.localStorage.setItem("aaliyah_onboarding_completed", "true")
+                    }
                 } else {
-                    console.warn("Status pending/other:", res.onboarding_status);
-                    // DEBUG: Show why we are showing gate
-                    // alert(`Debug: Status is '${res.onboarding_status}', expected 'completed'.`)
+                    setOnboardingComplete(false)
                 }
                 setOnboardingChecked(true)
+                fetchHealth().catch(() => { })
             })
             .catch((err) => {
-                console.error("Status check failed:", err);
-                // alert("Debug: API Check Failed: " + err.message);
-                // If the call fails (e.g. no auth), assume pending but log it
+                clearTimeout(timer)
+                console.error("Onboarding check failed:", err)
+                setOnboardingComplete(false)
                 setOnboardingChecked(true)
+                fetchHealth().catch(() => { })
             })
+
+        return () => clearTimeout(timer)
     }, [])
 
-    // Show welcome-back message once workspace unlocks
+    // Show welcome message once onboarding check is done
     React.useEffect(() => {
-        if (onboardingComplete && onboardingChecked && chatHistory.length === 0 && connectionHealth !== null) {
-            setChatHistory([mkWelcomeBackItem(firstName, connectionHealth)])
+        if (onboardingChecked && messages.length === 0) {
+            const syncHandler = () => {
+                setShowSyncWidget(true)
+                triggerInitialSync().catch((err: any) => {
+                    console.warn("[WorkspaceLayout] triggerInitialSync failed silently:", err?.message)
+                })
+            }
 
-            // Truth Gating: Only run morning protocols if email is healthy
-            if (connectionHealth.email_accessible) {
+            // If health not yet loaded, show onboarding/greeting without email status
+            const effectiveHealth = connectionHealth ?? { email_accessible: false, email_health: 'unknown', calendar_accessible: false }
+            const welcome = mkWelcomeBackItem(firstName, effectiveHealth, triagedCount, syncHandler, onboardingComplete, () => setOnboardingOpen(true))
+            setMessages([{
+                id: welcome.id,
+                role: "assistant",
+                content: (welcome as any).text || "",
+            }])
+
+            // Truth Gating: Only run morning protocols if email is healthy AND data exists
+            if (effectiveHealth?.email_accessible && triagedCount > 0) {
                 runMorningProtocols()
             }
         }
-    }, [onboardingComplete, onboardingChecked, connectionHealth, runMorningProtocols])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [onboardingChecked])
 
+    // ── STATELESS REFRESH: just re-fetch thread list periodically ──────
+    const REFRESH_INTERVAL_MS = 30 * 1000 // 30 seconds
+    const emailAccessible = connectionHealth?.email_accessible ?? false
 
+    React.useEffect(() => {
+        if (!emailAccessible) return
+
+        // Simple refresh: re-fetch threads from the stateless API
+        const refresh = () => {
+            setRefreshTrigger(t => t + 1)
+            setLastSyncedAt(new Date())
+        }
+
+        refresh() // initial load
+        const intervalId = setInterval(refresh, REFRESH_INTERVAL_MS)
+        return () => clearInterval(intervalId)
+    }, [emailAccessible]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Tick every 60s to update "Last synced X ago" relative time ────────
+    React.useEffect(() => {
+        const t = setInterval(() => setSyncTick(n => n + 1), 60_000)
+        return () => clearInterval(t)
+    }, [])
 
     // ══════════════════════════════════════════════════════════════════
     //  FULL WORKSPACE (only accessible after onboarding)
     // ══════════════════════════════════════════════════════════════════
-
-    const handleSend = async () => {
-        const message = composerValue.trim()
-        if (!message || isSubmitting) return
-
-        setComposerValue("")
-        setIsSubmitting(true)
-        setWorkingStatus("Searching accounts...")
-
-        const userCmd: FeedItem = {
-            id: `cmd_${Date.now()}`,
-            type: "user-command",
-            text: message,
-            timestamp: new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(new Date())
-        }
-        setChatHistory(prev => [...prev, userCmd])
-        setSelectedThread(null)
-
-        try {
-            setTimeout(() => setWorkingStatus("Reading top results..."), 800)
-
-            const result = await sendChat(message)
-            setWorkingStatus("Answer ready")
-            setTimeout(() => setWorkingStatus(null), 1000)
-
-            setChatHistory(prev => {
-                const groundedItem: FeedItem = {
-                    id: `ans_${Date.now()}`,
-                    type: "grounded-answer",
-                    text: result.answer_text || result.reply || result.answer || "I processed your request but couldn't generate a text response.",
-                    evidence: result.evidence || [],
-                    status: result.status || "found"
-                }
-
-                const newHistory = [...prev, groundedItem]
-
-                // Check for health report
-                if (result.tool_result?.health) {
-                    newHistory.push({
-                        id: `health_${Date.now()}`,
-                        type: "health-report",
-                        health: result.tool_result.health
-                    })
-                }
-
-                return newHistory
-            })
-
-        } catch (error) {
-            console.error(error)
-            const errItem: FeedItem = {
-                id: `err_${Date.now()}`,
-                type: "response",
-                title: "Brain Error",
-                text: "I'm having trouble connecting to my brain right now.",
-                tone: "error"
-            }
-            setChatHistory(prev => [...prev, errItem])
-            setWorkingStatus(null)
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
 
     const handleSourceClick = async (evidence: Evidence) => {
         if (evidence.type === 'thread') {
@@ -406,16 +595,48 @@ export function WorkspaceLayout() {
         }
     }
 
-    // Initial Load & Polling
-    const loadCounts = React.useCallback(() => {
-        // Truth Gating: only load counts if email is accessible
-        if (connectionHealth?.email_accessible) {
-            inboxService.getCounts().then(res => {
-                setCounts(res)
-            }).catch(console.error)
+    const handleCardAction = async (action: CardAction, itemId: string) => {
+        setWorkingStatus(`Executing ${action.label}...`)
+        try {
+            if (action.type === "link") {
+                window.open(action.payload?.url, "_blank")
+            } else if (action.type === "callback") {
+                // To be implemented: POST /aaliyah/actions/execute
+                const response = await aaliyahApi.post(`/actions/execute`, {
+                    item_id: itemId,
+                    action: action
+                })
+                setMessages(prev => [...prev, {
+                    id: `receipt_${Date.now()}`,
+                    role: "assistant",
+                    content: response.data.message || `Action "${action.label}" executed successfully.`
+                }])
+            } else if (action.type === "snooze") {
+                setMessages(prev => [...prev, {
+                    id: `snooze_${Date.now()}`,
+                    role: "assistant",
+                    content: `Thread snoozed as requested. I'll remind you later.`
+                }])
+            }
+        } catch (error) {
+            console.error("Action execution failed", error)
+            setMessages(prev => [...prev, {
+                id: `error_${Date.now()}`,
+                role: "assistant",
+                content: `Sorry, I couldn't execute that action: ${error instanceof Error ? error.message : 'Unknown error'}`
+            }])
+        } finally {
+            setWorkingStatus(null)
         }
+    }
+
+    // Initial Load & Polling (stateless: always try to load)
+    const loadCounts = React.useCallback(() => {
+        inboxService.getCounts().then(res => {
+            setCounts(res)
+        }).catch(console.error)
         fetchHealth().catch(console.error)
-    }, [refreshTrigger, fetchHealth, connectionHealth?.email_accessible])
+    }, [refreshTrigger, fetchHealth])
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
@@ -424,25 +645,19 @@ export function WorkspaceLayout() {
         return () => clearInterval(interval)
     }, [refreshTrigger])
 
-    // Smart Queue Selection on Mount
+    // Smart Queue Selection on Mount - Disabled per user request
     React.useEffect(() => {
-        if (currentSection) return
-        if (counts.priority && counts.priority > 0) {
+        // We no longer auto-select a queue. It stays empty until clicked.
+        if (!currentSection && counts.priority === -1) {
+            // This condition is artificially false to prevent auto-selection but keep the logic structure if needed later
             setCurrentSection("priority")
-        } else if (counts.needs_reply && counts.needs_reply > 0) {
-            setCurrentSection("needs_reply")
-        } else if (counts.approvals && counts.approvals > 0) {
-            setCurrentSection("approvals")
-        } else if (counts.follow_ups && counts.follow_ups > 0) {
-            setCurrentSection("follow_ups")
-        } else {
-            setCurrentSection("fyi")
         }
     }, [counts, currentSection])
 
     const handleNavigate = (section: string) => {
         if (queueOpen && currentSection === section) {
             setQueueOpen(false)
+            setCurrentSection("")
         } else {
             setCurrentSection(section)
             setQueueOpen(true)
@@ -452,11 +667,13 @@ export function WorkspaceLayout() {
     const handleMainClick = () => {
         if (queueOpen) {
             setQueueOpen(false)
+            setCurrentSection("")
         }
     }
 
     const handleThreadSelect = (thread: EmailMessage) => {
         setSelectedThread(thread)
+        setActiveAttachment(null) // Reset attachment when thread changes
         setQueueOpen(false)
         if (thread.id.startsWith('demo-')) {
             setSeenDemoIds(prev => {
@@ -467,6 +684,20 @@ export function WorkspaceLayout() {
         }
     }
 
+    // Auto-close thread if it gets deleted remotely
+    React.useEffect(() => {
+        const handleRemoteDelete = ((e: CustomEvent) => {
+            if (selectedThread && selectedThread.id === e.detail?.id) {
+                // Thread closed due to remote deletion
+                setSelectedThread(null)
+                useSystemStore.getState().addLog("thread_deleted", "Thread was deleted from the remote inbox")
+            }
+        }) as EventListener
+
+        window.addEventListener('aaliyah_message_deleted', handleRemoteDelete)
+        return () => window.removeEventListener('aaliyah_message_deleted', handleRemoteDelete)
+    }, [selectedThread])
+
     const uiCounts = counts
 
     const hasUnread = (section: string) => {
@@ -474,7 +705,7 @@ export function WorkspaceLayout() {
         return count > 0
     }
 
-    const [guidelinesOpen, setGuidelinesOpen] = React.useState(false)
+
 
     const providerLabel = selectedThread?.provider === 'google' ? 'Gmail' : 'Outlook'
 
@@ -482,29 +713,65 @@ export function WorkspaceLayout() {
     React.useEffect(() => {
         if (!feedScrollRef.current) return
         feedScrollRef.current.scrollTo({ top: feedScrollRef.current.scrollHeight, behavior: "smooth" })
-    }, [chatHistory])
+    }, [messages])
 
     // ── If still checking, show skeleton ──────────────────────────────
     if (!onboardingChecked) {
         return (
-            <div className="flex h-screen bg-white items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="h-12 w-12 rounded-2xl bg-zinc-100 animate-pulse" />
-                    <div className="h-3 w-32 rounded-full bg-zinc-100 animate-pulse" />
+            <div className="flex h-screen bg-white items-center justify-center font-sans select-none">
+                <style dangerouslySetInnerHTML={{
+                    __html: `
+                    @keyframes ball-bounce {
+                        0%, 100% { transform: translateY(0) scale(1); }
+                        25% { transform: translateY(-32px) scale(0.92, 1.08); }
+                        50% { transform: translateY(0) scale(1.12, 0.88); }
+                        75% { transform: translateY(-12px) scale(0.96, 1.04); }
+                    }
+                    @keyframes shadow-scale {
+                        0%, 100% { transform: scaleX(1); opacity: 0.25; }
+                        25% { transform: scaleX(0.5); opacity: 0.08; }
+                        50% { transform: scaleX(1.3); opacity: 0.35; }
+                        75% { transform: scaleX(0.7); opacity: 0.12; }
+                    }
+                    @keyframes container-fade {
+                        from { opacity: 0; transform: scale(0.9); }
+                        to { opacity: 1; transform: scale(1); }
+                    }
+                    .zk-loader { animation: container-fade 0.4s ease-out forwards; }
+                    .zk-ball {
+                        width: 16px; height: 16px;
+                        background: #18181b;
+                        border-radius: 50%;
+                        animation: ball-bounce 1.2s ease-in-out infinite;
+                    }
+                    .zk-ball:nth-child(2) { animation-delay: 0.12s; }
+                    .zk-ball:nth-child(3) { animation-delay: 0.24s; }
+                    .zk-shadow {
+                        width: 16px; height: 4px;
+                        border-radius: 50%;
+                        background: radial-gradient(ellipse, rgba(0,0,0,0.2), transparent 70%);
+                        animation: shadow-scale 1.2s ease-in-out infinite;
+                    }
+                    .zk-shadow:nth-child(2) { animation-delay: 0.12s; }
+                    .zk-shadow:nth-child(3) { animation-delay: 0.24s; }
+                `}} />
+                <div className="zk-loader flex flex-col items-center">
+                    <div className="flex gap-3">
+                        <div className="zk-ball" />
+                        <div className="zk-ball" />
+                        <div className="zk-ball" />
+                    </div>
+                    <div className="flex gap-3 mt-2">
+                        <div className="zk-shadow" />
+                        <div className="zk-shadow" />
+                        <div className="zk-shadow" />
+                    </div>
                 </div>
             </div>
         )
     }
 
-    // ── Onboarding gate ───────────────────────────────────────────────
-    if (!onboardingComplete) {
-        return <OnboardingGate firstName={firstName} />
-    }
-
-    // ── Health gate ───────────────────────────────────────────────────
-    if (connectionHealth && !connectionHealth.email_accessible && onboardingComplete) {
-        return <HealthGate health={connectionHealth} onRetry={() => fetchHealth()} />
-    }
+    // Workspace always renders — onboarding is a modal triggered from chat
 
     return (
         <div className="flex h-screen bg-white overflow-hidden relative">
@@ -515,44 +782,14 @@ export function WorkspaceLayout() {
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }
             `}} />
 
-            {/* Guidelines Overlay */}
-            <AnimatePresence>
-                {guidelinesOpen && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 20 }}
-                        className="fixed inset-0 z-[100] bg-white flex flex-col"
-                    >
-                        <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
-                            <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Settings Overlay */}
-            <AnimatePresence>
-                {settingsOpen && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-sm flex items-center justify-center pointer-events-auto"
-                        onClick={() => setSettingsOpen(false)}
-                    >
-                        <div className="w-full max-w-5xl h-auto" onClick={(e) => e.stopPropagation()}>
-                            <SettingsForm onClose={() => setSettingsOpen(false)} />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
 
             {/* 1. Left Panel: Queue List */}
             <div className="w-56 shrink-0 flex flex-col">
                 <LeftSidebar
                     currentSection={currentSection}
                     onNavigate={handleNavigate}
+                    onOpenGuidelines={() => setGuidelinesOpen(true)}
+                    onOpenSettings={() => setSettingsOpen(true)}
                     counts={uiCounts}
                     hasUnread={hasUnread}
                     disabled={!connectionHealth?.email_accessible}
@@ -590,67 +827,156 @@ export function WorkspaceLayout() {
             {/* 3. Main Panel: Conversation Workspace */}
             <main className="flex-1 flex flex-col bg-white" onClick={handleMainClick}>
                 {/* Header */}
-                <header className="h-20 border-b border-zinc-100 flex items-center justify-between px-6 shrink-0">
-                    <div className="flex items-center gap-2 text-sm min-w-0 flex-1 overflow-hidden">
-                        {selectedThread ? (
-                            <>
-                                <span className="font-bold text-zinc-900 truncate">{selectedThread.subject || "(No Subject)"}</span>
-                                <span className="h-1 w-1 rounded-full bg-zinc-300 shrink-0" />
-                                <span className="text-zinc-400 shrink-0">Source: {providerLabel}</span>
-                                <span className="h-1 w-1 rounded-full bg-zinc-300 shrink-0" />
-                                <span className="text-zinc-400 truncate">{selectedThread.sender.name ? `${selectedThread.sender.name} (${selectedThread.sender.email})` : selectedThread.sender.email}</span>
-                                {selectedThread.draft && (
-                                    <>
-                                        <span className="h-1 w-1 rounded-full bg-zinc-300 shrink-0" />
-                                        <span className="text-emerald-600 font-semibold shrink-0">Draft ready</span>
-                                    </>
-                                )}
-                            </>
-                        ) : (
-                            <span className="text-sm text-zinc-300">Aaliyah Workspace</span>
+                <header className="h-16 border-b border-borderSubtle bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 shrink-0 z-10 sticky top-0 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                    <div className="flex items-center gap-3 text-sm min-w-0 flex-1 overflow-hidden">
+                        {selectedThread && (
+                            <div className="flex items-center gap-3">
+                                <button
+                                    className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors border border-zinc-100"
+                                    onClick={() => {
+                                        setSelectedThread(null)
+                                        setActiveAttachment(null)
+                                    }}
+                                >
+                                    <CornerUpLeft className="h-4 w-4" />
+                                </button>
+                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Message Detail</span>
+                            </div>
                         )}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-4">
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setGuidelinesOpen(true); }}
-                            className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-black/15 hover:bg-zinc-900 hover:text-white text-zinc-500 transition-colors text-xs font-medium"
-                        >
-                            <BookOpen className="h-3.5 w-3.5" />
-                            Configuration
-                        </button>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setSettingsOpen(true); }}
-                            className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-black/15 hover:bg-zinc-900 hover:text-white text-zinc-500 transition-colors text-xs font-medium"
-                            data-testid="workspace-settings-btn"
-                        >
-                            <Settings className="h-3.5 w-3.5" />
-                            Settings
-                        </button>
+
+                    <div className="flex items-center gap-4 shrink-0 px-2">
+                        {/* Right side header content removed per user request */}
                     </div>
                 </header>
 
                 {/* Content */}
+
+                {/* Content */}
                 {selectedThread ? (
-                    <div className="flex-1 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                        <ThreadReader thread={selectedThread} />
+                    <div className="flex-1 overflow-y-auto w-full relative" onClick={(e) => e.stopPropagation()}>
+                        {/* Floating Back Button */}
+                        <div className="absolute top-6 left-6 z-50">
+                            <button
+                                className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur border border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-xl transition-all"
+                                onClick={() => {
+                                    setSelectedThread(null)
+                                    setActiveAttachment(null)
+                                }}
+                            >
+                                <CornerUpLeft className="h-4 w-4" /> <span className="text-[12px] font-bold tracking-tight">Back</span>
+                            </button>
+                        </div>
+                        <ThreadReader
+                            thread={selectedThread}
+                            onAttachmentClick={(att) => setActiveAttachment(att)}
+                            onAction={(action) => {
+                                // Close the thread view
+                                setSelectedThread(null)
+                                setActiveAttachment(null)
+                                // Trigger an immediate feed refresh from DB
+                                setRefreshTrigger(t => t + 1)
+                            }}
+                        />
                     </div>
                 ) : (
-                    <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-6 py-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
-                        <div className="max-w-4xl mx-auto">
-                            <CardFeed
-                                items={chatHistory}
-                                onOpenIntelligence={() => { }}
-                                onSourceClick={handleSourceClick}
-                            />
-                            {chatHistory.length === 0 && (
-                                <div className="h-full flex flex-col items-center justify-center pt-20 text-center">
-                                    <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6">
-                                        <BrainCircuit className="h-8 w-8 text-zinc-200" />
+                    <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 py-8 md:px-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+                        <div className="max-w-5xl mx-auto space-y-4 relative">
+                            <AnimatePresence>
+                                {showSyncWidget && syncProgress.phase !== "idle" && (
+                                    <SyncStatusWidget
+                                        onDismiss={() => {
+                                            setShowSyncWidget(false)
+                                        }}
+                                    />
+                                )}
+                            </AnimatePresence>
+
+                            <div className="flex flex-col">
+                                <CardFeed
+                                    items={messages.map(m => {
+                                        if (m.type === "new-email-arrival") return m as any;
+                                        return {
+                                            id: m.id,
+                                            type: m.role === "user" ? "user-command" : "response",
+                                            text: m.content || "",
+                                            title: m.role === "assistant" ? "Aaliyah" : undefined,
+                                            timestamp: "Just now"
+                                        } as any;
+                                    })}
+                                    onUpdateDraft={(id, draft) => {
+                                        updateDraft(id, draft).catch((err: any) => console.error("Draft update failed", err))
+                                    }}
+                                    onApprovalAction={(action, id) => {
+                                        if (action === "approve") {
+                                            sendDraft(readLocalStorage(WORKSPACE_KEYS) || "", id)
+                                                .then(() => setMessages(prev => [...prev, { id: `send_${Date.now()}`, role: "assistant", content: "Email sent successfully." }]))
+                                                .catch((err: any) => console.error("Send failed", err))
+                                        }
+                                    }}
+                                    onCardAction={handleCardAction}
+                                    onOpenIntelligence={(tab) => {
+                                        setCurrentSection(tab)
+                                        setQueueOpen(true)
+                                    }}
+                                    onSourceClick={async (ev) => {
+                                        if (ev.type === 'thread') {
+                                            try {
+                                                const thread = await getThreadDetails(ev.id, ev.provider)
+                                                if (thread) setSelectedThread(thread)
+                                            } catch (err) {
+                                                console.error("Failed to load thread source", err)
+                                            }
+                                        }
+                                    }}
+                                />
+                                {!onboardingComplete && messages.length > 0 && (
+                                    <div className="flex w-full gap-3 mb-6 pl-11">
+                                        <button
+                                            onClick={() => setOnboardingOpen(true)}
+                                            className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
+                                        >
+                                            Begin Setup
+                                            <ArrowRight className="w-4 h-4" />
+                                        </button>
                                     </div>
-                                    <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
-                                    <p className="text-sm text-zinc-400 max-w-sm">
-                                        Ask me to search your emails, check your calendar, or manage your commitments.
-                                    </p>
+                                )}
+                                {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+                                    <ChatMessage
+                                        role="assistant"
+                                        content="..."
+                                    />
+                                )}
+                            </div>
+
+                            {messages.length === 0 && syncProgress.phase === "idle" && (
+                                <div className="h-full flex flex-col items-center justify-center pt-20 text-center px-6">
+                                    <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6">
+                                        <BrainCircuit className="h-8 w-8 text-zinc-300" />
+                                    </div>
+
+                                    {!connectionHealth?.email_accessible ? (
+                                        <>
+                                            <h2 className="text-2xl font-black text-zinc-900 mb-3 tracking-tight">Connect Your Email</h2>
+                                            <p className="text-base text-zinc-500 max-w-sm leading-relaxed mb-8">
+                                                Connect your Gmail or Outlook in Settings to unlock inbox management, smart triage, and calendar intelligence.
+                                            </p>
+                                            <button
+                                                onClick={() => setSettingsOpen(true)}
+                                                className="inline-flex items-center gap-2 px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all shadow-lg hover:shadow-zinc-900/10 active:scale-95"
+                                            >
+                                                Open Settings
+                                                <ArrowRight className="h-4 w-4" />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
+                                            <p className="text-sm text-zinc-400 max-w-sm">
+                                                Ask me to search your emails, check your calendar, or manage your commitments.
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -658,50 +984,46 @@ export function WorkspaceLayout() {
                 )}
 
                 {/* Chat Input Bar */}
-                <div className="shrink-0 border-t border-zinc-100 px-6 py-3 bg-white">
-                    <div className="flex items-center gap-2 max-w-3xl mx-auto w-full relative">
+                <div className="shrink-0 border-t border-zinc-100 px-6 py-4 bg-white">
+                    <div className="max-w-3xl mx-auto w-full">
+                        <ChatInput
+                            value={input}
+                            onChange={(val) => setInput(val)}
+                            onSubmit={() => sendMessage()}
+                            isLoading={isLoading}
+                            placeholder={isSyncing ? "Syncing..." : "Ask Aaliyah anything..."}
+                        />
+
                         <AnimatePresence>
                             {workingStatus && (
                                 <motion.div
                                     initial={{ opacity: 0, y: 10 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: 10 }}
-                                    className="absolute -top-12 left-0 right-0 flex justify-center pointer-events-none"
-                                    data-testid="working-status-indicator"
+                                    className="flex justify-center mt-3"
                                 >
-                                    <div className="bg-zinc-900 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-full flex items-center gap-2 shadow-2xl border border-white/10">
-                                        <BrainCircuit className="h-3 w-3 animate-pulse text-purple-400" />
-                                        <span data-testid="working-status-text">{workingStatus}</span>
+                                    <div className="flex items-center gap-2 px-3 py-1 bg-zinc-50 text-zinc-400 border border-zinc-100 rounded-full text-[10px] font-black tracking-widest uppercase">
+                                        <span className="h-1 w-1 rounded-full bg-zinc-400 animate-pulse" />
+                                        {workingStatus}
                                     </div>
                                 </motion.div>
                             )}
                         </AnimatePresence>
-                        <div className="flex flex-1 items-center gap-2 bg-zinc-50 rounded-xl px-3 py-2 border border-black/20 focus-within:ring-2 focus-within:ring-zinc-900/5 transition-all">
-                            <button className="h-8 w-8 flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors shrink-0">
-                                <Paperclip className="h-4 w-4" />
-                            </button>
-                            <input
-                                type="text"
-                                placeholder={connectionHealth?.email_accessible ? "Reply or ask Aaliyah..." : "Authorize email to enable chat..."}
-                                style={{ border: 'none', outline: 'none', boxShadow: 'none' }}
-                                className="flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 py-1"
-                                value={composerValue}
-                                onChange={(e) => setComposerValue(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && !isSubmitting && handleSend()}
-                                disabled={isSubmitting || !connectionHealth?.email_accessible}
-                                data-testid="chat-composer-input"
-                            />
-                            <button
-                                onClick={handleSend}
-                                disabled={isSubmitting || !composerValue.trim() || !connectionHealth?.email_accessible}
-                                className="h-8 w-8 flex items-center justify-center rounded-lg bg-zinc-900 text-white hover:bg-black transition-colors shrink-0 disabled:opacity-50"
-                            >
-                                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
-                            </button>
-                        </div>
                     </div>
                 </div>
             </main>
+
+            {/* 4. Full-Screen Attachment Viewer Overlay (Gmail-style) */}
+            <AnimatePresence>
+                {activeAttachment && (
+                    <AttachmentViewer
+                        attachment={activeAttachment}
+                        allAttachments={selectedThread?.attachments || []}
+                        onClose={() => setActiveAttachment(null)}
+                        onNavigate={(att) => setActiveAttachment(att)}
+                    />
+                )}
+            </AnimatePresence>
 
             {/* Toasts */}
             <div className="fixed bottom-24 right-8 flex flex-col gap-2 z-50 pointer-events-none">
@@ -720,6 +1042,94 @@ export function WorkspaceLayout() {
                     ))}
                 </AnimatePresence>
             </div>
-        </div >
+
+            {/* Overlays */}
+            {isMounted && typeof document !== 'undefined' && createPortal(
+                <AnimatePresence>
+                    {guidelinesOpen && (
+                        <motion.div
+                            key="guidelines-overlay"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                            onClick={() => setGuidelinesOpen(false)}
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full max-w-5xl flex items-center justify-center"
+                            >
+                                <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>,
+                document.body
+            )}
+
+            {isMounted && typeof document !== 'undefined' && createPortal(
+                <AnimatePresence>
+                    {settingsOpen && (
+                        <motion.div
+                            key="settings-overlay"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                            onClick={() => setSettingsOpen(false)}
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full max-w-5xl flex items-center justify-center"
+                            >
+                                <SettingsForm onClose={() => setSettingsOpen(false)} />
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>,
+                document.body
+            )}
+
+            {isMounted && typeof document !== 'undefined' && createPortal(
+                <AnimatePresence>
+                    {onboardingOpen && (
+                        <motion.div
+                            key="onboarding-overlay"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 z-[10000] backdrop-blur-sm flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                            onClick={() => setOnboardingOpen(false)}
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full max-w-5xl flex items-center justify-center"
+                            >
+                                <OnboardingWizard onComplete={() => {
+                                    setOnboardingOpen(false)
+                                    setOnboardingComplete(true)
+                                    // Inject thank-you message into chat
+                                    setMessages([{
+                                        id: `onboarding_done_${Date.now()}`,
+                                        role: "assistant",
+                                        content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
+                                    }])
+                                }} />
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>,
+                document.body
+            )}
+        </div>
     )
 }

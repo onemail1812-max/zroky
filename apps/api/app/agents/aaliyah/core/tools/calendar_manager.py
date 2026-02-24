@@ -8,9 +8,7 @@ from typing import Any, Dict, List, Tuple
 from app.database import SessionLocal
 from app.models.integration import IntegrationProvider
 from app.services.brain.guardrails import redact_text
-from app.services.integrations.google_calendar import GoogleCalendarService
-from app.services.integrations.integration_token_manager import IntegrationTokenManager
-from app.services.integrations.microsoft_calendar import MicrosoftCalendarService
+from app.services.integrations.token_store import get_valid_token
 
 from ..ingestion.calendar_sync import CalendarSync
 from ..interfaces.tool import AaliyahTool
@@ -40,27 +38,28 @@ class CalendarManager(AaliyahTool):
             return await self._check_conflicts(input_data)
         return {"error": "unsupported_action", "message": f"Unsupported calendar action '{action}'"}
 
-    def _resolve_client(self, *, workspace_id: str, provider: str, db) -> Tuple[str, Any]:
-        manager = IntegrationTokenManager(db)
+    async def _resolve_client(self, *, workspace_id: str, provider: str, db) -> Tuple[str, Any]:
+        from app.services.integrations.google_calendar import GoogleCalendarService
+        from app.services.integrations.microsoft_calendar import MicrosoftCalendarService
+        
         normalized = (provider or "auto").lower().strip()
         if normalized in {"auto", ""}:
-            if manager.get_valid_token(workspace_id, IntegrationProvider.GOOGLE_CALENDAR):
+            if get_valid_token(db, workspace_id, "google"):
                 normalized = "google"
-            elif manager.get_valid_token(workspace_id, IntegrationProvider.OUTLOOK):
+            elif get_valid_token(db, workspace_id, "microsoft"):
                 normalized = "microsoft"
 
         if normalized in {"google", "gcal"}:
-            token = manager.get_valid_token(workspace_id, IntegrationProvider.GOOGLE_CALENDAR)
+            token = get_valid_token(db, workspace_id, "google")
             if not token:
                 raise ValueError("Google Calendar is not connected for this workspace")
             return "google", GoogleCalendarService(token)
 
         if normalized in {"microsoft", "outlook", "ocal"}:
-            token = manager.get_valid_token(workspace_id, IntegrationProvider.OUTLOOK)
-            access_token = str((token or {}).get("access_token") or "")
-            if not access_token:
+            token = get_valid_token(db, workspace_id, "microsoft")
+            if not token:
                 raise ValueError("Outlook Calendar is not connected for this workspace")
-            return "microsoft", MicrosoftCalendarService(access_token)
+            return "microsoft", MicrosoftCalendarService(token)
 
         raise ValueError(f"Unsupported provider '{provider}'")
 

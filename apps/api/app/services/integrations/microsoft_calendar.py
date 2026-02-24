@@ -1,135 +1,148 @@
-"""Microsoft Calendar (Graph) integration service."""
-
+"""Microsoft Graph Calendar Service — stateless, uses httpx."""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
 import logging
-import requests
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta, timezone
 
-from app.services.brain.guardrails import redact_text
+import httpx
 
 logger = logging.getLogger(__name__)
 
+GRAPH_API = "https://graph.microsoft.com/v1.0"
+
 
 class MicrosoftCalendarService:
-    def __init__(self, access_token: str):
-        if not access_token:
-            raise ValueError("Missing access token")
-        self.access_token = access_token
+    """Lightweight, stateless Microsoft Graph Calendar API client.
+    
+    Takes an OAuth access token and interacts with Outlook Calendar on-demand.
+    """
 
-    def list_events(
+    def __init__(self, access_token: str):
+        self.access_token = access_token
+        self._headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    # ── Read Operations ──────────────────────────────────────────────
+
+    async def list_events(
         self,
-        *,
+        time_min: Optional[datetime] = None,
+        time_max: Optional[datetime] = None,
+        max_results: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """List calendar events within a time range."""
+        if not time_min:
+            time_min = datetime.now(timezone.utc)
+        if not time_max:
+            time_max = time_min + timedelta(days=7)
+
+        params = {
+            "$filter": f"start/dateTime ge '{time_min.isoformat()}' and end/dateTime le '{time_max.isoformat()}'",
+            "$top": max_results,
+            "$orderby": "start/dateTime",
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{GRAPH_API}/me/events",
+                headers=self._headers,
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("value", [])
+
+    async def get_freebusy(
+        self,
         time_min: datetime,
         time_max: datetime,
-        max_results: int = 100,
-    ) -> List[Dict[str, Any]]:
-        url = "https://graph.microsoft.com/v1.0/me/calendarView"
-        params = {
-            "startDateTime": time_min.isoformat(),
-            "endDateTime": time_max.isoformat(),
-            "$top": str(max_results),
-            "$orderby": "start/dateTime",
-            "$select": "id,subject,start,end,organizer,isAllDay,isCancelled",
-        }
-        resp = requests.get(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-            },
-            params=params,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Microsoft Calendar list_events error %s: %s", resp.status_code, redact_text(resp.text))
-            resp.raise_for_status()
-        data = resp.json()
-        items = data.get("value") or []
-        results: List[Dict[str, Any]] = []
-        for item in items:
-            organizer = (((item.get("organizer") or {}).get("emailAddress") or {}).get("address")) if isinstance(item, dict) else None
-            results.append(
-                {
-                    "id": item.get("id"),
-                    "title": item.get("subject") or "(No title)",
-                    "start_at": ((item.get("start") or {}).get("dateTime") if isinstance(item, dict) else None),
-                    "end_at": ((item.get("end") or {}).get("dateTime") if isinstance(item, dict) else None),
-                    "organizer": organizer,
-                    "status": "cancelled" if bool(item.get("isCancelled")) else "confirmed",
-                    "is_all_day": bool(item.get("isAllDay")),
-                }
-            )
-        return results
-
-    def create_event(
-        self,
-        *,
-        title: str,
-        start_at: str,
-        end_at: str,
-        timezone: str = "UTC",
-        attendees: Optional[list[str]] = None,
-        description: Optional[str] = None,
+        schedules: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        url = "https://graph.microsoft.com/v1.0/me/events"
-        payload: Dict[str, Any] = {
-            "subject": title,
-            "body": {"contentType": "Text", "content": description or ""},
-            "start": {"dateTime": start_at, "timeZone": timezone},
-            "end": {"dateTime": end_at, "timeZone": timezone},
+        """Check free/busy using Microsoft Graph getSchedule."""
+        if not schedules:
+            schedules = ["me"]
+
+        payload = {
+            "schedules": schedules,
+            "startTime": {"dateTime": time_min.isoformat(), "timeZone": "UTC"},
+            "endTime": {"dateTime": time_max.isoformat(), "timeZone": "UTC"},
+            "availabilityViewInterval": 30,
         }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GRAPH_API}/me/calendar/getSchedule",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    # ── Write Operations ─────────────────────────────────────────────
+
+    async def create_event(
+        self,
+        summary: str,
+        start: datetime,
+        end: datetime,
+        attendees: Optional[List[str]] = None,
+        description: str = "",
+        location: str = "",
+        online_meeting: bool = False,
+    ) -> Dict[str, Any]:
+        """Create a new Outlook calendar event."""
+        event_body: Dict[str, Any] = {
+            "subject": summary,
+            "body": {"contentType": "text", "content": description},
+            "start": {"dateTime": start.isoformat(), "timeZone": "UTC"},
+            "end": {"dateTime": end.isoformat(), "timeZone": "UTC"},
+        }
+
+        if location:
+            event_body["location"] = {"displayName": location}
+
         if attendees:
-            payload["attendees"] = [{"emailAddress": {"address": email}, "type": "required"} for email in attendees]
+            event_body["attendees"] = [
+                {"emailAddress": {"address": e}, "type": "required"}
+                for e in attendees
+            ]
 
-        resp = requests.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Microsoft Calendar create_event error %s: %s", resp.status_code, redact_text(resp.text))
+        if online_meeting:
+            event_body["isOnlineMeeting"] = True
+            event_body["onlineMeetingProvider"] = "teamsForBusiness"
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GRAPH_API}/me/events",
+                headers=self._headers,
+                json=event_body,
+            )
             resp.raise_for_status()
-        data = resp.json()
-        return {
-            "id": data.get("id"),
-            "web_link": data.get("webLink"),
-            "status": "created",
-        }
+            return resp.json()
 
-    def get_event(self, event_id: str) -> Dict[str, Any]:
-        """Fetch a specific event by ID."""
-        url = f"https://graph.microsoft.com/v1.0/me/events/{event_id}"
-        resp = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {self.access_token}"},
-            timeout=20,
-        )
-        if not resp.ok:
-            logger.error("Microsoft Calendar get_event error %s: %s", resp.status_code, redact_text(resp.text))
+    async def update_event(
+        self, event_id: str, updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Update an existing Outlook calendar event."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.patch(
+                f"{GRAPH_API}/me/events/{event_id}",
+                headers=self._headers,
+                json=updates,
+            )
             resp.raise_for_status()
-        item = resp.json()
-        organizer = (((item.get("organizer") or {}).get("emailAddress") or {}).get("address")) if isinstance(item, dict) else None
-        
-        attendees = []
-        for att in (item.get("attendees") or []):
-            email = ((att.get("emailAddress") or {}).get("address"))
-            if email: attendees.append(email)
+            return resp.json()
 
-        return {
-            "id": item.get("id"),
-            "title": item.get("subject") or "(No title)",
-            "start_at": ((item.get("start") or {}).get("dateTime")),
-            "end_at": ((item.get("end") or {}).get("dateTime")),
-            "organizer": organizer,
-            "location": (item.get("location") or {}).get("displayName"),
-            "description": (item.get("body") or {}).get("content"),
-            "attendees": attendees,
-            "status": "cancelled" if bool(item.get("isCancelled")) else "confirmed",
-            "is_all_day": bool(item.get("isAllDay")),
-        }
+    async def delete_event(self, event_id: str) -> bool:
+        """Delete an Outlook calendar event."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.delete(
+                f"{GRAPH_API}/me/events/{event_id}",
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            return True

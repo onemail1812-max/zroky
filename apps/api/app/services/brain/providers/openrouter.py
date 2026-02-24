@@ -46,6 +46,7 @@ class OpenRouterProvider:
         temperature: float,
         timeout_seconds: int,
         max_tokens: int,
+        images: Optional[list[str]] = None,
     ) -> BrainResponse:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -54,11 +55,25 @@ class OpenRouterProvider:
             "X-Title": settings.openrouter_app_name,
         }
 
+        user_content: Any = prompt
+        if images:
+            user_content = [{"type": "text", "text": prompt}]
+            for img in images:
+                # Ensure it has the data:image prefix if it's base64 and missing it
+                img_url = img
+                if not img.startswith("http") and not img.startswith("data:"):
+                    img_url = f"data:image/jpeg;base64,{img}"
+                
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_url}
+                })
+
         payload: Dict[str, Any] = {
             "model": model or self.default_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": user_content},
             ],
             "temperature": float(temperature),
             "max_tokens": int(max_tokens),

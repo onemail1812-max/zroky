@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation"
 
 import { aaliyahApi } from "@/lib/aaliyah/api"
 import { cn } from "@/lib/utils"
+import { useSystemStore } from "@/lib/aaliyah/store"
+import { SkeletonCard } from "@/components/ui/Skeleton"
 
 interface GreetingState {
   headline: string
@@ -15,7 +17,7 @@ interface GreetingState {
   subtext: string
   cta_label: string
   cta_action: string
-  state: "onboarding" | "error" | "reconnect" | "healthy"
+  state: "onboarding" | "error" | "reconnect" | "healthy" | "connected_not_synced"
 }
 
 interface BriefingData {
@@ -29,6 +31,7 @@ export function MorningBriefing() {
   const [briefing, setBriefing] = React.useState<BriefingData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [syncing, setSyncing] = React.useState(false)
+  const { triggerSync, fetchStatus, fetchInbox } = useSystemStore()
 
   React.useEffect(() => {
     let alive = true
@@ -65,17 +68,19 @@ export function MorningBriefing() {
     if (!greeting) return
 
     if (greeting.cta_action === "connect_email" || greeting.cta_action === "reconnect_email" || greeting.cta_action === "update_permissions") {
-      router.push("/settings/integrations")
+      router.push("/brain")
       return
     }
 
     if (greeting.cta_action === "retry_sync") {
       setSyncing(true)
       try {
-        await aaliyahApi.post("/sync/inbox", { force: true })
-        // Reload after short delay
+        await triggerSync()
+        await Promise.all([fetchStatus(), fetchInbox()])
+        // Reload after short delay to refresh greeting
         setTimeout(() => window.location.reload(), 2000)
-      } catch {
+      } catch (err) {
+        console.error("Manual sync failed", err)
         setSyncing(false)
       }
       return
@@ -86,10 +91,9 @@ export function MorningBriefing() {
 
   if (loading) {
     return (
-      <article className="rounded-xl border border-borderSubtle bg-surface p-6 animate-pulse">
-        <div className="h-8 w-48 rounded bg-borderSubtle opacity-70 mb-4" />
-        <div className="h-4 w-full max-w-md rounded bg-borderSubtle opacity-50" />
-      </article>
+      <div className="flex flex-col gap-6 animate-in">
+        <SkeletonCard lines={2} />
+      </div>
     )
   }
 
@@ -97,7 +101,7 @@ export function MorningBriefing() {
 
   // State-based Styles
   const isError = greeting.state === "error" || greeting.state === "reconnect"
-  const isOnboarding = greeting.state === "onboarding"
+  const isOnboarding = greeting.state === "onboarding" || greeting.state === "connected_not_synced"
 
   return (
     <div className="flex flex-col gap-6 animate-slide-in-soft">

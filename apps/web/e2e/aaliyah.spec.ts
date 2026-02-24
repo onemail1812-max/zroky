@@ -16,7 +16,7 @@ test.describe('Aaliyah Suite E2E', () => {
         await expect(page.locator('text=Syncing Gmail...')).toBeVisible();
 
         // 3. Verify threads appear in the feed
-        await expect(page.locator('.thread-item')).toHaveCount({ min: 1 });
+        expect(await page.locator('.thread-item').count()).toBeGreaterThanOrEqual(1);
     });
 
     test('Ask question and get answer from Gmail', async ({ page }) => {

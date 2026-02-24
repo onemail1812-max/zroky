@@ -1,5 +1,5 @@
 """
-Chief of Staff Brain - Main FastAPI Application
+Executive Assistant Brain - Main FastAPI Application
 Multi-tenant • Adaptive • OSS-first • Vertex-powered
 """
 
@@ -19,7 +19,7 @@ import os
 
 # Initialize FastAPI
 app = FastAPI(
-    title="Chief of Staff Brain",
+    title="Executive Assistant Brain",
     description="Multi-tenant AI brain with deterministic rules + Vertex AI reasoning",
     version="1.0.0"
 )
@@ -110,14 +110,14 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "service": "chief-of-staff-brain",
+        "service": "executive-assistant-brain",
         "version": "1.0.0"
     }
 
 @app.post("/query", response_model=QueryResponse)
 async def query_brain(request: QueryRequest):
     """
-    Main endpoint: Query the Chief of Staff brain
+    Main endpoint: Query the Executive Assistant brain
     
     Flow:
     1. Recall knowledge (LAYER 1, 6)

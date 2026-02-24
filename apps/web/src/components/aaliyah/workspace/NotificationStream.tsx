@@ -30,9 +30,19 @@ export function NotificationStream({
   onOpenIntelligence: (tab?: IntelligenceTab) => void
   onSetConversationState?: (conversationId: string, state: ConversationSummary["status"]) => void
 }) {
-  const { status, setThinking, setIdle, isBackendConnected } = useSystemStore()
+  const { status, activeTask, setThinking, setIdle, isBackendConnected, mainChatFeed, setMainChatFeed, checkDailyReset } = useSystemStore()
 
-  const [feedItems, setFeedItems] = React.useState<FeedItem[]>([])
+  const [localFeedItems, setLocalFeedItems] = React.useState<FeedItem[]>([])
+  const isMorningBriefing = activeConversation.id === "morning-briefing"
+  const feedItems = isMorningBriefing ? mainChatFeed : localFeedItems
+
+  const setFeedItems = React.useCallback((valOrFn: FeedItem[] | ((prev: FeedItem[]) => FeedItem[])) => {
+    if (isMorningBriefing) {
+      setMainChatFeed(valOrFn)
+    } else {
+      setLocalFeedItems(valOrFn as React.SetStateAction<FeedItem[]>)
+    }
+  }, [isMorningBriefing, setMainChatFeed])
   const [composerValue, setComposerValue] = React.useState("")
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [workingOpen, setWorkingOpen] = React.useState(false)
@@ -48,7 +58,7 @@ export function NotificationStream({
   // Fetch thread data
   React.useEffect(() => {
     if (activeConversation.id === "morning-briefing") {
-      setFeedItems([])
+      checkDailyReset()
       return
     }
 
@@ -222,10 +232,13 @@ export function NotificationStream({
     setIdle()
   }
 
-  const liveTasks =
-    status === "thinking" || workingOpen
-      ? ["Syncing inbox", "Checking conflicts", "Waiting approval"]
-      : ["Monitoring inbox", "Maintaining schedule", "Ready for instruction"]
+
+  const liveTasks = React.useMemo(() => {
+    if (status === "thinking" || workingOpen) {
+      return [activeTask || "Processing...", "System sync", "Ready"]
+    }
+    return ["Awaiting instructions", "Scanning providers", "Neural system active"]
+  }, [status, workingOpen, activeTask])
 
   return (
     <section className="h-full bg-appBg flex flex-col relative">

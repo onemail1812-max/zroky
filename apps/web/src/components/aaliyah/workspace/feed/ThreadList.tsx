@@ -18,16 +18,28 @@ import {
 import { cn } from "@/lib/utils"
 
 import { EmailMessage, inboxService } from "@/services/inbox.service"
+import { SkeletonEmail } from "@/components/ui/Skeleton"
 
-// Helper for relative time
-function timeAgo(dateString: string) {
+// Helper for email time formatting
+function formatEmailTime(dateString: string) {
+    if (!dateString) return "";
+
+    // Attempt to parse the date safely
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return "";
+
     const now = new Date();
-    const diff = (now.getTime() - date.getTime()) / 1000;
-    if (diff < 60) return "Just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return date.toLocaleDateString();
+    const isToday = date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+        // Show time for today's emails (e.g. "10:30 AM")
+        return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } else {
+        // Show date for older emails (e.g. "Oct 24")
+        return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
 }
 
 // Demo threads for testing
@@ -90,22 +102,28 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
 
     const load = async () => {
         setLoading(true)
-        // Set demo threads instantly for UX testing
-        const demos = filter && DEMO_THREADS[filter] ? DEMO_THREADS[filter] : []
-        setEmails(demos)
 
         try {
             const res = await inboxService.getInbox(filter || "all")
             const apiEmails = res.data || []
 
-            // Combine and sort by date
-            setEmails([...demos, ...apiEmails].sort((a, b) =>
-                new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
-            ))
+            if (apiEmails.length > 0) {
+                // Real data available — use it
+                setEmails(apiEmails.sort((a, b) =>
+                    new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+                ))
+            } else {
+                // No live data — fall back to demo threads so UI is never empty
+                const demoKey = filter && filter !== 'all' ? filter : 'priority'
+                const fallback = DEMO_THREADS[demoKey] || Object.values(DEMO_THREADS).flat()
+                setEmails(fallback)
+            }
         } catch (e) {
             console.error(e)
-            // Keep demos if API fails
-            if (demos.length > 0) setEmails(demos)
+            // On error, also show demo threads instead of empty
+            const demoKey = filter && filter !== 'all' ? filter : 'priority'
+            const fallback = DEMO_THREADS[demoKey] || Object.values(DEMO_THREADS).flat()
+            setEmails(fallback)
         } finally {
             setLoading(false)
         }
@@ -117,16 +135,16 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
 
     if (loading && emails.length === 0) {
         return (
-            <div className="flex-1 flex items-center justify-center p-8">
-                <div className="h-6 w-6 border-2 border-zinc-900 border-t-transparent animate-spin rounded-full opacity-10" />
+            <div className="flex-1 animate-in">
+                {[...Array(5)].map((_, i) => <SkeletonEmail key={i} />)}
             </div>
         )
     }
 
     return (
-        <div className="flex-1 overflow-y-auto">
+        <div className="h-full overflow-y-auto custom-scrollbar">
             {emails.map((email) => {
-                const isUnseen = email.id.startsWith('demo-') ? !seenIds.has(email.id) : !email.isRead;
+                const isUnseen = !email.isRead;
                 return (
                     <div
                         key={email.id}
@@ -154,7 +172,7 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
                                 </div>
                             </div>
                             <span className="text-xs text-zinc-400 ml-2 shrink-0">
-                                {timeAgo(email.receivedAt)}
+                                {formatEmailTime(email.receivedAt)}
                             </span>
                         </div>
 

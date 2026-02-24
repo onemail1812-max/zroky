@@ -11,7 +11,7 @@
 | :--- | :--- | :--- |
 | **Logo / Home** | ✅ **KEEP** | Essential anchor. |
 | **Central Notifications** | ❌ **CUT** | **Reasoning:** Aaliyah *is* the notification system. Having a separate bell icon confuses the metaphor. The "Stream" (Col B) should handle alerts. |
-| **Chief of Staff Icon** | ✅ **KEEP** | The primary "Agent" view. |
+| **Executive Assistant Icon** | ✅ **KEEP** | The primary "Agent" view. |
 | **Add Workspace (+)** | ⚠️ **REFINE** | **Change:** Rename to "Add Context" (e.g., "Personal", "Work", "Board"). |
 | **Feedback Icon** | ❌ **CUT** | **Reasoning:** Clutter. Users will chat with Aaliyah if something is wrong. |
 | **Global Info (Globe)** | ❌ **CUT** | **Reasoning:** Distraction. |

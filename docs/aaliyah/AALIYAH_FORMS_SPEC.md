@@ -101,7 +101,7 @@
 ---
 
 ## 3. Settings (System)
-*   **Profile:** Updates to Name/Role come from Chief of Staff, but editable here.
+*   **Profile:** Updates to Name/Role come from Executive Assistant, but editable here.
 *   **Integrations:** Manage OAuth connections (Gmail, Calendar, Slack).
 *   **Notifications:** Desktop alerts, Daily Briefing time.
 *   **Data Management:** "Clear my memory", "Export data".

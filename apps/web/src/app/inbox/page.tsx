@@ -4,7 +4,17 @@ import * as React from "react"
 import { GlobalRail } from "@/components/shell/GlobalRail"
 import { InboxList, EmailThreadView } from "@/components/inbox"
 import { inboxService, EmailMessage } from "@/services/inbox.service"
-import { RefreshCw, Search, Inbox, AlertOctagon, MessageSquare, Newspaper, Calendar, CheckCircle2, Clock, Info, Sparkles, FileText, AlertCircle } from "lucide-react"
+import { RefreshCw, Search, Inbox, AlertOctagon, MessageSquare, Newspaper, Calendar, CheckCircle2, Clock, Info, Sparkles, FileText, AlertCircle, Bell } from "lucide-react"
+import { NotificationCard } from "@/components/ui/NotificationCard"
+import { AnimatePresence } from "framer-motion"
+
+// Define the notification type based on backend SSE data
+type AaliyahNotification = {
+    id: string;
+    title: string;
+    description: string;
+    type: string;
+}
 
 function NavItem({ id, label, count, active, onClick, icon: Icon }: any) {
     const isActive = active === id
@@ -28,8 +38,6 @@ function NavItem({ id, label, count, active, onClick, icon: Icon }: any) {
     )
 }
 
-// DashboardOverview component removed as it is no longer used in the layout.
-
 export default function InboxPage() {
     const [selectedEmail, setSelectedEmail] = React.useState<EmailMessage | null>(null)
     const [refreshTrigger, setRefreshTrigger] = React.useState(0)
@@ -37,8 +45,47 @@ export default function InboxPage() {
     const [counts, setCounts] = React.useState<Record<string, number>>({})
     const [providerStatus, setProviderStatus] = React.useState<Record<string, string>>({})
 
+    // Notification State
+    const [notifications, setNotifications] = React.useState<AaliyahNotification[]>([])
+
     const middlePanelRef = React.useRef<HTMLDivElement>(null)
     const leftPanelRef = React.useRef<HTMLDivElement>(null)
+
+    const removeNotification = (id: string) => {
+        setNotifications(prev => prev.filter(n => n.id !== id))
+    }
+
+    // Aaliyah Notification Stream
+    React.useEffect(() => {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('__session');
+        const workspaceId = localStorage.getItem('tenant_id') || 'default';
+        const url = `/api/v1/feed/stream?token=${token}&workspace_id=${workspaceId}`;
+
+        const es = new EventSource(url);
+
+        es.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'draft_ready' || data.type === 'thread_updated') {
+                    const newNotification: AaliyahNotification = {
+                        id: Math.random().toString(36).substring(7),
+                        title: data.type === 'draft_ready' ? 'Draft Ready' : 'AI Action',
+                        description: data.message,
+                        type: data.payload?.needs_clarity ? 'needs_clarity' :
+                            data.type === 'draft_ready' ? 'draft_ready' : 'auto_archived'
+                    };
+
+                    setNotifications(prev => [...prev, newNotification]);
+                    setRefreshTrigger(p => p + 1); // Auto-refresh the inbox lists
+
+                    // Auto-dismiss after 8 seconds
+                    setTimeout(() => removeNotification(newNotification.id), 8000);
+                }
+            } catch (e) { /* ignore invalid JSON */ }
+        };
+
+        return () => es.close();
+    }, []);
 
     // Initial Load & Polling
     React.useEffect(() => {
@@ -119,8 +166,8 @@ export default function InboxPage() {
                     <NavItem id="follow_ups" label="Follow-ups" count={counts.follow_ups || 0} active={activeTab} onClick={toggleTab} icon={Clock} />
 
                     <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Everything Else</div>
-                    <NavItem id="fyi" label="FYI" count={counts.fyi || 0} active={activeTab} onClick={toggleTab} icon={Info} />
-                    <NavItem id="cleaned" label="Cleaned" count={counts.cleaned || 0} active={activeTab} onClick={toggleTab} icon={Sparkles} />
+                    <NavItem id="newsletter" label="Newsletter" count={counts.newsletter || 0} active={activeTab} onClick={toggleTab} icon={Newspaper} />
+                    <NavItem id="notifications" label="Notifications" count={counts.notifications || 0} active={activeTab} onClick={toggleTab} icon={Bell} />
                     <NavItem id="drafts" label="Drafts" count={counts.drafts || 0} active={activeTab} onClick={toggleTab} icon={FileText} />
                 </nav>
             </div>
@@ -162,6 +209,27 @@ export default function InboxPage() {
                     email={selectedEmail}
                     onClose={() => setSelectedEmail(null)}
                 />
+            </div>
+
+            {/* Aaliyah AI Floating Notifications */}
+            <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-4 pointer-events-none">
+                <AnimatePresence>
+                    {notifications.map(n => (
+                        <div key={n.id} className="pointer-events-auto">
+                            <NotificationCard
+                                id={n.id}
+                                title={n.title}
+                                description={n.description}
+                                type={n.type as any}
+                                onDismiss={removeNotification}
+                                onClick={(id) => {
+                                    removeNotification(id);
+                                    handleRefresh(); // Ensure latest data is fetched
+                                }}
+                            />
+                        </div>
+                    ))}
+                </AnimatePresence>
             </div>
         </div>
     )

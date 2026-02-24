@@ -10,7 +10,11 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/v1/:path*',
-        destination: `${API_URL}/:path*`, // Proxy to Python Backend (Root)
+        destination: `${API_URL}/api/v1/:path*`,
+      },
+      {
+        source: '/health/:path*',
+        destination: `${API_URL}/health/:path*`,
       },
       {
         source: '/aaliyah/:path*',
@@ -19,6 +23,14 @@ const nextConfig: NextConfig = {
       {
         source: '/assist/:path*',
         destination: `${API_URL}/assist/:path*`,
+      },
+      {
+        source: '/oauth/:path*',
+        destination: `${API_URL}/oauth/:path*`,
+      },
+      {
+        source: '/me',
+        destination: `${API_URL}/me`,
       },
     ]
   },

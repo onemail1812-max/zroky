@@ -1,132 +1,242 @@
-"""Google Calendar integration service."""
-
+"""Google Calendar Service — stateless, uses httpx like GmailClient."""
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-
-from app.config import settings
-from app.services.brain.guardrails import redact_text
 import logging
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta, timezone
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
+GCAL_API = "https://www.googleapis.com/calendar/v3"
+
 
 class GoogleCalendarService:
-    def __init__(self, token: Dict[str, Any]):
-        if not settings.google_client_id or not settings.google_client_secret:
-            raise ValueError("Google OAuth settings missing (GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)")
+    """Lightweight, stateless Google Calendar API client.
+    
+    Takes an OAuth access token and interacts with Google Calendar on-demand.
+    Mirrors the pattern used in GmailClient for consistency.
+    """
 
-        self.creds = Credentials(
-            token=token["access_token"],
-            refresh_token=token.get("refresh_token"),
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
-            scopes=token.get("scope").split(" ") if isinstance(token.get("scope"), str) else None,
-        )
-        self.service = build("calendar", "v3", credentials=self.creds)
+    def __init__(self, access_token: str):
+        self.access_token = access_token
+        self._headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
 
-    def list_events(
+    # ── Read Operations ──────────────────────────────────────────────
+
+    async def list_events(
         self,
-        *,
+        time_min: Optional[datetime] = None,
+        time_max: Optional[datetime] = None,
+        max_results: int = 50,
+        calendar_id: str = "primary",
+    ) -> List[Dict[str, Any]]:
+        """List calendar events within a time range."""
+        if not time_min:
+            time_min = datetime.now(timezone.utc)
+        if not time_max:
+            time_max = time_min + timedelta(days=7)
+
+        params = {
+            "timeMin": time_min.isoformat(),
+            "timeMax": time_max.isoformat(),
+            "maxResults": max_results,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{GCAL_API}/calendars/{calendar_id}/events",
+                headers=self._headers,
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("items", [])
+
+    async def get_freebusy(
+        self,
         time_min: datetime,
         time_max: datetime,
-        max_results: int = 100,
-    ) -> List[Dict[str, Any]]:
-        try:
-            response = (
-                self.service.events()
-                .list(
-                    calendarId="primary",
-                    timeMin=time_min.isoformat(),
-                    timeMax=time_max.isoformat(),
-                    maxResults=max_results,
-                    singleEvents=True,
-                    orderBy="startTime",
-                )
-                .execute()
-            )
-            items = response.get("items") or []
-            results: List[Dict[str, Any]] = []
-            for item in items:
-                start = (item.get("start") or {}).get("dateTime") or (item.get("start") or {}).get("date")
-                end = (item.get("end") or {}).get("dateTime") or (item.get("end") or {}).get("date")
-                organizer = ((item.get("organizer") or {}).get("email") or None) if isinstance(item, dict) else None
-                results.append(
-                    {
-                        "id": item.get("id"),
-                        "title": item.get("summary") or "(No title)",
-                        "start_at": start,
-                        "end_at": end,
-                        "organizer": organizer,
-                        "status": item.get("status") or "confirmed",
-                        "is_all_day": "date" in (item.get("start") or {}),
-                    }
-                )
-            return results
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Google Calendar list_events failed: %s", redact_text(str(exc)))
-            raise
-
-    def create_event(
-        self,
-        *,
-        title: str,
-        start_at: str,
-        end_at: str,
-        timezone: str = "UTC",
-        attendees: Optional[list[str]] = None,
-        description: Optional[str] = None,
+        calendar_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        event_body = {
-            "summary": title,
-            "description": description or "",
-            "start": {"dateTime": start_at, "timeZone": timezone},
-            "end": {"dateTime": end_at, "timeZone": timezone},
+        """Check free/busy status across calendars."""
+        if not calendar_ids:
+            calendar_ids = ["primary"]
+
+        payload = {
+            "timeMin": time_min.isoformat(),
+            "timeMax": time_max.isoformat(),
+            "items": [{"id": cid} for cid in calendar_ids],
         }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GCAL_API}/freeBusy",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_event(self, event_id: str, calendar_id: str = "primary") -> Dict[str, Any]:
+        """Get a single calendar event."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{GCAL_API}/calendars/{calendar_id}/events/{event_id}",
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    # ── Write Operations ─────────────────────────────────────────────
+
+    async def create_event(
+        self,
+        summary: str,
+        start: datetime,
+        end: datetime,
+        attendees: Optional[List[str]] = None,
+        description: str = "",
+        location: str = "",
+        calendar_id: str = "primary",
+        send_updates: str = "all",
+        conference: bool = False,
+    ) -> Dict[str, Any]:
+        """Create a new calendar event with optional Google Meet link."""
+        event_body: Dict[str, Any] = {
+            "summary": summary,
+            "description": description,
+            "location": location,
+            "start": {
+                "dateTime": start.isoformat(),
+                "timeZone": "UTC",
+            },
+            "end": {
+                "dateTime": end.isoformat(),
+                "timeZone": "UTC",
+            },
+        }
+
         if attendees:
-            event_body["attendees"] = [{"email": email} for email in attendees]
+            event_body["attendees"] = [{"email": e} for e in attendees]
 
-        try:
-            event = self.service.events().insert(calendarId="primary", body=event_body).execute()
-            return {
-                "id": event.get("id"),
-                "html_link": event.get("htmlLink"),
-                "status": event.get("status"),
+        if conference:
+            event_body["conferenceData"] = {
+                "createRequest": {
+                    "requestId": f"aaliyah-{int(datetime.now().timestamp())}",
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                }
             }
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Google Calendar create_event failed: %s", redact_text(str(exc)))
-            raise
 
-    def get_event(self, event_id: str) -> Dict[str, Any]:
-        """Fetch a specific event by ID."""
-        try:
-            item = self.service.events().get(calendarId="primary", eventId=event_id).execute()
-            start = (item.get("start") or {}).get("dateTime") or (item.get("start") or {}).get("date")
-            end = (item.get("end") or {}).get("dateTime") or (item.get("end") or {}).get("date")
-            organizer = ((item.get("organizer") or {}).get("email") or None)
-            
-            attendees = []
-            for att in (item.get("attendees") or []):
-                email = att.get("email")
-                if email: attendees.append(email)
+        params = {"sendUpdates": send_updates}
+        if conference:
+            params["conferenceDataVersion"] = "1"
 
-            return {
-                "id": item.get("id"),
-                "title": item.get("summary") or "(No title)",
-                "start_at": start,
-                "end_at": end,
-                "organizer": organizer,
-                "location": item.get("location"),
-                "description": item.get("description"),
-                "attendees": attendees,
-                "status": item.get("status") or "confirmed",
-                "is_all_day": "date" in (item.get("start") or {}),
-            }
-        except Exception as exc:
-            logger.error("Google Calendar get_event failed: %s", redact_text(str(exc)))
-            raise
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GCAL_API}/calendars/{calendar_id}/events",
+                headers=self._headers,
+                json=event_body,
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def update_event(
+        self,
+        event_id: str,
+        updates: Dict[str, Any],
+        calendar_id: str = "primary",
+        send_updates: str = "all",
+    ) -> Dict[str, Any]:
+        """Update an existing calendar event."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.patch(
+                f"{GCAL_API}/calendars/{calendar_id}/events/{event_id}",
+                headers=self._headers,
+                json=updates,
+                params={"sendUpdates": send_updates},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def delete_event(
+        self,
+        event_id: str,
+        calendar_id: str = "primary",
+        send_updates: str = "all",
+    ) -> bool:
+        """Delete a calendar event."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.delete(
+                f"{GCAL_API}/calendars/{calendar_id}/events/{event_id}",
+                headers=self._headers,
+                params={"sendUpdates": send_updates},
+            )
+            resp.raise_for_status()
+            return True
+
+    # ── Helpers ───────────────────────────────────────────────────────
+
+    async def find_free_slots(
+        self,
+        days_ahead: int = 5,
+        slot_duration_minutes: int = 30,
+        working_hours: tuple = (9, 17),
+    ) -> List[Dict[str, str]]:
+        """Find available time slots in the next N days during working hours.
+        
+        Returns a list of {start, end} ISO datetime strings.
+        """
+        now = datetime.now(timezone.utc)
+        end_range = now + timedelta(days=days_ahead)
+
+        # Get busy times
+        freebusy = await self.get_freebusy(now, end_range)
+        busy_periods = []
+        for cal_data in freebusy.get("calendars", {}).values():
+            for busy in cal_data.get("busy", []):
+                busy_start = datetime.fromisoformat(busy["start"].replace("Z", "+00:00"))
+                busy_end = datetime.fromisoformat(busy["end"].replace("Z", "+00:00"))
+                busy_periods.append((busy_start, busy_end))
+
+        # Scan working hours for free slots
+        free_slots = []
+        current_day = now.replace(hour=working_hours[0], minute=0, second=0, microsecond=0)
+        if current_day < now:
+            current_day += timedelta(days=1)
+
+        while current_day < end_range and len(free_slots) < 10:
+            if current_day.weekday() < 5:  # Skip weekends
+                slot_start = current_day
+                day_end = current_day.replace(hour=working_hours[1], minute=0)
+
+                while slot_start + timedelta(minutes=slot_duration_minutes) <= day_end:
+                    slot_end = slot_start + timedelta(minutes=slot_duration_minutes)
+                    
+                    # Check if slot is free
+                    is_busy = any(
+                        not (slot_end <= bs or slot_start >= be)
+                        for bs, be in busy_periods
+                    )
+
+                    if not is_busy:
+                        free_slots.append({
+                            "start": slot_start.isoformat(),
+                            "end": slot_end.isoformat(),
+                            "duration_minutes": slot_duration_minutes,
+                        })
+
+                    slot_start += timedelta(minutes=30)  # Step by 30 min
+
+            current_day += timedelta(days=1)
+            current_day = current_day.replace(hour=working_hours[0], minute=0)
+
+        return free_slots

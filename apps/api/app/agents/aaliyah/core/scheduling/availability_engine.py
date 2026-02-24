@@ -15,6 +15,8 @@ class TimeSlot:
     start: datetime
     end: datetime
     duration_minutes: int
+    is_focus_clash: bool = False
+    score: float = 100.0
 
 class AvailabilityEngine:
     """
@@ -50,9 +52,25 @@ class AvailabilityEngine:
         try:
             self.user_tz = ZoneInfo(self.user_tz_name)
         except Exception:
-            # Fallback for systems with missing tzdata (common in some restricted environments)
             self.user_tz = timezone.utc
             self.user_tz_name = "UTC"
+
+        # Peak Productivity: Focus Blocks & Buffer
+        self.buffer_minutes = settings.get("buffer_time_mins", 15)
+        self.focus_blocks_raw = settings.get("focus_blocks", [])
+        self.focus_periods = self._parse_focus_blocks(self.focus_blocks_raw)
+
+    def _parse_focus_blocks(self, blocks: List[str]) -> List[tuple]:
+        """Parses ["09:00-11:00"] into (hour_start, hour_end) tuples."""
+        parsed = []
+        for b in blocks:
+            try:
+                if "-" in b:
+                    start, end = b.split("-")
+                    parsed.append((int(start.split(":")[0]), int(end.split(":")[0])))
+            except Exception:
+                continue
+        return parsed
 
     def find_slots(
         self, 
@@ -136,6 +154,21 @@ class AvailabilityEngine:
                 if duration_mins >= min_duration_minutes:
                     free_slots.append(TimeSlot(start=cursor, end=day_work_end, duration_minutes=int(duration_mins)))
 
+        # POST-PROCESS: Scoring & Focus Block Detection
+        for slot in free_slots:
+            # Check if this slot overlaps with ANY focus period
+            slot_hour = slot.start.astimezone(self.user_tz).hour
+            for f_start, f_end in self.focus_periods:
+                if f_start <= slot_hour < f_end:
+                    slot.is_focus_clash = True
+                    slot.score -= 50.0  # Heavy penalty for clashing with focus blocks
+            
+            # Additional heuristics:
+            # - Morning slots might be better or worse depending on chronotype (Sprint 3)
+            # - Friday afternoons penalized
+            if slot.start.astimezone(self.user_tz).weekday() == 4 and slot_hour >= 15:
+                slot.score -= 20.0
+
         return free_slots
 
     def propose_n_slots(
@@ -161,52 +194,42 @@ class AvailabilityEngine:
         # 1. Collect all potential slots from all blocks
         all_potential_slots = []
         for block in blocks:
-            # Discretize block into slots
-            # Step by 30 mins (or duration)
-            # If duration is 30, step 30. If duration 60, step 30 provides more options?
-            # Let's step by 'dur' for simplicity to avoid overlaps in suggestions
-            
             cursor = block.start
             while cursor + timedelta(minutes=dur) <= block.end:
-                all_potential_slots.append(cursor)
-                cursor += timedelta(minutes=dur) # Non-overlapping slots within the block
-                # If we want overlapping options (e.g. 13:00 or 13:30 for 1hr meeting), step could be smaller.
+                all_potential_slots.append({
+                    "start": cursor,
+                    "score": block.score,
+                    "is_focus_clash": block.is_focus_clash
+                })
+                cursor += timedelta(minutes=dur)
         
-        # 2. Heuristic Selection
-        # If we have enough days, specific logic... simple for now: take first 3.
-        # But optimize a bit: try to skip adjacent slots if we have plenty.
+        if not all_potential_slots:
+            return []
+
+        # 2. Heuristic Selection: Rank by score first, then time
+        # We want to prioritize high-score days even if they are later
+        all_potential_slots.sort(key=lambda x: (x["score"], -x["start"].timestamp()), reverse=True)
         
-        if len(all_potential_slots) <= n:
-            return all_potential_slots
-            
-        # If we have many, pick them distributed.
-        # Simple approach: just pick first N for now to satisfy requirement.
-        # Improvement: Filter out same-day duplicates if possible?
-        # Let's stick to simple "First available" as valid.
-        
-        # However, to avoid "9:00, 9:30, 10:00" on Monday, let's step.
-        stride = 1
-        if len(all_potential_slots) > n * 2:
-             stride = len(all_potential_slots) // n
-        
-        # Actually, let's prioritize different days.
+        proposed: List[datetime] = []
         seen_days = set()
+
+        # Step 1: Pick the best slot from each unique day that has "good" slots
         for s in all_potential_slots:
-            d = s.date()
-            if d not in seen_days:
-                proposed.append(s)
+            d = s["start"].date()
+            if d not in seen_days and s["score"] >= 80:
+                proposed.append(s["start"])
                 seen_days.add(d)
             if len(proposed) == n:
                 break
         
-        # Backfill if not enough days
+        # Step 2: If we still need more, pick any remaining top-scoring slots
         if len(proposed) < n:
             for s in all_potential_slots:
-                if s not in proposed:
-                    proposed.append(s)
+                if s["start"] not in proposed:
+                    proposed.append(s["start"])
                 if len(proposed) == n:
                     break
         
-        # Sort chronologically
+        # Sort chronologically for output
         proposed.sort()
         return proposed

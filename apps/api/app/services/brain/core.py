@@ -42,6 +42,7 @@ class Brain:
         context: Optional[Dict[str, Any]] = None,
         model_override: Optional[str] = None,
         temperature_override: Optional[float] = None,
+        images: Optional[list[str]] = None,
     ) -> BrainResponse:
         """
         Primary LLM entrypoint.
@@ -62,6 +63,7 @@ class Brain:
                 context=context,
                 model_override=model_override,
                 temperature_override=temperature_override,
+                images=images,
             )
         except Exception as exc:
             raise BrainValidationError(str(exc)) from exc
@@ -128,17 +130,31 @@ class Brain:
 
         last_error: Optional[Exception] = None
         call_start = time.time()
+        
+        # Phase 9: Resilience - Fallback chain
+        primary_model = model
+        backup_model = "google/gemini-flash-1.5" # High availability fallback
+        
+        import random
 
         for attempt in range(self.config.retry_count + 1):
+            current_model = primary_model if attempt < self.config.retry_count else backup_model
+            
             try:
                 response = await self.provider.generate(
                     prompt=request.prompt,
                     system_prompt=request.system_prompt,
-                    model=model,
+                    model=current_model,
                     temperature=temperature,
                     timeout_seconds=self.config.timeout_seconds,
                     max_tokens=self.config.max_tokens,
+                    images=request.images,
                 )
+                
+                # If we used fallback, log it clearly
+                if current_model != primary_model:
+                    logger.warning("Brain used fallback model successfully. Primary failed.")
+                
                 logger.info(
                     "Brain call success model=%s latency_ms=%s prompt_fp=%s usage=%s",
                     response.model_used,
@@ -151,11 +167,16 @@ class Brain:
                 last_error = exc
                 if attempt >= self.config.retry_count:
                     break
-                backoff = self.config.retry_backoff_seconds * (2**attempt)
+                
+                # Exponential backoff + Jitter
+                base_backoff = self.config.retry_backoff_seconds * (2**attempt)
+                jitter = random.uniform(0, 0.5)
+                backoff = base_backoff + jitter
+                
                 logger.warning(
                     "Brain call retrying attempt=%s model=%s wait_s=%.2f prompt_fp=%s reason=%s",
                     attempt + 1,
-                    model,
+                    current_model,
                     backoff,
                     prompt_fp,
                     exc.code,
@@ -165,7 +186,7 @@ class Brain:
                 last_error = BrainProviderError(f"Unhandled provider error: {exc}")
                 if attempt >= self.config.retry_count:
                     break
-                backoff = self.config.retry_backoff_seconds * (2**attempt)
+                backoff = self.config.retry_backoff_seconds * (2**attempt) + random.uniform(0, 0.5)
                 await asyncio.sleep(backoff)
 
         total_latency_ms = int((time.time() - call_start) * 1000)

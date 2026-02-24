@@ -34,14 +34,18 @@ export default function OAuthCallbackClient() {
       const success = searchParams.get("success") === "true"
       if (success) {
         setStatus("success")
-        setMessage("Connected successfully! Returning to app...")
+        setMessage("Connection verified. Redirecting you back to your workspace...")
         localStorage.setItem("oauth_result", "success")
 
-        // Redirect back to where the user came from
-        const returnPath = sessionStorage.getItem('oauth_return_path') || '/onboarding';
-        setTimeout(() => {
-          window.location.href = returnPath;
-        }, 1500)
+        if (window.opener) {
+          setTimeout(() => window.close(), 1500)
+        } else {
+          // Fallback if not opened as popup
+          const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+          setTimeout(() => {
+            window.location.href = returnPath;
+          }, 1500)
+        }
         return
       }
 
@@ -67,10 +71,19 @@ export default function OAuthCallbackClient() {
 
         if (result.success) {
           setStatus("success")
-          setMessage(`Connected ${result.account?.email || "account"} successfully!`)
+          setMessage(`Connected ${result.account?.email || "account"} successfully.`)
           localStorage.setItem("oauth_result", "success")
           notifyParent(true)
-          setTimeout(() => window.close(), 2000)
+
+          if (window.opener) {
+            setTimeout(() => window.close(), 1500)
+          } else {
+            // Fallback if not opened as popup
+            const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+            setTimeout(() => {
+              window.location.href = returnPath;
+            }, 1500)
+          }
         } else {
           setStatus("error")
           setMessage(result.error || "Failed to connect account")
@@ -78,7 +91,7 @@ export default function OAuthCallbackClient() {
         }
       } catch {
         setStatus("error")
-        setMessage("An unexpected error occurred")
+        setMessage("An unexpected error occurred during authorization.")
         notifyParent(false, "unexpected_error")
       }
     }
@@ -87,43 +100,52 @@ export default function OAuthCallbackClient() {
   }, [notifyParent, searchParams])
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6">
-      <div className="bg-white/70 backdrop-blur-2xl rounded-3xl border border-zinc-200/70 ring-1 ring-black/5 p-8 w-full max-w-md text-center">
+    <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+      {/* Ambient background decoration */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-white rounded-full blur-[100px] opacity-60 pointer-events-none" />
+
+      <div className="relative z-10 w-full max-w-sm flex flex-col items-center text-center">
         {status === "loading" && (
-          <>
-            <div className="h-16 w-16 mx-auto mb-6 bg-zinc-900/5 rounded-2xl flex items-center justify-center ring-1 ring-black/5">
-              <Loader2 className="h-8 w-8 text-zinc-900 animate-spin" />
+          <div className="flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="h-16 w-16 mb-8 rounded-full border border-zinc-200 bg-white shadow-sm flex items-center justify-center relative">
+              <div className="absolute inset-0 rounded-full border border-zinc-900 border-t-transparent animate-spin opacity-20" />
+              <Loader2 className="h-6 w-6 text-zinc-900 animate-spin" />
             </div>
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Connecting Account</h1>
-            <p className="text-slate-500">Please wait while we complete the authorization...</p>
-          </>
+            <h1 className="text-2xl font-black text-zinc-900 tracking-tight mb-3">Authenticating</h1>
+            <p className="text-sm font-medium text-zinc-500 max-w-[260px] leading-relaxed">
+              Establishing a secure connection with your provider...
+            </p>
+          </div>
         )}
 
         {status === "success" && (
-          <>
-            <div className="h-16 w-16 mx-auto mb-6 bg-emerald-600 rounded-2xl flex items-center justify-center shadow-[0_18px_44px_-36px_rgba(0,0,0,0.55)]">
+          <div className="flex flex-col items-center animate-in zoom-in-95 fade-in duration-500">
+            <div className="h-20 w-20 mb-8 rounded-full bg-zinc-900 flex items-center justify-center shadow-2xl shadow-zinc-900/20 ring-4 ring-white">
               <Check className="h-8 w-8 text-white" strokeWidth={3} />
             </div>
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Connected Successfully!</h1>
-            <p className="text-slate-500">{message}</p>
-            <p className="text-sm text-slate-400 mt-4">This window will close automatically...</p>
-          </>
+            <h1 className="text-3xl font-black text-zinc-900 tracking-tight mb-3">Connected.</h1>
+            <p className="text-sm font-medium text-zinc-500 max-w-[280px] leading-relaxed mb-4">
+              {message}
+            </p>
+          </div>
         )}
 
         {status === "error" && (
-          <>
-            <div className="h-16 w-16 mx-auto mb-6 bg-white rounded-2xl flex items-center justify-center border-2 border-zinc-900">
-              <X className="h-8 w-8 text-zinc-900" strokeWidth={3} />
+          <div className="flex flex-col items-center animate-in zoom-in-95 fade-in duration-500">
+            <div className="h-20 w-20 mb-8 rounded-full bg-white border-2 border-zinc-200 flex items-center justify-center shadow-sm">
+              <X className="h-8 w-8 text-zinc-900" strokeWidth={2} />
             </div>
-            <h1 className="text-xl font-bold text-slate-900 mb-2">Connection Failed</h1>
-            <p className="text-slate-500 mb-6">{message}</p>
+            <h1 className="text-3xl font-black text-zinc-900 tracking-tight mb-3">Connection Failed</h1>
+            <p className="text-sm font-medium text-zinc-500 max-w-[280px] leading-relaxed mb-10">
+              {message}
+            </p>
             <button
-              onClick={() => window.close()}
-              className="px-6 py-3 bg-zinc-900 text-white rounded-xl font-semibold hover:bg-zinc-800 transition-colors shadow-[0_18px_44px_-36px_rgba(0,0,0,0.55)]"
+              onClick={() => window.location.href = '/aaliyahworkspace'}
+              className="px-8 py-3.5 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black hover:shadow-xl hover:-translate-y-0.5 transition-all w-full"
             >
-              Close Window
+              Return to Workspace
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>

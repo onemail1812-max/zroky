@@ -11,6 +11,9 @@ from app.services.integrations.health_service import ConnectorHealthService
 from datetime import datetime
 import json
 
+from app.models.triaged_email import TriagedEmail
+from app.models.calendar_event_snapshot import CalendarEventSnapshot
+
 class GreetingService:
     def __init__(self, db: Session, workspace_id: str, user_id: str):
         self.db = db
@@ -114,12 +117,36 @@ class GreetingService:
                 "state": "onboarding"
             }
 
-        # E) Returning + Healthy
+        # E) Connected but NOT YET SYNCED (Truth Gating)
+        # Check if we have any data in the tables
+        # Note: These models may be stubs in stateless mode, so we guard with try/except
+        has_emails = False
+        has_events = False
+        try:
+            has_emails = self.db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id).first() is not None
+        except Exception:
+            pass
+        try:
+            has_events = self.db.query(CalendarEventSnapshot).filter(CalendarEventSnapshot.workspace_id == self.workspace_id).first() is not None
+        except Exception:
+            pass
+        
+        if not has_emails and not has_events:
+             return {
+                "headline": "Initial Sync Required",
+                "greeting": f"Hi {first_name}. I'm connected, but I haven't pulled your data yet.",
+                "subtext": "I need to perform a deep scan of your inbox and calendar to build your first briefing. This usually takes 30-60 seconds.",
+                "cta_label": "Sync My Workspace",
+                "cta_action": "retry_sync",
+                "state": "connected_not_synced"
+            }
+
+        # F) Returning + Healthy
         # Default happy path
         return {
             "headline": "Morning Check",
             "greeting": f"Welcome back, {first_name}.",
-            "subtext": "Morning Check is running now — inbox + calendar health, then I'll prepare drafts and todays schedule.",
+            "subtext": "Everything is operational. I've analyzed your latest comms and schedule. View your briefing below.",
             "cta_label": "View Briefing",
             "cta_action": "view_briefing",
             "state": "healthy"

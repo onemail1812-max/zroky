@@ -31,6 +31,7 @@ class BrainRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=12_000)
     system_prompt: str = Field(min_length=1, max_length=4_000)
     context: Optional[Dict[str, Any]] = None
+    images: Optional[list[str]] = Field(default=None, description="List of base64 encoded images or image URLs")
     model_override: Optional[str] = None
     temperature_override: Optional[float] = Field(default=None, ge=0.0, le=1.2)
 

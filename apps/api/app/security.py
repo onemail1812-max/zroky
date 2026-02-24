@@ -149,11 +149,28 @@ def _verify_clerk_token(token: str) -> dict:
 
 
 def verify_token(token: str) -> dict:
-    """Verify and decode a JWT token (Clerk preferred)."""
+    """Verify and decode a JWT token.
+    
+    Priority:
+    1. Debug mode without Clerk → accept any token, return demo user
+    2. Clerk JWKS available → verify via Clerk
+    3. Fallback → verify via local JWT secret
+    """
+    # Debug mode: no Clerk configured → allow any token
+    if settings.debug and not settings.clerk_jwks_url:
+        # Try to decode as local JWT first
+        try:
+            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+            return payload
+        except JWTError:
+            # Can't decode? Fine in debug, return demo user
+            return {"sub": "user_demo_001", "workspace_id": "ws_demo_stable_001"}
+
+    # Production: Clerk verification
     if _resolve_clerk_jwks_url(token):
         return _verify_clerk_token(token)
 
-    # Fallback to local JWT
+    # Fallback: local JWT
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return payload
@@ -169,25 +186,19 @@ async def get_current_user(
 ) -> dict:
     """Get current authenticated user from token.
 
-    In demo/dev mode, allow missing credentials and return a stub payload.
-    In PRODUCTION, never allow bypass.
+    In debug mode without Clerk, allow missing credentials → return demo user.
+    In production, always require a valid token.
     """
+    # No credentials provided
     if credentials is None:
-        # 1. Strict Production Check
-        if settings.env == "production":
-             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required (Production Mode)",
-            )
-        
-        # 2. Allow Debug Bypass
         if settings.debug and not settings.clerk_jwks_url:
-            return {"sub": "user_demo_001"}
-            
+            return {"sub": "user_demo_001", "workspace_id": "ws_demo_stable_001"}
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization token",
+            detail="Authentication required",
         )
+
+    # Credentials provided → verify
     token = credentials.credentials
-    payload = verify_token(token)
-    return payload
+    return verify_token(token)
+

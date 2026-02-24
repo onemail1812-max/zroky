@@ -213,16 +213,11 @@ def final_action_gate(
 
     # 5. Fallback: if not explicit approval, check if global auto-send is enabled
     # Even then, we only allow it if "Always Require Approval" is OFF.
+    # 5. Mandatory Invariant: Always require human approval for outbound actions.
     if not is_explicit_approval:
-        aaliyah_s = settings.get("aaliyah", {})
-        auto_send_enabled = aaliyah_s.get("auto_send_enabled", False)
-        always_require_approval = aaliyah_s.get("always_require_approval", True)
-        
-        if always_require_approval:
-            return False
-            
-        if not auto_send_enabled:
-            return False
+        # We ignore any legacy auto_send_enabled setting. 
+        # Human approval is the only way to send.
+        return False
 
     return True
 

@@ -31,11 +31,10 @@ const TOP_NAV: RailItem[] = [
   { name: "Home", href: "/dashboard", icon: Home }, // Standard Home
   { name: "Aaliyah", href: "/aaliyahworkspace", icon: MessageSquare }, // Chat
   { name: "Brain", href: "/brain", icon: Brain }, // Brain
-  { name: "Calendar", href: "/notifications", icon: Calendar }, // Standard Calendar
+  { name: "Calendar", href: "/calendar", icon: Calendar }, // Team Global Calendar
 ]
 
 const BOTTOM_NAV: RailItem[] = [
-  { name: "Add Workspace", href: "/aaliyahonboarding", icon: PlusSquare },
   { name: "Global", href: "/updates", icon: Globe },
   { name: "Help", href: "/feedback", icon: LifeBuoy },
   { name: "Settings", href: "/settings", icon: Settings },

@@ -34,9 +34,13 @@ class InboxThreadsListResponse(BaseModel):
 
 
 class InboxCountsResponse(BaseModel):
-    by_category: dict[str, int]
-    by_priority: dict[str, int]
-    total_unread: int
+    priority: int
+    fyi: int
+    needs_reply: int
+    approvals: int
+    follow_ups: int
+    cleaned: int
+    drafts: int
 
 
 class ProviderTotalsResponse(BaseModel):

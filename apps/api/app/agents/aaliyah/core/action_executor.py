@@ -133,7 +133,7 @@ class ActionExecutor:
             is_explicit_approval=is_explicit_approval
         )
         
-        if not allowed:
+        if not allowed or not is_explicit_approval:
             AuditLogService.log_action(
                 db=self.db,
                 workspace_id=workspace_id,

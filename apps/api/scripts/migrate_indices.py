@@ -7,7 +7,18 @@ from app.config import settings
 def main():
     db_url = settings.database_url
     if not db_url.startswith("sqlite"):
-        print("Not using SQLite, skipping manual migration.")
+        if db_url.startswith("postgresql"):
+            print("Connecting to postgres to ensure pgvector indices...")
+            from sqlalchemy import create_engine, text
+            engine = create_engine(db_url)
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                    # Create generic expression index for JSON embedding storage
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_memory_entries_embedding ON memory_entries USING ivfflat ((embedding_json::vector) vector_cosine_ops) WITH (lists = 100);"))
+                    print("Postgres vector indices added successfully.")
+                except Exception as e:
+                    print(f"Error adding Postgres vector indices: {e}")
         return
 
     db_path = db_url.replace("sqlite:///", "")

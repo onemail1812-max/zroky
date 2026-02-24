@@ -46,8 +46,8 @@ class CommunicationEngine:
         # If we haven't spoken in a while, speak now
         return time_since_last >= self.MIN_INTERVAL_SECONDS
 
-    def flush(self, state: CommunicationState, user_name: str) -> Optional[str]:
-        """Aggregate events and generate a human-like message."""
+    async def flush(self, state: CommunicationState, user_name: str, brain: Any, preferences: Dict[str, Any]) -> Optional[str]:
+        """Aggregate events and generate a human-like message using LLM."""
         if not self.should_flush(state):
             return None
 
@@ -59,96 +59,59 @@ class CommunicationEngine:
         if not events:
             return None
 
-        return self._generate_message(events, user_name)
+        return await self._generate_llm_message(events, user_name, brain, preferences)
 
-    def _generate_message(self, events: List[CommunicationEvent], user_name: str) -> str:
-        # 1. Provide a greeting
-        greeting = f"{user_name},"
-        
-        # 2. Aggregate events
-        groups: Dict[str, List[CommunicationEvent]] = {}
+    async def _generate_llm_message(self, events: List[CommunicationEvent], user_name: str, brain: Any, preferences: Dict[str, Any]) -> str:
+        # Prepare context from events
+        event_descriptions = []
         for e in events:
-            groups.setdefault(e.type, []).append(e)
+            if e.type == "draft_ready":
+                event_descriptions.append(f"- Drafted a reply to {e.payload.get('sender')} about '{e.payload.get('subject')}'")
+            elif e.type == "priority_added":
+                event_descriptions.append(f"- Flagged a high-priority email from {e.payload.get('sender')}")
+            elif e.type == "approval_required":
+                event_descriptions.append(f"- I need your approval for: {e.payload.get('subject')}")
+            elif e.type == "followup_due":
+                event_descriptions.append(f"- {e.payload.get('count', 0)} follow-ups are now due")
+            elif e.type == "daily_6am_sync_complete":
+                event_descriptions.append(f"- Morning sync complete. You have {e.payload.get('meeting_count', 0)} meetings today.")
+            elif e.type == "cleaned_done":
+                event_descriptions.append(f"- Archive/Cleaned {e.payload.get('count', 0)} less important emails.")
 
-        segments = []
-        cta = "Standing by for instructions."
+        joined_events = "\n".join(event_descriptions)
+        
+        tone = preferences.get("draft_tone", "Professional")
+        directness = preferences.get("directness", 3)
+        
+        system_prompt = (
+            f"You are Aaliyah, an elite Executive Assistant for {user_name}.\n"
+            "Your job is to provide a concise, high-fidelity conversational update based on recent events.\n"
+            f"TONE: {tone}. DIRECTNESS: {directness}/5.\n"
+            "RULES:\n"
+            "1. Be conversational and human. Don't sound like a log.\n"
+            "2. Group multiple events into a cohesive narrative.\n"
+            "3. No generic fluff like 'I hope you are well'.\n"
+            "4. Match the user's preferred tone and directness."
+        )
+        
+        prompt = (
+            f"Recent background events:\n{joined_events}\n\n"
+            f"Generate a short update for {user_name}:"
+        )
+        
+        try:
+            from app.services.brain.schemas.models import ModelType
+            response = await brain.think(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model_override=ModelType.FAST.value,
+                temperature_override=0.7
+            )
+            return response.content.strip()
+        except Exception:
+            # Fallback to simple logic if LLM fails
+            return f"Boss, I've processed {len(events)} updates for you. Check the feed for details."
 
-        # cleaned_done (Priority Low)
-        if "cleaned_done" in groups:
-            # Maybe sum counts if available, generally just "Cleaned inbox."
-            # Assuming payload might have 'count'
-            total_cleaned = sum(e.payload.get("count", 0) for e in groups["cleaned_done"])
-            if total_cleaned > 0:
-                segments.append(f"I've cleaned {total_cleaned} emails")
-            else:
-                segments.append("Inbox is clean")
-
-        # priority_added
-        if "priority_added" in groups:
-            count = len(groups["priority_added"])
-            segments.append(f"flagged {count} high-priority items")
-
-        # draft_ready
-        if "draft_ready" in groups:
-            drafts = groups["draft_ready"]
-            count = len(drafts)
-            if count == 1:
-                # payload might have sender/subject
-                sender = drafts[0].payload.get("sender", "someone")
-                segments.append(f"drafted a reply to {self._format_name(sender)}")
-            else:
-                segments.append(f"drafted {count} replies")
-            cta = "Review drafts."
-
-        # approval_required
-        if "approval_required" in groups:
-            approvals = groups["approval_required"]
-            count = len(approvals)
-            if count == 1:
-                subject = approvals[0].payload.get("subject", "a request")
-                segments.append(f"I need your approval for '{subject}'")
-            else:
-                segments.append(f"I need approval for {count} items")
-            cta = "Review approvals."
-
-        # followup_due
-        if "followup_due" in groups:
-            # Usually payload has "count"
-            total = sum(e.payload.get("count", 0) for e in groups["followup_due"])
-            if total > 0:
-                segments.append(f"{total} follow-ups are due")
-                # CTA logic: higher priority than drafts?
-                if cta == "Standing by for instructions." or cta == "Review drafts.":
-                     cta = "Check follow-ups."
-
-        # daily_6am_sync_complete
-        if "daily_6am_sync_complete" in groups:
-            # Special distinct message usually? Or combined?
-            # "Good morning {Name}. Synced calendar. You have 3 meetings."
-            # If this event exists, it overrides standard flow or prepends it?
-            # Let's treat it as a segment but maybe it sets the tone.
-            summary = groups["daily_6am_sync_complete"][-1] # Take latest
-            meeting_count = summary.payload.get("meeting_count", 0)
-            segments.insert(0, f"I've synced your calendar (you have {meeting_count} meetings today)")
-            greeting = f"Good morning {user_name}." # Override greeting for morning sync
-
-        # 3. Combine segments
-        if not segments:
-            body = "Just checking in."
-        else:
-            # "I've cleaned 5 emails, flagged 2 items, and drafted 1 reply."
-            # Join with commas and 'and'
-            if len(segments) == 1:
-                body = segments[0] + "."
-            elif len(segments) == 2:
-                body = f"{segments[0]} and {segments[1]}."
-            else:
-                body = ", ".join(segments[:-1]) + f", and {segments[-1]}."
-            
-            # Capitalize first letter of body if not already
-            body = body[0].upper() + body[1:]
-
-        return f"{greeting} {body} {cta}"
 
     def _format_name(self, sender: str) -> str:
         if "@" in sender:

@@ -1,6 +1,6 @@
 """
 Business Profile Extractor
-Automatically fetches business details from a URL and populates the Chief of Staff's understanding.
+Automatically fetches business details from a URL and populates the Executive Assistant's understanding.
 """
 
 from typing import Dict, Any, Optional

@@ -1,7 +1,7 @@
 {
     "name": "@zroky/api",
     "version": "1.0.0",
-    "description": "Chief of Staff API - Google Gemini-First Architecture",
+    "description": "Executive Assistant API - Google Gemini-First Architecture",
     "main": "dist/index.js",
     "scripts": {
         "dev": "tsx watch src/index.ts",

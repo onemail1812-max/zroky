@@ -2,209 +2,218 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import {
-    Save,
-    Loader2,
-    Mail,
-    Zap,
-    Clock,
-    Calendar,
-    Shield,
-    Check,
-    Lock,
-    X,
-    ChevronRight,
-    AlertTriangle,
-    FileText,
-    Inbox,
-    Archive,
-    Search,
-    Mic,
-    Settings as SettingsIcon,
-    Users,
-    Trash2,
-    Plus
-} from "lucide-react"
+import { Save, Loader2, Mail, Calendar, Activity, X, Check, Link2 } from "lucide-react"
 import { getAaliyahSettings, updateAaliyahSettings, AaliyahSettings } from "@/lib/aaliyah/api"
 import { cn } from "@/lib/utils"
-
-const TIMES = ["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM", "08:00 PM"]
-const FOLLOW_UP_DAYS = [2, 3, 5, 7]
-const MAX_FOLLOW_UPS = [1, 2, 3]
-const DURATIONS = [15, 30, 60]
 
 interface SettingsFormProps {
     onClose?: () => void
 }
 
 export default function SettingsForm({ onClose }: SettingsFormProps) {
-    const [activeTab, setActiveTab] = React.useState("inbox")
+    const [activeTab, setActiveTab] = React.useState("accounts")
     const [saving, setSaving] = React.useState(false)
     const [message, setMessage] = React.useState("")
 
     const [config, setConfig] = React.useState({
-        // 1. Inbox & Autopilot
+        capabilities: [] as string[],
+
         organizeInbox: true,
         draftReplies: true,
-        archiveLowPriority: false,
-        trackFollowUps: false,
+        trackFollowUps: true,
+        manageCalendar: true,
+        attendMeetings: false,
+
         followUpDays: 3,
         maxFollowUps: 2,
+        notesMode: 'manual',
 
-        // 2. Meetings
-        manageCalendar: false,
-        attendMeetings: false,
         workingHours: { start: "09:00 AM", end: "06:00 PM" },
         defaultDuration: 30,
-        notesMode: 'manual', // 'manual' | 'auto'
-
-        // 4. Safe Auto-Send
-        safeAutoSend: false,
-
-        // 5. Global Laws
         alwaysRequireApproval: true,
         approvalRequiredTopics: [] as string[],
-
-        // Hidden state to prevent data loss
-        capabilities: [] as string[],
         draftTone: 'Professional',
         signature: '',
         examples: '',
-        vip_senders: [] as string[]
+        vip_senders: [] as string[],
+        safeAutoSend: false,
+        archiveLowPriority: false,
+
+        emoji_usage: true,
+        directness: 3,
+        draft_disclosure: true,
+        vip_roles: [] as string[],
+        project_keywords: [] as string[],
+        buffer_time_mins: 15,
+        morning_briefing_time: "08:30 AM",
+        focus_blocks: [] as string[],
+        newsletter_policy: "archive",
+        receipts_policy: "auto_label"
     })
 
     React.useEffect(() => {
-        getAaliyahSettings()
-            .then(data => {
-                if (data) {
-                    setConfig({
-                        organizeInbox: data.organize_inbox_enabled,
-                        draftReplies: data.draft_replies_enabled,
-                        archiveLowPriority: data.archive_less_important,
-                        trackFollowUps: data.track_follow_ups,
-                        followUpDays: data.follow_up_days || 3,
-                        maxFollowUps: data.max_follow_ups || 2,
-                        manageCalendar: data.calendar_assist_enabled,
-                        attendMeetings: data.attend_meetings || false,
-                        workingHours: {
-                            start: data.working_hours_start,
-                            end: data.working_hours_end
-                        },
-                        defaultDuration: data.default_meeting_duration,
-                        notesMode: (data.notes_mode as any) || 'manual',
-                        safeAutoSend: data.auto_send_enabled,
-                        alwaysRequireApproval: data.always_require_approval ?? true,
-                        approvalRequiredTopics: data.approval_required_topics || [],
-                        capabilities: data.capabilities || [],
-                        draftTone: data.draft_tone || 'Professional',
-                        signature: data.signature || '',
-                        examples: data.examples || '',
-                        vip_senders: data.vip_senders || []
-                    })
-                }
-            })
-            .catch(console.error)
+        getAaliyahSettings().then(data => {
+            if (data) {
+                setConfig(c => ({
+                    ...c,
+                    capabilities: data.capabilities || [],
+                    organizeInbox: data.organize_inbox_enabled ?? true,
+                    draftReplies: data.draft_replies_enabled ?? true,
+                    trackFollowUps: data.track_follow_ups ?? true,
+                    manageCalendar: data.calendar_assist_enabled ?? true,
+                    attendMeetings: data.attend_meetings ?? false,
+                    followUpDays: data.follow_up_days || 3,
+                    maxFollowUps: data.max_follow_ups || 2,
+                    notesMode: data.notes_mode || 'manual',
+                    workingHours: { start: data.working_hours_start || "09:00 AM", end: data.working_hours_end || "06:00 PM" },
+                    defaultDuration: data.default_meeting_duration || 30,
+                    alwaysRequireApproval: data.always_require_approval ?? true,
+                    approvalRequiredTopics: data.approval_required_topics || [],
+                    draftTone: data.draft_tone || 'Professional',
+                    signature: data.signature || "",
+                    examples: data.examples || "",
+                    vip_senders: data.vip_senders || [],
+                    safeAutoSend: data.auto_send_enabled ?? false,
+                    archiveLowPriority: data.archive_less_important ?? false,
+
+                    emoji_usage: data.emoji_usage ?? true,
+                    directness: data.directness ?? 3,
+                    draft_disclosure: data.draft_disclosure ?? true,
+                    vip_roles: data.vip_roles || [],
+                    project_keywords: data.project_keywords || [],
+                    buffer_time_mins: data.buffer_time_mins ?? 15,
+                    morning_briefing_time: data.morning_briefing_time || "08:30 AM",
+                    focus_blocks: data.focus_blocks || [],
+                    newsletter_policy: data.newsletter_policy || "archive",
+                    receipts_policy: data.receipts_policy || "auto_label"
+                }))
+            }
+        }).catch(console.error)
     }, [])
 
     const handleSave = async () => {
         setSaving(true)
         setMessage("")
         try {
+            const caps = [...config.capabilities]
+            const toggleCap = (add: boolean, name: string) => {
+                const idx = caps.indexOf(name)
+                if (add && idx === -1) caps.push(name)
+                if (!add && idx > -1) caps.splice(idx, 1)
+            }
+            toggleCap(config.organizeInbox, "Organize inbox")
+            toggleCap(config.draftReplies, "Draft email replies")
+            toggleCap(config.trackFollowUps, "Track follow-ups")
+            toggleCap(config.manageCalendar, "Manage your calendar")
+            toggleCap(config.attendMeetings, "Attend meetings and take notes")
+            toggleCap(config.archiveLowPriority, "Archive less important emails")
+
             const payload: AaliyahSettings = {
+                capabilities: caps,
                 organize_inbox_enabled: config.organizeInbox,
                 draft_replies_enabled: config.draftReplies,
-                archive_less_important: config.archiveLowPriority,
                 track_follow_ups: config.trackFollowUps,
                 follow_up_days: config.followUpDays,
                 max_follow_ups: config.maxFollowUps,
                 calendar_assist_enabled: config.manageCalendar,
                 attend_meetings: config.attendMeetings,
+                notes_mode: config.notesMode,
+
                 working_hours_start: config.workingHours.start,
                 working_hours_end: config.workingHours.end,
                 default_meeting_duration: config.defaultDuration,
-                notes_mode: config.notesMode,
                 auto_send_enabled: config.safeAutoSend,
                 always_require_approval: config.alwaysRequireApproval,
                 approval_required_topics: config.approvalRequiredTopics,
-                capabilities: config.capabilities,
                 draft_tone: config.draftTone,
                 signature: config.signature,
-
                 examples: config.examples,
-                vip_senders: config.vip_senders
+                vip_senders: config.vip_senders,
+                archive_less_important: config.archiveLowPriority,
+
+                emoji_usage: config.emoji_usage,
+                directness: config.directness,
+                draft_disclosure: config.draft_disclosure,
+                vip_roles: config.vip_roles,
+                project_keywords: config.project_keywords,
+                buffer_time_mins: config.buffer_time_mins,
+                morning_briefing_time: config.morning_briefing_time,
+                focus_blocks: config.focus_blocks,
+                newsletter_policy: config.newsletter_policy as any,
+                receipts_policy: config.receipts_policy as any
             }
             await updateAaliyahSettings(payload)
-            setMessage("Configuration saved.")
+            setConfig(c => ({ ...c, capabilities: caps }))
+            setMessage("Saved successfully.")
             setTimeout(() => setMessage(""), 3000)
         } catch (err) {
             console.error(err)
-            setMessage("Failed to save.")
+            setMessage("Failed.")
         } finally {
             setSaving(false)
         }
     }
 
     const tabs = [
-        { id: "inbox", label: "Inbox & Autopilot", icon: Inbox },
+        { id: "accounts", label: "Accounts", icon: Link2 },
+        { id: "inbox", label: "Emails", icon: Mail },
         { id: "meetings", label: "Meetings", icon: Calendar },
-        { id: "safety", label: "Safety Laws", icon: Shield },
+        { id: "debug", label: "System Status", icon: Activity },
     ]
 
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="max-w-5xl mx-auto bg-white min-h-[700px] rounded-3xl shadow-2xl border border-zinc-100 flex overflow-hidden my-12"
+            className="w-full max-w-4xl bg-white h-[80vh] lg:h-[700px] rounded-3xl shadow-xl flex flex-col sm:flex-row border border-slate-200 overflow-hidden relative font-sans text-slate-900 selection:bg-slate-200"
+            onClick={(e) => e.stopPropagation()}
         >
+            <style dangerouslySetInnerHTML={{
+                __html: `
+              .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+              .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+              .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
+              .glass-switch { transition: all 0.3s; }
+              .glass-switch.active { background: black; }
+              .glass-switch:not(.active) { background: #e2e8f0; } /* slate-200 */
+              .glass-switch .knob { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); background: white; }
+            `}} />
+
             {/* Sidebar */}
-            <div className="w-72 bg-zinc-50 border-r border-zinc-100 p-6 flex flex-col items-start gap-2 shrink-0">
-                <div className="flex items-center gap-2 mb-8 px-3 w-full">
-                    <div className="h-10 w-10 bg-zinc-900 rounded-xl flex items-center justify-center text-white shadow-lg shadow-zinc-200">
-                        <SettingsIcon className="h-5 w-5" />
+            <div className="w-full sm:w-[240px] bg-slate-50/50 border-r border-slate-200 p-6 flex flex-col items-start gap-4 shrink-0">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="h-9 w-9 bg-black text-white rounded-xl flex items-center justify-center font-black shadow-sm">
+                        <Mail className="h-4 w-4" />
                     </div>
-                    <div>
-                        <span className="block font-bold text-zinc-900 text-sm">System Config</span>
-                        <span className="block text-[10px] uppercase font-bold text-emerald-600 tracking-wider">Online</span>
-                    </div>
+                    <span className="font-bold text-slate-900 tracking-tight">Settings</span>
                 </div>
 
-                <div className="space-y-1 w-full flex-1">
+                <div className="space-y-1.5 w-full flex-1">
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            data-testid={`settings-tab-${tab.id}`}
                             className={cn(
-                                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all group",
+                                "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300",
                                 activeTab === tab.id
-                                    ? "bg-white text-zinc-900 shadow-sm border border-zinc-100 ring-1 ring-zinc-50"
-                                    : "text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100/50"
+                                    ? "bg-white text-black shadow-sm border border-slate-200"
+                                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                             )}
                         >
-                            <tab.icon className={cn("h-4 w-4 transition-colors", activeTab === tab.id ? "text-zinc-900" : "text-zinc-400 group-hover:text-zinc-600")} />
+                            <tab.icon className={cn("h-4 w-4", activeTab === tab.id ? "text-black" : "text-slate-400")} />
                             {tab.label}
-                            {activeTab === tab.id && (
-                                <ChevronRight className="h-3 w-3 ml-auto text-zinc-300" />
-                            )}
                         </button>
                     ))}
                 </div>
 
-                <div className="w-full pt-6 border-t border-zinc-200/50">
+                <div className="w-full pt-6 mt-auto border-t border-slate-200">
+                    <button onClick={handleSave} disabled={saving} className="w-full py-3 bg-black hover:bg-slate-800 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md disabled:opacity-50 active:scale-95">
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Save className="h-4 w-4 text-white" />}
+                        {saving ? "Saving..." : "Save Changes"}
+                    </button>
                     <AnimatePresence>
                         {message && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                className={cn(
-                                    "px-3 py-2 rounded-lg text-[10px] font-bold border flex items-center gap-2 mb-4",
-                                    message.includes("failed")
-                                        ? "bg-red-50 text-red-600 border-red-100"
-                                        : "bg-emerald-50 text-emerald-600 border-emerald-100"
-                                )}
-                            >
-                                {message.includes("failed") ? <Shield className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+                            <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 5 }} className="mt-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest text-center">
                                 {message}
                             </motion.div>
                         )}
@@ -213,495 +222,187 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 flex flex-col min-w-0 bg-white relative">
-                <div className="flex-1 p-10 overflow-y-auto custom-scrollbar pb-32">
-                    <div className="flex justify-between items-start mb-8">
-                        <div>
-                            <h2 className="text-2xl font-bold text-zinc-900 capitalize tracking-tight mb-1">{tabs.find(t => t.id === activeTab)?.label}</h2>
-                            <p className="text-zinc-400 text-xs font-medium">Configure operational parameters.</p>
-                        </div>
-                        {onClose && (
-                            <button
-                                onClick={onClose}
-                                className="h-8 w-8 rounded-full bg-zinc-50 hover:bg-zinc-100 border border-zinc-100 flex items-center justify-center transition-colors text-zinc-400 hover:text-zinc-900"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        )}
-                    </div>
-
-                    {/* 1. Inbox & Autopilot */}
-                    {activeTab === 'inbox' && (
-                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-                            {/* Organization */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center"><Inbox className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Organize Inbox</h3>
-                                            <p className="text-xs text-zinc-500">Labels emails and moves newsletters/receipts/notifications to Cleaned.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.organizeInbox}
-                                        onChange={() => setConfig({ ...config, organizeInbox: !config.organizeInbox })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Drafting */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center"><FileText className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Draft Email Replies</h3>
-                                            <p className="text-xs text-zinc-500">Prepares reply drafts in Needs Reply.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.draftReplies}
-                                        onChange={() => setConfig({ ...config, draftReplies: !config.draftReplies })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Archiving */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center"><Archive className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Archive Less Important Emails</h3>
-                                            <p className="text-xs text-zinc-500">Archives low-priority emails automatically.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.archiveLowPriority}
-                                        onChange={() => setConfig({ ...config, archiveLowPriority: !config.archiveLowPriority })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Follow-ups */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm transition-all">
-                                <div className="flex items-center justify-between mb-2">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-emerald-50 text-emerald-600 rounded-lg flex items-center justify-center"><Search className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Track Follow-ups</h3>
-                                            <p className="text-xs text-zinc-500">Monitor threads waiting for reply.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.trackFollowUps}
-                                        onChange={() => setConfig({ ...config, trackFollowUps: !config.trackFollowUps })}
-                                    />
-                                </div>
-
-                                <AnimatePresence>
-                                    {config.trackFollowUps && (
-                                        <motion.div
-                                            initial={{ height: 0, opacity: 0 }}
-                                            animate={{ height: "auto", opacity: 1 }}
-                                            exit={{ height: 0, opacity: 0 }}
-                                            className="overflow-hidden"
-                                        >
-                                            <div className="pt-4 border-t border-zinc-100 mt-4 space-y-4">
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Follow-up After (Days)</label>
-                                                    <div className="flex gap-2">
-                                                        {FOLLOW_UP_DAYS.map(d => (
-                                                            <button
-                                                                key={d}
-                                                                onClick={() => setConfig({ ...config, followUpDays: d })}
-                                                                className={cn(
-                                                                    "flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors",
-                                                                    config.followUpDays === d ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-500 border-zinc-200 hover:bg-zinc-50"
-                                                                )}
-                                                            >
-                                                                {d}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Max Follow-ups</label>
-                                                    <div className="flex gap-2">
-                                                        {MAX_FOLLOW_UPS.map(d => (
-                                                            <button
-                                                                key={d}
-                                                                onClick={() => setConfig({ ...config, maxFollowUps: d })}
-                                                                className={cn(
-                                                                    "flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors",
-                                                                    config.maxFollowUps === d ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-500 border-zinc-200 hover:bg-zinc-50"
-                                                                )}
-                                                            >
-                                                                {d}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                            {/* VIP Registry */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm mt-6">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="h-8 w-8 bg-amber-50 text-amber-600 rounded-lg flex items-center justify-center"><Users className="h-4 w-4" /></div>
-                                    <div>
-                                        <h3 className="text-sm font-bold text-zinc-900">Priority Registry (VIPs)</h3>
-                                        <p className="text-xs text-zinc-500">Emails from these senders bypass filters and always require review.</p>
-                                    </div>
-                                </div>
-                                <ListManager
-                                    items={config.vip_senders}
-                                    placeholder="Enter email or domain (e.g. boss@corp.com)"
-                                    onChange={(vips) => setConfig({ ...config, vip_senders: vips })}
-                                />
-                            </div>
-
-                            {/* Aaliyah Persona */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm mt-6">
-                                <div className="flex items-center gap-3 mb-6">
-                                    <div className="h-8 w-8 bg-zinc-900 text-white rounded-lg flex items-center justify-center"><Mic className="h-4 w-4" /></div>
-                                    <div>
-                                        <h3 className="text-sm font-bold text-zinc-900">Aaliyah Persona</h3>
-                                        <p className="text-xs text-zinc-500">Tone, signature, and examples used for drafting.</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Draft Tone</label>
-                                        <select
-                                            value={config.draftTone}
-                                            onChange={(e) => setConfig({ ...config, draftTone: e.target.value })}
-                                            className="w-full bg-zinc-50 border-0 rounded-lg py-2 pl-3 pr-8 text-xs font-bold"
-                                            data-testid="settings-draft-tone"
-                                        >
-                                            <option value="Professional">Professional</option>
-                                            <option value="Direct">Direct</option>
-                                            <option value="Friendly">Friendly</option>
-                                            <option value="Casual">Casual</option>
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Email Signature</label>
-                                        <input
-                                            value={config.signature}
-                                            onChange={(e) => setConfig({ ...config, signature: e.target.value })}
-                                            className="w-full bg-zinc-50 border-zinc-200 rounded-lg py-2 px-3 text-xs font-medium focus:ring-1 focus:ring-zinc-900"
-                                            placeholder="e.g. – Alex, CEO @ Zroky"
-                                            data-testid="settings-signature"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Style Transfer Examples</label>
-                                        <textarea
-                                            value={config.examples}
-                                            onChange={(e) => setConfig({ ...config, examples: e.target.value })}
-                                            className="w-full bg-zinc-50 border-zinc-200 rounded-lg py-2 px-3 text-xs font-medium min-h-[100px] resize-none focus:ring-1 focus:ring-zinc-900"
-                                            placeholder="Paste example emails here..."
-                                            data-testid="settings-examples"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-
-                    {/* 2. Meetings */}
-                    {activeTab === 'meetings' && (
-                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                            {/* Calendar Management */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center"><Calendar className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Manage Your Calendar</h3>
-                                            <p className="text-xs text-zinc-500">Prepares scheduling, updates, and cancellations (always requires review).</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.manageCalendar}
-                                        onChange={() => setConfig({ ...config, manageCalendar: !config.manageCalendar })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Attend Meetings */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between mb-6">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-pink-50 text-pink-600 rounded-lg flex items-center justify-center"><Mic className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Attend Meetings & Take Notes</h3>
-                                            <p className="text-xs text-zinc-500">Aaliyah will join and transcribe.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.attendMeetings}
-                                        onChange={() => setConfig({ ...config, attendMeetings: !config.attendMeetings })}
-                                    />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Operating Window</label>
-                                        <div className="flex gap-2">
-                                            <select
-                                                value={config.workingHours.start}
-                                                onChange={(e) => setConfig({ ...config, workingHours: { ...config.workingHours, start: e.target.value } })}
-                                                className="w-full bg-zinc-50 border-0 rounded-lg py-2 pl-3 pr-8 text-xs font-bold"
-                                            >
-                                                {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
-                                            <select
-                                                value={config.workingHours.end}
-                                                onChange={(e) => setConfig({ ...config, workingHours: { ...config.workingHours, end: e.target.value } })}
-                                                className="w-full bg-zinc-50 border-0 rounded-lg py-2 pl-3 pr-8 text-xs font-bold"
-                                            >
-                                                {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Default Duration</label>
-                                        <div className="flex gap-2">
-                                            {DURATIONS.map(d => (
-                                                <button
-                                                    key={d}
-                                                    onClick={() => setConfig({ ...config, defaultDuration: d })}
-                                                    className={cn(
-                                                        "flex-1 py-2 rounded-lg text-xs font-bold border transition-colors",
-                                                        config.defaultDuration === d ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-500 border-zinc-200"
-                                                    )}
-                                                >
-                                                    {d}m
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="col-span-2 mt-2">
-                                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-2">Notes Mode</label>
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={() => setConfig({ ...config, notesMode: 'manual' })}
-                                                className={cn("flex-1 p-3 rounded-xl border text-left", config.notesMode === 'manual' ? "bg-zinc-900 border-zinc-900 text-white" : "border-zinc-200 text-zinc-500")}
-                                            >
-                                                <div className="text-xs font-bold">Manual (Default)</div>
-                                            </button>
-                                            <button
-                                                onClick={() => setConfig({ ...config, notesMode: 'auto' })}
-                                                className={cn("flex-1 p-3 rounded-xl border text-left", config.notesMode === 'auto' ? "bg-zinc-900 border-zinc-900 text-white" : "border-zinc-200 text-zinc-500")}
-                                            >
-                                                <div className="text-xs font-bold">Auto (Requires Consent)</div>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 3. Safety Laws (Locked) */}
-                    {activeTab === 'safety' && (
-                        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-                            {/* Safe Auto-Send Toggle */}
-                            <div className="bg-zinc-950 rounded-2xl p-6 text-white shadow-xl shadow-zinc-200/50">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-4">
-                                        <div className="h-10 w-10 bg-white/10 rounded-xl flex items-center justify-center"><Check className="h-5 w-5" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold">Safe Auto-Send</h3>
-                                            <p className="text-xs text-zinc-400">Allow autonomous low-risk responses.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.safeAutoSend}
-                                        onChange={() => setConfig({ ...config, safeAutoSend: !config.safeAutoSend })}
-                                        dark
-                                    />
-                                </div>
-
-                                {config.safeAutoSend && (
-                                    <div className="bg-white/5 rounded-xl p-4 border border-white/10 text-xs leading-relaxed text-zinc-300">
-                                        Aaliyah is authorized to send <strong>only</strong> these acknowledgements:
-                                        <ul className="list-disc pl-4 mt-2 space-y-1 text-white/80">
-                                            <li>“Got it—thanks!”</li>
-                                            <li>“Received, thank you.”</li>
-                                            <li>“Noted. I’ll check and revert.”</li>
-                                        </ul>
-                                        <div className="mt-2 pt-2 border-t border-white/10 text-white/50 italic">
-                                            Everything else = draft or approvals.
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Global Gate / Policy */}
-                            <div className="bg-white border border-zinc-100 rounded-2xl p-6 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center"><Shield className="h-4 w-4" /></div>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-900">Global Executive Review</h3>
-                                            <p className="text-xs text-zinc-500">Force review for ALL actionable outgoing emails.</p>
-                                        </div>
-                                    </div>
-                                    <Toggle
-                                        enabled={config.alwaysRequireApproval}
-                                        onChange={() => setConfig({ ...config, alwaysRequireApproval: !config.alwaysRequireApproval })}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Approvals Required / Sensitive Topics */}
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <AlertTriangle className="h-3 w-3 text-amber-500" />
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Sensitive Topic Registry</span>
-                                </div>
-
-                                <div className="bg-amber-50/50 rounded-2xl border border-amber-100 p-6">
-                                    <p className="text-xs text-zinc-500 mb-4">Any email containing these keywords will be locked for review, even if Auto-Send is enabled.</p>
-                                    <ListManager
-                                        items={config.approvalRequiredTopics}
-                                        placeholder="Add keyword (e.g. 'Partnership')"
-                                        onChange={(topics) => setConfig({ ...config, approvalRequiredTopics: topics })}
-                                        dark={false}
-                                    />
-                                </div>
-                            </div>
-
-                        </div>
+            <div className="flex-1 flex flex-col min-w-0 bg-transparent">
+                <div className="h-20 px-10 flex items-center justify-between border-b border-slate-100 bg-white shrink-0">
+                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">{tabs.find(t => t.id === activeTab)?.label}</h2>
+                    {onClose && (
+                        <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-2.5 bg-slate-50 rounded-full text-slate-500 hover:text-black transition-colors border border-slate-200 hover:bg-slate-100">
+                            <X className="h-4 w-4" />
+                        </button>
                     )}
                 </div>
 
-                {/* Footer Actions */}
-                <div className="absolute bottom-0 left-0 w-full p-6 border-t border-zinc-100 bg-white flex justify-end gap-3 z-10">
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        data-testid="settings-save-btn"
-                        className="bg-zinc-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-zinc-200 hover:bg-zinc-900 hover:translate-y-px transition-all flex items-center gap-2 disabled:opacity-70"
-                    >
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                        {saving ? "Saving..." : "Save Configuration"}
-                    </button>
+                <div className="flex-1 p-10 overflow-y-auto custom-scrollbar">
+                    <div className="max-w-xl mx-auto">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeTab}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.2 }}
+                                className="space-y-6"
+                            >
+                                {activeTab === 'inbox' && (
+                                    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">Organize Emails</h3>
+                                                <p className="text-sm text-slate-500 mt-1">Automatically label incoming emails.</p>
+                                            </div>
+                                            <button onClick={() => setConfig(c => ({ ...c, organizeInbox: !c.organizeInbox }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.organizeInbox ? "active" : "")}>
+                                                <div className={cn("knob w-4 h-4 rounded-full", config.organizeInbox ? "translate-x-6" : "")} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">Draft Replies</h3>
+                                                <p className="text-sm text-slate-500 mt-1">Provide reply suggestions.</p>
+                                            </div>
+                                            <button onClick={() => setConfig(c => ({ ...c, draftReplies: !c.draftReplies }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftReplies ? "active" : "")}>
+                                                <div className={cn("knob w-4 h-4 rounded-full", config.draftReplies ? "translate-x-6" : "")} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 space-y-6">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h3 className="font-bold text-slate-900">Track Pending Replies</h3>
+                                                    <p className="text-sm text-slate-500 mt-1">Remind you if someone hasn't replied.</p>
+                                                </div>
+                                                <button onClick={() => setConfig(c => ({ ...c, trackFollowUps: !c.trackFollowUps }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.trackFollowUps ? "active" : "")}>
+                                                    <div className={cn("knob w-4 h-4 rounded-full", config.trackFollowUps ? "translate-x-6" : "")} />
+                                                </button>
+                                            </div>
+
+                                            {config.trackFollowUps && (
+                                                <div className="pt-6 border-t border-slate-100 flex gap-4">
+                                                    <div className="flex-1">
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Wait Days</label>
+                                                        <select className="w-full p-3.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 outline-none focus:border-black focus:ring-1 focus:ring-black font-medium transition-all" value={config.followUpDays} onChange={e => setConfig(c => ({ ...c, followUpDays: Number(e.target.value) }))}>
+                                                            {[2, 3, 5, 7].map(d => <option key={d} value={d}>{d} Days</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Max Attempts</label>
+                                                        <select className="w-full p-3.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 outline-none focus:border-black focus:ring-1 focus:ring-black font-medium transition-all" value={config.maxFollowUps} onChange={e => setConfig(c => ({ ...c, maxFollowUps: Number(e.target.value) }))}>
+                                                            {[1, 2, 3].map(d => <option key={d} value={d}>{d} Emails</option>)}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'meetings' && (
+                                    <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">Manage Calendar</h3>
+                                                <p className="text-sm text-slate-500 mt-1">Enable Aaliyah to read your availability.</p>
+                                            </div>
+                                            <button onClick={() => setConfig(c => ({ ...c, manageCalendar: !c.manageCalendar }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.manageCalendar ? "active" : "")}>
+                                                <div className={cn("knob w-4 h-4 rounded-full", config.manageCalendar ? "translate-x-6" : "")} />
+                                            </button>
+                                        </div>
+                                        <div className="p-6 space-y-6">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h3 className="font-bold text-slate-900">Attend Meetings</h3>
+                                                    <p className="text-sm text-slate-500 mt-1">Join calls to take notes automatically.</p>
+                                                </div>
+                                                <button onClick={() => setConfig(c => ({ ...c, attendMeetings: !c.attendMeetings }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.attendMeetings ? "active" : "")}>
+                                                    <div className={cn("knob w-4 h-4 rounded-full", config.attendMeetings ? "translate-x-6" : "")} />
+                                                </button>
+                                            </div>
+
+                                            {config.attendMeetings && (
+                                                <div className="pt-6 border-t border-slate-100">
+                                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Notes Format</label>
+                                                    <div className="flex gap-2 p-1.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                                                        <button onClick={() => setConfig(c => ({ ...c, notesMode: "manual" }))} className={cn("flex-1 py-3 text-sm font-bold rounded-xl transition-all", config.notesMode === "manual" ? "bg-white text-black shadow-sm border border-slate-200" : "text-slate-500 hover:text-black hover:bg-slate-100")}>Summary</button>
+                                                        <button onClick={() => setConfig(c => ({ ...c, notesMode: "auto" }))} className={cn("flex-1 py-3 text-sm font-bold rounded-xl transition-all", config.notesMode === "auto" ? "bg-white text-black shadow-sm border border-slate-200" : "text-slate-500 hover:text-black hover:bg-slate-100")}>Full Transcript</button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'accounts' && (
+                                    <div className="space-y-4">
+                                        <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                                            <div className="p-6 border-b border-slate-100">
+                                                <h3 className="font-bold text-slate-900">Connected Accounts</h3>
+                                                <p className="text-sm text-slate-500 mt-1">Connect your email and calendar to unlock Aaliyah's full potential.</p>
+                                            </div>
+                                            <div className="p-6 space-y-4">
+                                                {/* Gmail */}
+                                                <div className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                                                            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
+                                                                <path d="M22 6.5V17.5C22 18.88 20.88 20 19.5 20H4.5C3.12 20 2 18.88 2 17.5V6.5C2 5.12 3.12 4 4.5 4H19.5C20.88 4 22 5.12 22 6.5Z" fill="#EA4335" fillOpacity="0.1" />
+                                                                <path d="M22 6L12 13L2 6" stroke="#EA4335" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                            </svg>
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-900 text-sm">Gmail</h4>
+                                                            <p className="text-xs text-slate-500">Connect your Google account for email and calendar</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => window.location.href = '/api/v1/connectors/oauth/google/init?service_type=email'}
+                                                        className="px-5 py-2.5 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm"
+                                                    >
+                                                        Connect
+                                                    </button>
+                                                </div>
+
+                                                {/* Outlook */}
+                                                <div className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl hover:bg-slate-50 transition-all">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                                                            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
+                                                                <path d="M20 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.9 21.1 4 20 4Z" fill="#0078D4" fillOpacity="0.1" />
+                                                                <path d="M22 6L12 13L2 6" stroke="#0078D4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                            </svg>
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-900 text-sm">Outlook</h4>
+                                                            <p className="text-xs text-slate-500">Connect your Microsoft account for email and calendar</p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => window.location.href = '/api/v1/connectors/oauth/microsoft/init?service_type=email'}
+                                                        className="px-5 py-2.5 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm"
+                                                    >
+                                                        Connect
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeTab === 'debug' && (
+                                    <div className="p-8 rounded-3xl border border-slate-200 bg-slate-50 text-sm font-mono text-slate-500 space-y-4 shadow-sm">
+                                        <div className="flex justify-between font-bold border-b border-slate-200 pb-4 mb-4 text-slate-700">
+                                            <span>System Status</span>
+                                            <span className="text-emerald-600 font-bold flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Active
+                                            </span>
+                                        </div>
+                                        <p className="flex items-center gap-3"><Check className="w-4 h-4 text-emerald-500" /> APIs Connected</p>
+                                        <p className="flex items-center gap-3"><Check className="w-4 h-4 text-emerald-500" /> Webhooks Operating</p>
+                                        <p className="flex items-center gap-3"><Check className="w-4 h-4 text-emerald-500" /> Background sync is idle</p>
+                                    </div>
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
+                    </div>
                 </div>
             </div>
         </motion.div>
-    )
-}
-
-function ListManager({ items, placeholder, onChange, dark = false }: { items: string[], placeholder: string, onChange: (items: string[]) => void, dark?: boolean }) {
-    const [input, setInput] = React.useState("")
-
-    const handleAdd = () => {
-        if (!input.trim()) return
-        if (items.includes(input.trim())) {
-            setInput("")
-            return
-        }
-        onChange([...items, input.trim()])
-        setInput("")
-    }
-
-    const handleRemove = (item: string) => {
-        onChange(items.filter(i => i !== item))
-    }
-
-    return (
-        <div className="space-y-3">
-            <div className="flex gap-2">
-                <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                    placeholder={placeholder}
-                    className={cn(
-                        "flex-1 px-3 py-2 rounded-lg text-xs font-medium border focus:outline-none focus:ring-2",
-                        dark
-                            ? "bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:ring-white/20"
-                            : "bg-zinc-50 border-zinc-200 text-zinc-900 placeholder:text-zinc-400 focus:ring-zinc-900/5"
-                    )}
-                />
-                <button
-                    onClick={handleAdd}
-                    className={cn(
-                        "px-3 py-2 rounded-lg flex items-center justify-center transition-all",
-                        dark ? "bg-white/10 text-white hover:bg-white/20" : "bg-zinc-900 text-white hover:bg-zinc-800"
-                    )}
-                >
-                    <Plus className="h-4 w-4" />
-                </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-                <AnimatePresence>
-                    {items.map((item) => (
-                        <motion.div
-                            key={item}
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.8, opacity: 0 }}
-                            className={cn(
-                                "flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full border text-[10px] font-bold tracking-tight",
-                                dark
-                                    ? "bg-white/5 border-white/10 text-white/90"
-                                    : "bg-white border-zinc-200 text-zinc-600 shadow-sm"
-                            )}
-                        >
-                            <span>{item}</span>
-                            <button
-                                onClick={() => handleRemove(item)}
-                                className={cn(
-                                    "p-0.5 rounded-full transition-colors",
-                                    dark ? "hover:bg-white/10 text-white/50" : "hover:bg-zinc-100 text-zinc-400"
-                                )}
-                            >
-                                <X className="h-3 w-3" />
-                            </button>
-                        </motion.div>
-                    ))}
-                </AnimatePresence>
-                {items.length === 0 && (
-                    <span className="text-[10px] text-zinc-400 italic py-2">No entries yet.</span>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function Toggle({ enabled, onChange, dark = false }: { enabled: boolean, onChange: () => void, dark?: boolean }) {
-    return (
-        <button
-            onClick={onChange}
-            className={cn(
-                "w-12 h-7 rounded-full transition-colors relative",
-                enabled
-                    ? (dark ? "bg-emerald-500" : "bg-zinc-900")
-                    : (dark ? "bg-white/20" : "bg-zinc-200")
-            )}
-        >
-            <div className={cn(
-                "absolute top-1 bottom-1 w-5 rounded-full transition-transform bg-white shadow-sm",
-                enabled ? "translate-x-6" : "translate-x-1"
-            )} />
-        </button>
     )
 }

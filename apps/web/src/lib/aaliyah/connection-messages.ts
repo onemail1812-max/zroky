@@ -33,9 +33,9 @@ export function getConnectionMessage(service: HealthServiceStatus, serviceName: 
     if (status === "NOT_CONNECTED" || error_code === "NO_TOKEN") {
         return {
             title: "Morning Check",
-            description: "Email/Calendar aren't connected yet. Authorize to start syncing and drafting.",
+            description: "Email/Calendar aren't connected yet. Set them up in the Brain Hub to start syncing.",
             badge: "neutral",
-            ctaLabel: `Authorize ${serviceName}`,
+            ctaLabel: "Configure in Brain",
             ctaAction: "connect"
         };
     }
@@ -44,9 +44,9 @@ export function getConnectionMessage(service: HealthServiceStatus, serviceName: 
     if (status === "EXPIRED" || status === "REVOKED" || status === "NEEDS_RECONNECT" || error_code === "REFRESH_FAILED" || error_code === "TOKEN_EXPIRED") {
         return {
             title: "Connection Lost",
-            description: "Your access expired or was revoked. Re-authorize to continue.",
+            description: "Your access expired or was revoked. Re-authorize via Brain Hub to continue.",
             badge: "error",
-            ctaLabel: `Re-authorize`,
+            ctaLabel: "Go to Brain",
             ctaAction: "reconnect"
         };
     }

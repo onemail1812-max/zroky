@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.services.brain.guardrails import redact_text
 from app.services.integrations.google_gmail import GmailService
 from app.services.integrations.integration_token_manager import IntegrationTokenManager
 from app.services.integrations.microsoft_outlook import OutlookService
+from app.services.integrations.token_store import get_valid_token
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +91,38 @@ class EmailIngestor:
         self.token_manager = IntegrationTokenManager(db)
 
     def _resolve_provider(self, provider: str) -> Optional[str]:
-        provider = (provider or "auto").lower().strip()
-        if provider in {"google", "gmail"}:
+        provider = (provider or "auto").lower().strip().replace("_", "")
+        if "google" in provider or "gmail" in provider:
             return "google"
-        if provider in {"microsoft", "outlook"}:
+        if "microsoft" in provider or "outlook" in provider:
             return "microsoft"
 
-        gmail_token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+        # Fallback to checking DB for any valid token if "auto" or unknown
+        from app.models.integration import IntegrationProvider
+        gmail_token = get_valid_token(self.db, self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
         if gmail_token:
             return "google"
-        outlook_token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
+            
+        outlook_token = get_valid_token(self.db, self.workspace_id, IntegrationProvider.OUTLOOK)
         if outlook_token:
             return "microsoft"
+        return None
+
+    def _get_service(self, provider: str) -> Any:
+        """Get an authenticated service instance with auto-refresh wired up."""
+        if provider == "google":
+            from app.models.integration import IntegrationProvider
+            token = get_valid_token(self.db, self.workspace_id, IntegrationProvider.GOOGLE_GMAIL.value)
+            if not token:
+                return None
+            return GmailService(token)
+
+        elif provider == "microsoft":
+            from app.models.integration import IntegrationProvider
+            token_str = get_valid_token(self.db, self.workspace_id, IntegrationProvider.OUTLOOK.value)
+            if not token_str:
+                return None
+            return OutlookService(token_str)
         return None
 
     async def fetch_unread(self, provider: str = "auto", max_results: int = 10) -> List[Dict[str, Any]]:
@@ -113,21 +134,38 @@ class EmailIngestor:
 
         self.logger.info("Fetching unread emails provider=%s max_results=%s", resolved_provider, capped_results)
 
-        try:
-            if resolved_provider == "google":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
-                if not token:
-                    return []
-                return GmailService(token).list_unread_messages(max_results=capped_results)
 
-            token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-            if not token:
+        try:
+            service = self._get_service(resolved_provider)
+            if not service:
                 return []
-            access_token = str(token.get("access_token") or "")
-            if not access_token:
-                return []
-            return OutlookService(access_token).list_unread_messages(max_results=capped_results)
+            return await service.list_unread_messages(max_results=capped_results)
+
         except Exception as exc:  # noqa: BLE001
+            self.logger.warning("Email ingestion failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
+            return []
+
+    async def fetch_latest(self, provider: str = "auto", max_results: int = 15) -> List[Dict[str, Any]]:
+        """Fetch latest messages regardless of read status."""
+        capped_results = max(1, min(int(max_results), 50))
+        resolved_provider = self._resolve_provider(provider)
+        if not resolved_provider:
+            return []
+
+        self.logger.info("Fetching latest emails provider=%s max_results=%s", resolved_provider, capped_results)
+
+        try:
+            service = self._get_service(resolved_provider)
+            if not service:
+                return []
+            
+            if resolved_provider == "google":
+                return await service.search_messages(query="label:INBOX", max_results=capped_results)
+            elif resolved_provider == "microsoft":
+                return await service.search_messages(query="", max_results=capped_results) or await service.list_unread_messages(max_results=capped_results)
+            return []
+
+        except Exception as exc:
             self.logger.warning("Email ingestion failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
             return []
 
@@ -139,19 +177,11 @@ class EmailIngestor:
             return []
 
         try:
-            if resolved_provider == "google":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
-                if not token:
-                    return []
-                return GmailService(token).list_sent_messages(max_results=capped_results)
+            service = self._get_service(resolved_provider)
+            if not service:
+                return []
+            return await service.list_sent_messages(max_results=capped_results)
 
-            token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-            if not token:
-                return []
-            access_token = str(token.get("access_token") or "")
-            if not access_token:
-                return []
-            return OutlookService(access_token).list_sent_messages(max_results=capped_results)
         except Exception as exc:  # noqa: BLE001
             self.logger.warning("Fetch sent emails failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
             return []
@@ -164,17 +194,9 @@ class EmailIngestor:
 
         raw_messages = []
         try:
-            if resolved_provider == "google":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
-                if token:
-                    raw_messages = GmailService(token).search_messages(query, max_results=max_results)
-            
-            elif resolved_provider == "microsoft":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-                if token:
-                    access_token = str(token.get("access_token") or "")
-                    if access_token:
-                        raw_messages = OutlookService(access_token).search_messages(query, max_results=max_results)
+            service = self._get_service(resolved_provider)
+            if service:
+                raw_messages = await service.search_messages(query, max_results=max_results)
         
         except Exception as exc:
              self.logger.warning("Search failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
@@ -237,36 +259,39 @@ class EmailIngestor:
              return None
 
         try:
-             if resolved_provider == "google":
-                 token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
-                 if not token: return None
-                 raw = GmailService(token).get_message(message_id, format="full")
-                 return await self.normalize_message(raw, provider="google")
+             service = self._get_service(resolved_provider)
+             if not service: return None
              
-             if resolved_provider == "microsoft":
-                 token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-                 if not token: return None
-                 access_token = str(token.get("access_token") or "")
-                 raw = OutlookService(access_token).get_message(message_id)
-                 return await self.normalize_message(raw, provider="microsoft")
+             if resolved_provider == "google":
+                  raw = await service.get_message(message_id, format="full")
+                  return await self.normalize_message(raw, provider="google")
+             elif resolved_provider == "microsoft":
+                  raw = await service.get_message(message_id)
+                  return await self.normalize_message(raw, provider="microsoft")
         except Exception as exc:
              self.logger.warning("Fetch full content failed id=%s err=%s", message_id, redact_text(str(exc)))
         
         return None
 
-    async def fetch_thread(self, thread_id: str, provider: str) -> Optional[Dict[str, Any]]:
+    async def fetch_thread(self, thread_id: str, provider: str):
         """Fetch all messages in a thread for deep reading."""
         resolved = self._resolve_provider(provider)
         if not resolved: return None
         try:
             if resolved == "google":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                from app.models.integration import IntegrationProvider
+                token = get_valid_token(self.db, self.workspace_id, IntegrationProvider.GOOGLE_GMAIL.value)
                 if not token: return None
-                return GmailService(token).get_thread(thread_id)
+                service = GmailService(token)
+                thread_data = await service.get_thread(thread_id)
+                return thread_data
             elif resolved == "microsoft":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-                if not token: return None
-                return OutlookService(token["access_token"]).get_thread(thread_id)
+                from app.models.integration import IntegrationProvider
+                token_str = get_valid_token(self.db, self.workspace_id, IntegrationProvider.OUTLOOK.value)
+                if not token_str: return None
+                service = OutlookService(token_str)
+                thread_data = await service.get_thread(thread_id)
+                return thread_data
         except Exception as e:
             self.logger.error(f"Failed to fetch thread {thread_id}: {e}")
         return None
@@ -281,9 +306,17 @@ class EmailIngestor:
             created_at = raw_created
         elif isinstance(raw_created, str) and raw_created.strip():
             try:
-                created_at = datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
-            except ValueError:
-                created_at = None
+                # Try standard email date format first (e.g., 'Thu, 24 Oct 2024 16:34:25 -0700')
+                import email.utils
+                from email.utils import parsedate_to_datetime
+                parsed = parsedate_to_datetime(raw_created)
+                created_at = parsed
+            except (ValueError, TypeError):
+                try:
+                    # Fallback to ISO format
+                    created_at = datetime.fromisoformat(raw_created.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    created_at = None
 
         # Content extraction
         snippet = str(raw_msg.get("snippet") or raw_msg.get("bodyPreview") or "")
@@ -413,7 +446,7 @@ class EmailIngestor:
         return normalized
 
     async def fetch_and_normalize(self, provider: str = "auto", max_results: int = 10) -> List[NormalizedEmailMessage]:
-        raw_messages = await self.fetch_unread(provider=provider, max_results=max_results)
+        raw_messages = await self.fetch_latest(provider=provider, max_results=max_results)
         resolved_provider = self._resolve_provider(provider) or "unknown"
         normalized: List[NormalizedEmailMessage] = []
         for raw in raw_messages:
@@ -422,11 +455,11 @@ class EmailIngestor:
             normalized.append(msg)
         return normalized
 
-    async def fetch_incremental(self, provider: str = "auto") -> List[NormalizedEmailMessage]:
-        """Incremental sync for Gmail/Outlook."""
+    async def fetch_incremental(self, provider: str = "auto") -> Tuple[List[NormalizedEmailMessage], List[str]]:
+        """Incremental sync for Gmail/Outlook. Returns (new_messages, deleted_ids)."""
         resolved_provider = self._resolve_provider(provider)
         if not resolved_provider:
-            return []
+            return [], []
 
         self.logger.info("Incremental sync provider=%s", resolved_provider)
         
@@ -435,60 +468,103 @@ class EmailIngestor:
         
         try:
             if resolved_provider == "google":
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
-                if not token: return []
+                token = get_valid_token(self.db, self.workspace_id, IntegrationProvider.GOOGLE_GMAIL)
+                if not token: return [], []
                 service = GmailService(token)
                 
                 last_history_id = config.get("last_history_id")
                 if not last_history_id:
                     # Initial sync marker setup
-                    profile = service.get_profile()
-                    self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
-                    return await self.fetch_and_normalize(provider="google", max_results=20)
+                    profile = await service.get_profile()
+                    IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
+                    
+                    # ZERO-INBOX DAY 1: Fetch 5 sent emails for Style DNA silently
+                    sent_raw = await self.fetch_sent(provider="google", max_results=5)
+                    from app.services.brain.memory import DualStateMemory
+                    memory = DualStateMemory(self.db, self.workspace_id)
+                    for raw in sent_raw:
+                        msg = await self.normalize_message(raw, provider="google")
+                        memory.extract_and_learn_from_email(
+                            sender=msg.metadata.sender or "",
+                            subject=msg.metadata.subject or "",
+                            body=msg.content or "",
+                            email_id=msg.id,
+                        )
+                    return [], []
                 
-                history_resp = service.list_history(last_history_id)
+                history_resp = await service.list_history(last_history_id)
                 if history_resp.get("expired"):
-                    profile = service.get_profile()
-                    self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
-                    return await self.fetch_and_normalize(provider="google", max_results=20)
+                    profile = await service.get_profile()
+                    IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {"last_history_id": profile.get("historyId")})
+                    history_fetch = await self.fetch_and_normalize(provider="google", max_results=20)
+                    return history_fetch, []
                 
                 new_message_ids = set()
+                deleted_ids = set()
                 for record in history_resp.get("history", []):
                     for added in record.get("messagesAdded", []):
                         new_message_ids.add(added["message"]["id"])
+                    for deleted in record.get("messagesDeleted", []):
+                        deleted_ids.add(deleted["message"]["id"])
+                    for labeled in record.get("labelsAdded", []):
+                        if "TRASH" in labeled.get("labelIds", []):
+                            deleted_ids.add(labeled["message"]["id"])
                 
-                self.token_manager.update_config(self.workspace_id, provider_enum, {"last_history_id": history_resp.get("historyId")})
+                IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {"last_history_id": history_resp.get("historyId")})
                 
                 normalized = []
                 for msg_id in new_message_ids:
-                    raw = service.get_message(msg_id, format="full")
+                    raw = await service.get_message(msg_id, format="full")
                     msg = await self.normalize_message(raw, provider="google")
                     self._upsert_search_index(msg)
                     normalized.append(msg)
-                return normalized
+                return normalized, list(deleted_ids)
 
             else: # microsoft
-                token = self.token_manager.get_valid_token(self.workspace_id, IntegrationProvider.OUTLOOK)
-                if not token: return []
-                access_token = str(token.get("access_token") or "")
-                service = OutlookService(access_token)
+                token_str = get_valid_token(self.db, self.workspace_id, IntegrationProvider.OUTLOOK)
+                if not token_str: return [], []
+                service = OutlookService(token_str)
                 
                 delta_link = config.get("delta_link")
-                delta_resp = service.list_delta(delta_link)
                 
-                self.token_manager.update_config(self.workspace_id, provider_enum, {
-                    "delta_link": delta_resp.get("@odata.deltaLink"),
-                })
+                if not delta_link:
+                    # Initial sync logic
+                    delta_resp = await service.list_delta()
+                    IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {
+                        "delta_link": delta_resp.get("@odata.deltaLink"),
+                    })
+                    
+                    # ZERO-INBOX DAY 1: Fetch 5 sent emails for Style DNA silently
+                    sent_raw = await self.fetch_sent(provider="microsoft", max_results=5)
+                    from app.services.brain.memory import DualStateMemory
+                    memory = DualStateMemory(self.db, self.workspace_id)
+                    for raw in sent_raw:
+                        msg = await self.normalize_message(raw, provider="microsoft")
+                        memory.extract_and_learn_from_email(
+                            sender=msg.metadata.sender or "",
+                            subject=msg.metadata.subject or "",
+                            body=msg.content or "",
+                            email_id=msg.id,
+                        )
+                    return [], []
+                else:
+                    delta_resp = await service.list_delta(delta_link)
+                    IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {
+                        "delta_link": delta_resp.get("@odata.deltaLink"),
+                    })
                 
                 items = delta_resp.get("value", [])
                 normalized = []
+                deleted_ids = []
                 for item in items:
-                    if "@removed" in item: continue
+                    if "@removed" in item:
+                        deleted_ids.append(item.get("id"))
+                        continue
                     msg = await self.normalize_message(item, provider="microsoft")
                     self._upsert_search_index(msg)
                     normalized.append(msg)
-                return normalized
+                return normalized, deleted_ids
 
         except Exception as exc:
             self.logger.warning("Incremental sync failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
-            return []
+            return [], []

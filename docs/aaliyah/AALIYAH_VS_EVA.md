@@ -1,6 +1,6 @@
 # Deep Comparison: Aaliyah vs. Marblism's Eva
 
-You are building a premium, specialized **Executive Chief of Staff**, while Marblism's "Eva" is a general-purpose digital helper in a bundle. Here is the technical and strategic teardown.
+You are building a premium, specialized **Executive Assistant**, while Marblism's "Eva" is a general-purpose digital helper in a bundle. Here is the technical and strategic teardown.
 
 ## 1. Core Philosophy: "The Ghost" vs. "The Partner"
 *   **Eva (Marblism):** Designed for invisibility. The marketing focus is on "looking productive while you snooze." It is a black-box service where you outsource tasks to a generic engine.

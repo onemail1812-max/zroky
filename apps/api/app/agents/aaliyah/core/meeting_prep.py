@@ -248,7 +248,7 @@ class MeetingPrepAgent:
         )
 
         system_prompt = (
-            "You are an elite Executive Chief of Staff preparing a 'Meeting Cheat Sheet'. "
+            "You are an elite Executive Assistant preparing a 'Meeting Cheat Sheet'. "
             "Analyze the meeting details and recent email history to provide a strategic summary. "
             "Return valid JSON with keys: summary, people_involved (list[str]), recommendation (strategic advice), talking_points (list[str]), relevant_links (list[dict{title, url}])."
         )
