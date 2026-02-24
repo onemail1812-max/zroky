@@ -1142,8 +1142,8 @@ class AaliyahOrchestrator:
         # 1. Parallel Classification (Speed up LLM calls)
         import asyncio
         
-        # Limit concurrency to 25 to avoid Rate Limits but allow fast per-workspace processing
-        semaphore = asyncio.Semaphore(25)
+        # Limit concurrency to 15 to prevent LLM API rate-limit bottlenecks at scale.
+        semaphore = asyncio.Semaphore(15)
         
         async def safe_classify(msg):
             async with semaphore:

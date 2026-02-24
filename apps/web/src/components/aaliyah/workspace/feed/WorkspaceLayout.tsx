@@ -570,21 +570,9 @@ export function WorkspaceLayout() {
 
     React.useEffect(() => {
         if (!emailAccessible) return
-
-        // Simple refresh: re-fetch threads from the stateless API
-        const refresh = () => {
-            setRefreshTrigger(t => t + 1)
-            setLastSyncedAt(new Date())
-        }
-
-        refresh() // initial load
-        const intervalId = setInterval(() => {
-            if (useSystemStore.getState().isLiveOffline) {
-                refresh()
-            }
-        }, REFRESH_INTERVAL_MS)
-        return () => clearInterval(intervalId)
-    }, [emailAccessible]) // eslint-disable-line react-hooks/exhaustive-deps
+        setRefreshTrigger(t => t + 1)
+        setLastSyncedAt(new Date())
+    }, [emailAccessible]) // Removed redundant interval polling; SSE handles real-time updates now.
 
     // ── Tick every 60s to update "Last synced X ago" relative time ────────
     React.useEffect(() => {
@@ -675,12 +663,7 @@ export function WorkspaceLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
         loadCounts()
-        const interval = setInterval(() => {
-            if (useSystemStore.getState().isLiveOffline) {
-                loadCounts()
-            }
-        }, 15000)
-        return () => clearInterval(interval)
+        // Removed redundant 15s counts polling; SSE counts_update handles this in real-time.
     }, [refreshTrigger])
 
     // Smart Queue Selection on Mount - Disabled per user request
@@ -753,13 +736,13 @@ export function WorkspaceLayout() {
         feedScrollRef.current.scrollTo({ top: feedScrollRef.current.scrollHeight, behavior: "smooth" })
     }, [messages])
 
-    // Auto-clear Toasts logic
+    // Auto-clear Toasts logic using standard non-overlapping timer behavior
     React.useEffect(() => {
         if (toasts.length > 0) {
-            const timers = toasts.map(t => setTimeout(() => {
-                setToasts(prev => prev.filter(toast => toast.id !== t.id))
-            }, 5000));
-            return () => timers.forEach(clearTimeout);
+            const timer = setTimeout(() => {
+                setToasts(prev => prev.slice(1));
+            }, 5000);
+            return () => clearTimeout(timer);
         }
     }, [toasts]);
 
