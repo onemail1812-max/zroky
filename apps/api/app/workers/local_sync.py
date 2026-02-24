@@ -47,6 +47,7 @@ async def process_sync_provider(payload: Dict[str, Any]):
 
         # Enqueue Triage for each NEW message
         enqueued_count = 0
+        orc = AaliyahOrchestrator(workspace_id)
         for msg in messages:
             # Deduplication
             exists = db.query(TriagedEmail.id).filter(
@@ -87,7 +88,7 @@ async def process_sync_provider(payload: Dict[str, Any]):
             )
 
             # LIVE ARRIVAL: Emit event for UI "slide-in"
-            orc = AaliyahOrchestrator(workspace_id)
+            # orc reused from loop scope
             
             # Phase 8: Default Actions + Contextual Detection
             actions = [

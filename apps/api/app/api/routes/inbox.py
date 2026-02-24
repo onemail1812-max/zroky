@@ -24,10 +24,12 @@ logger = logging.getLogger(__name__)
 
 from app.services.integrations.token_store import get_valid_token
 
+from app.core.limiter import limiter
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
 
 
 @router.get("/threads")
+@limiter.limit("60/minute")
 async def list_threads(
     queue: Optional[str] = Query(None, description="Filter by category"),
     provider: str = Query("all", description="all | google | microsoft"),
@@ -139,6 +141,7 @@ async def get_email_body(
 
 
 @router.post("/{message_id}/archive")
+@limiter.limit("30/minute")
 async def archive_email(
     message_id: str,
     db: Session = Depends(get_db),
@@ -351,6 +354,7 @@ async def get_inbox_counts(
 
 
 @router.post("/sync")
+@limiter.limit("10/minute")
 async def sync_inbox(
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),

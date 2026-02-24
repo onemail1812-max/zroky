@@ -238,10 +238,7 @@ async def answer(
         )
         return response
     except Exception as e:
-        import logging
-        import traceback
-        traceback.print_exc()
-        logging.getLogger(__name__).error(f"Answer failed: {e}")
+        logger.error(f"Answer failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="I'm having trouble connecting to my brain right now."
@@ -388,8 +385,7 @@ async def chat(
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         except Exception as e:
-            traceback.print_exc()
-            logger.error(f"Chat stream failed: {e}")
+            logger.error(f"Chat stream failed: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(

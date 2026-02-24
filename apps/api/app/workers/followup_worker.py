@@ -73,9 +73,10 @@ async def process_auto_followup(payload: dict):
             # Update metadata to track the nudge
             meta["last_nudge_at"] = now.isoformat()
             thread.metadata_json = meta
-            db.commit()
             
             logger.info(f"Nudge emitted for thread {thread.thread_id} in workspace {workspace_id}")
+
+        db.commit()
 
     except Exception as e:
         logger.error(f"Auto-Followup worker failed: {e}")

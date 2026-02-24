@@ -23,6 +23,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${plusJakartaSans.variable} font-sans antialiased`}>
+        {process.env.NODE_ENV === 'production' && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+              console.log = function() {};
+              console.warn = function() {};
+              console.error = function() {};
+              `,
+            }}
+          />
+        )}
         <Toaster position="top-right" />
         <QueryProvider>{children}</QueryProvider>
       </body>

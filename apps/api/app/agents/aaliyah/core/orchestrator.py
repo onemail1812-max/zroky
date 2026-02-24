@@ -407,11 +407,11 @@ class AaliyahOrchestrator:
             scores["ARCHIVE"] += 2.0
 
         # Label
-        if any(w in text for w in ("label", "tag", "categorize")):
+        if any(w in text for w in ("label", "tag", "categorize")) and not any(neg in text for neg in ("don't label", "no need to label", "stop labeling", "don't tag")):
             scores["LABEL"] += 2.0
 
         # Task
-        if any(w in text for w in ("create task", "add task", "todo", "to-do", "reminder")):
+        if any(w in text for w in ("create task", "add task", "todo", "to-do", "reminder")) and not any(neg in text for neg in ("don't create", "no need to add", "not a task")):
             scores["CREATE_TASK"] += 2.0
 
         # Preference update
@@ -420,19 +420,18 @@ class AaliyahOrchestrator:
         if any(w in text for w in (" vip", "vips", "mark as vip", "add to vip")):
             scores["UPDATE_PREFERENCE"] += 1.5
 
-        if any(w in text for w in ("meeting prep", "prepare for meeting", "cheat sheet", "brief me on the meeting", "meeting briefing")):
+        if any(w in text for w in ("meeting prep", "prepare for meeting", "cheat sheet", "brief me on the meeting", "meeting briefing")) and not any(neg in text for neg in ("don't prepare", "no meeting prep", "stop preparing")):
             scores["MEETING_PREP"] += 2.0
             
-        # Search / Retrieval
-        if any(w in text for w in ("search", "find", "show me", "look for", "where is", "when is", "did", "has", "what is")):
-            scores["SEARCH"] += 1.5
         if "?" in text:
             scores["SEARCH"] += 0.5
+        if any(w in text for w in ("search", "find", "show me", "look for", "where is", "when is", "did", "has", "what is")) and not any(neg in text for neg in ("don't search", "stop searching", "no need to find")):
+            scores["SEARCH"] += 1.5
         if any(w in text for w in ("email from", "sent by", "calendar", "meeting with")):
             scores["SEARCH"] += 1.0
 
         # Briefing
-        if any(w in text for w in ("morning briefing", "daily briefing", "what's my day", "today's agenda", "give me a briefing")):
+        if any(w in text for w in ("morning briefing", "daily briefing", "what's my day", "today's agenda", "give me a briefing")) and not any(neg in text for neg in ("stop briefing", "no briefing", "don't brief")):
             scores["BRIEFING"] += 2.0
 
         # Status
@@ -687,7 +686,7 @@ class AaliyahOrchestrator:
             except Exception as e:
                 import logging
                 import traceback
-                traceback.print_exc()
+                logger.error(f"Intent handling failed: {e}", exc_info=True)
                 logging.getLogger(__name__).error(f"PreferencesAgent failed: {e}")
                 raise e
 
@@ -726,7 +725,7 @@ class AaliyahOrchestrator:
             except Exception as e:
                 import logging
                 import traceback
-                traceback.print_exc()
+                logger.error(f"Intent handling failed: {e}", exc_info=True)
                 logging.getLogger(__name__).error(f"ToolDispatcher failed for {intent}: {e}")
                 # Fallback to chat response
                 pass
@@ -959,7 +958,7 @@ class AaliyahOrchestrator:
         except Exception as e:
             import logging
             import traceback
-            traceback.print_exc()
+            logger.error(f"Intent handling failed: {e}", exc_info=True)
             logging.getLogger(__name__).error(f"Streaming failed: {e}")
             yield {"type": "error", "content": "I lost connection to my reasoning core."}
 

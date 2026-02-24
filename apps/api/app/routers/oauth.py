@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.agents.aaliyah.api.connectors import _handle_oauth_callback
 
+from app.core.limiter import limiter
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
 
 @router.get("/google/callback")
+@limiter.limit("20/minute")
 async def google_callback(
     request: Request,
     code: str | None = None,
@@ -21,6 +23,7 @@ async def google_callback(
 
 
 @router.get("/microsoft/callback")
+@limiter.limit("20/minute")
 async def microsoft_callback(
     request: Request,
     code: str | None = None,

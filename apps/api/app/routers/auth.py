@@ -42,6 +42,7 @@ def _unique_slug(db: Session, base: str) -> str:
 
 
 @router.post("/register")
+@limiter.limit("5/hour")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
     """Create user + workspace + membership and return access token."""
     existing = db.query(User).filter(User.email == request.email.lower()).first()
@@ -92,6 +93,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
+@limiter.limit("10/minute")
 def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user and return access token."""
     user = db.query(User).filter(User.email == request.email.lower()).first()
