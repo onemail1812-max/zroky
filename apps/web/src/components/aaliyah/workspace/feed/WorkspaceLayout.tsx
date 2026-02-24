@@ -384,7 +384,7 @@ export function WorkspaceLayout() {
     React.useEffect(() => {
         if (!onboardingComplete || !onboardingChecked) return
 
-        let es: EventSource | null = null
+        let controller: AbortController | null = null
         let alive = true
 
         const connect = async () => {
@@ -393,85 +393,95 @@ export function WorkspaceLayout() {
                 const token = await getLiveToken()
                 if (!alive) return
 
-                // Use the consolidated canonical endpoint
-                es = new EventSource(`/aaliyah/live/stream?stream_token=${token}`)
+                const { fetchEventSource } = await import("@microsoft/fetch-event-source")
+                controller = new AbortController()
 
-                es.onopen = () => setIsLiveOffline(false)
-                es.onerror = () => {
-                    setIsLiveOffline(true)
-                    // Optional: Attempt reconnect after delay
-                }
+                fetchEventSource(`/aaliyah/live/stream`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal,
+                    onopen: async (res) => {
+                        if (res.ok && res.status === 200) {
+                            setIsLiveOffline(false)
+                        } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+                            setIsLiveOffline(true)
+                            throw new Error("Client error")
+                        }
+                    },
+                    onerror: (err) => {
+                        setIsLiveOffline(true)
+                    },
+                    onmessage: (event) => {
+                        try {
+                            const data = JSON.parse(event.data)
 
-                es.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data)
-
-                        // Handle proactive assistant messages (Conversational Voice)
-                        if (data.type === "assistant_message") {
-                            const assistantMsg = {
-                                id: `proactive_${Date.now()}`,
-                                role: "assistant" as const,
-                                content: data.message || data.payload?.text || "",
+                            // Handle proactive assistant messages (Conversational Voice)
+                            if (data.type === "assistant_message") {
+                                const assistantMsg = {
+                                    id: `proactive_${Date.now()}`,
+                                    role: "assistant" as const,
+                                    content: data.message || data.payload?.text || "",
+                                }
+                                setMessages(prev => [...prev, assistantMsg])
                             }
-                            setMessages(prev => [...prev, assistantMsg])
-                        }
 
-                        // Handle update events
-                        if (data.type === "update" || data.type === "thread_updated" || data.type === "thread_moved" || data.type === "sync_complete") {
-                            // SSE Update
-                            setRefreshTrigger(t => t + 1)
-                            fetchHealth().catch(() => { })
-                        }
-
-                        // Handle two-way sync deletion
-                        if (data.type === "message_deleted") {
-                            // Remote deletion detection
-                            setRefreshTrigger(t => t + 1)
-                            if (typeof window !== "undefined" && data.payload?.message_id) {
-                                window.dispatchEvent(new CustomEvent('aaliyah_message_deleted', {
-                                    detail: { id: data.payload.message_id }
-                                }))
+                            // Handle update events
+                            if (data.type === "update" || data.type === "thread_updated" || data.type === "thread_moved" || data.type === "sync_complete") {
+                                // SSE Update
+                                setRefreshTrigger(t => t + 1)
+                                fetchHealth().catch(() => { })
                             }
-                        }
 
-                        // Handle instant count updates
-                        if (data.type === "counts_update") {
-                            useSystemStore.getState().updateCountsFromPayload(data.payload)
-                        }
-                        // Handle live email arrival (slide-in)
-                        if (data.type === "new_email_arrival") {
-                            const arrivalItem = {
-                                id: `arrival_${data.payload.id}_${Date.now()}`,
-                                type: "new-email-arrival",
-                                sender: data.payload.sender_name || data.payload.sender,
-                                subject: data.payload.subject,
-                                snippet: data.payload.snippet,
-                                timestamp: "Just now"
+                            // Handle two-way sync deletion
+                            if (data.type === "message_deleted") {
+                                // Remote deletion detection
+                                setRefreshTrigger(t => t + 1)
+                                if (typeof window !== "undefined" && data.payload?.message_id) {
+                                    window.dispatchEvent(new CustomEvent('aaliyah_message_deleted', {
+                                        detail: { id: data.payload.message_id }
+                                    }))
+                                }
                             }
-                            setMessages(prev => [...prev, arrivalItem])
-                        }
 
-                        // Handle auto-followup nudges
-                        if (data.type === "followup_nudge") {
-                            const nudgeItem = {
-                                id: `nudge_${data.payload.thread_id}_${Date.now()}`,
-                                type: "followup-nudge",
-                                sender: data.payload.sender,
-                                subject: data.payload.subject,
-                                threadId: data.payload.thread_id,
-                                timestamp: "Just now"
+                            // Handle instant count updates
+                            if (data.type === "counts_update") {
+                                useSystemStore.getState().updateCountsFromPayload(data.payload)
                             }
-                            setMessages(prev => [...prev, nudgeItem])
-                        }
+                            // Handle live email arrival (slide-in)
+                            if (data.type === "new_email_arrival") {
+                                const arrivalItem = {
+                                    id: `arrival_${data.payload.id}_${Date.now()}`,
+                                    type: "new-email-arrival",
+                                    sender: data.payload.sender_name || data.payload.sender,
+                                    subject: data.payload.subject,
+                                    snippet: data.payload.snippet,
+                                    timestamp: "Just now"
+                                }
+                                setMessages(prev => [...prev, arrivalItem])
+                            }
 
-                        // Add to action logs if message exists
-                        if (data.message && data.type !== "assistant_message" && data.type !== "new_email_arrival" && data.type !== "counts_update") {
-                            useSystemStore.getState().addLog(data.type, data.message)
+                            // Handle auto-followup nudges
+                            if (data.type === "followup_nudge") {
+                                const nudgeItem = {
+                                    id: `nudge_${data.payload.thread_id}_${Date.now()}`,
+                                    type: "followup-nudge",
+                                    sender: data.payload.sender,
+                                    subject: data.payload.subject,
+                                    threadId: data.payload.thread_id,
+                                    timestamp: "Just now"
+                                }
+                                setMessages(prev => [...prev, nudgeItem])
+                            }
+
+                            // Add to action logs if message exists
+                            if (data.message && data.type !== "assistant_message" && data.type !== "new_email_arrival" && data.type !== "counts_update") {
+                                useSystemStore.getState().addLog(data.type, data.message)
+                            }
+                        } catch (e) {
+                            // ignore malformed json
                         }
-                    } catch (e) {
-                        // ignore malformed json
                     }
-                }
+                })
             } catch (err) {
                 if (process.env.NODE_ENV !== 'production') console.error("[SSE] Connection failed:", err)
                 if (alive) setIsLiveOffline(true)
@@ -481,7 +491,7 @@ export function WorkspaceLayout() {
         connect()
         return () => {
             alive = false
-            es?.close()
+            if (controller) controller.abort()
         }
     }, [onboardingComplete, onboardingChecked, setIsLiveOffline, fetchHealth])
 

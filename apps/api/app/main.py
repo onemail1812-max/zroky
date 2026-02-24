@@ -81,6 +81,7 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
         }
     }
 
+    # [Phase 10 Traceback Guard]: Do not expose tracebacks in production!
     if settings.debug and getattr(settings, "environment", "development") == "development":
         import traceback
         content["error"]["message"] = f"Internal server error: {str(exc)}"
@@ -101,6 +102,7 @@ async def startup_event() -> None:
     import asyncio
 
     # Dev-friendly: auto-create tables for SQLite.
+    # [Phase 10 SQLite Guard]: Dev-friendly auto-create tables for SQLite only in debug mode.
     if settings.database_url.startswith("sqlite") and settings.debug:
         Base.metadata.create_all(bind=engine)
         

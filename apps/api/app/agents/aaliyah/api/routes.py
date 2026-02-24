@@ -548,12 +548,16 @@ async def get_live_token(
 @router.get("/live/stream")
 async def live_stream(
     request: Request,
-    stream_token: str = Query(...),
 ):
     """Canonical SSE stream with real event subscription via Redis."""
     from fastapi.responses import StreamingResponse
     import redis.asyncio as redis
     from app.config import settings
+
+    authorization = request.headers.get("Authorization")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+    stream_token = authorization.split(" ")[1]
 
     payload = _decode_live_token(stream_token)
     workspace_id = str(payload["workspace_id"])

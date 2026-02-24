@@ -34,6 +34,12 @@ async def process_auto_followup(payload: dict):
             return
 
         orc = AaliyahOrchestrator(workspace_id)
+        
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        prefs = workspace.preferences if workspace and workspace.preferences else {}
+        user_name = prefs.get("user_name") or prefs.get("first_name") or "Boss"
+
         for thread in forgotten_threads:
             # Check if we already nudged in the last 24h to avoid spam
             meta = thread.metadata_json or {}
@@ -52,7 +58,7 @@ async def process_auto_followup(payload: dict):
             # Emit Nudge
             await orc.emit_status(
                 "followup-nudge",
-                f"Boss, you haven't heard back from {thread.sender} regarding '{thread.subject}'. Should I send a nudge?",
+                f"{user_name}, you haven haven't heard back from {thread.sender} regarding '{thread.subject}'. Should I send a nudge?",
                 {
                     "id": thread.id,
                     "thread_id": thread.thread_id,
