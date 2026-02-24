@@ -271,10 +271,75 @@ async def get_current_user_profile(
         raise HTTPException(status_code=401, detail="Missing user identity")
 
     user = db.query(User).filter(User.id == user_id).first()
-    membership = db.query(Membership).filter(Membership.user_id == user_id).first()
+    
+    # Auto-provision user if missing
+    if not user:
+        user = User(
+            id=user_id,
+            email=token_payload.get("email") or f"{user_id}@clerk.local",
+            hashed_password="",
+            full_name=token_payload.get("user_metadata", {}).get("full_name")
+            if isinstance(token_payload.get("user_metadata"), dict) else None,
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
 
-    if not user or not membership:
-        raise HTTPException(status_code=404, detail="User profile or workspace not found. Please complete onboarding.")
+    workspace_id = token_payload.get("workspace_id")
+    if workspace_id == "default":
+        workspace_id = None
+        
+    query = db.query(Membership).filter(Membership.user_id == user_id)
+    if workspace_id:
+        membership = query.filter(Membership.workspace_id == workspace_id).first()
+    else:
+        membership = query.first()
+
+    if not membership and workspace_id:
+        membership = db.query(Membership).filter(Membership.user_id == user_id).first()
+
+    if not membership:
+        import uuid
+        import re
+        from app.models.workspace import Workspace
+        from app.models.membership import MembershipRole
+        
+        def _slugify(value: str) -> str:
+            value = value.lower().strip()
+            value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+            return value or "workspace"
+
+        def _unique_slug(base: str) -> str:
+            slug = base
+            counter = 1
+            while db.query(Workspace).filter(Workspace.slug == slug).first():
+                slug = f"{base}-{counter}"
+                counter += 1
+            return slug
+
+        user_meta = token_payload.get("user_metadata")
+        ws_name = user_meta.get("workspace_name") if isinstance(user_meta, dict) else None
+        name = ws_name or f"{(user.email.split('@')[0] if user.email else 'My').title()} Workspace"
+        slug = _unique_slug(_slugify(name))
+        
+        ws_id = workspace_id or str(uuid.uuid4())
+        workspace = Workspace(
+            id=ws_id,
+            name=name,
+            slug=slug,
+            owner_id=user_id,
+        )
+        db.add(workspace)
+        db.commit()
+
+        membership = Membership(
+            id=str(uuid.uuid4()),
+            workspace_id=ws_id,
+            user_id=user_id,
+            role=MembershipRole.ADMIN,
+        )
+        db.add(membership)
+        db.commit()
 
     return {
         "user_id": user.id,

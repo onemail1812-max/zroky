@@ -403,7 +403,7 @@ class AaliyahOrchestrator:
             scores["DRAFT"] += 0.8
 
         # Archive
-        if "archive" in text:
+        if "archive" in text and not any(neg in text for neg in ("don't archive", "do not archive", "never archive", "not archive")):
             scores["ARCHIVE"] += 2.0
 
         # Label

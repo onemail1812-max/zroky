@@ -54,64 +54,10 @@ async def get_current_context(
             membership = db.query(Membership).filter(Membership.user_id == user_id).first()
 
         if not membership:
-            # Auto-provision user + workspace + membership for new users
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                user = User(
-                    id=user_id,
-                    email=token_payload.get("email") or f"{user_id}@clerk.local",
-                    hashed_password="",
-                    full_name=token_payload.get("user_metadata", {}).get("full_name")
-                    if isinstance(token_payload.get("user_metadata"), dict)
-                    else None,
-                    is_active=True,
-                )
-                db.add(user)
-                db.commit()
-
-            # Create workspace — use the workspace_id from token if provided
-            def _slugify(value: str) -> str:
-                value = value.lower().strip()
-                value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
-                return value or "workspace"
-
-            def _unique_slug(base: str) -> str:
-                slug = base
-                counter = 1
-                while db.query(Workspace).filter(Workspace.slug == slug).first():
-                    slug = f"{base}-{counter}"
-                    counter += 1
-                return slug
-
-            # Safely extract workspace_name
-            user_meta = token_payload.get("user_metadata")
-            ws_name = None
-            if isinstance(user_meta, dict):
-                ws_name = user_meta.get("workspace_name")
-
-            name = ws_name or f"{(user.email.split('@')[0] if user.email else 'My').title()} Workspace"
-            slug = _unique_slug(_slugify(name))
-            
-            # Use the workspace_id from token so future requests match
-            ws_id = workspace_id or str(uuid.uuid4())
-            workspace = Workspace(
-                id=ws_id,
-                name=name,
-                slug=slug,
-                owner_id=user_id,
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User profile or workspace not found. Please complete onboarding.",
             )
-            db.add(workspace)
-            db.commit()
-
-            membership = Membership(
-                id=str(uuid.uuid4()),
-                workspace_id=ws_id,
-                user_id=user_id,
-                role=MembershipRole.ADMIN,
-            )
-            db.add(membership)
-            db.commit()
-            workspace_id = ws_id
 
         return CurrentContext(
             workspace_id=membership.workspace_id,
