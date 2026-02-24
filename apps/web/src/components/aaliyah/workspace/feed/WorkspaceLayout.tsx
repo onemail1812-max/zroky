@@ -24,6 +24,26 @@ import { useAaliyahChat } from "@/lib/aaliyah/useAaliyahChat"
 import { ChatMessage } from "./ChatMessage"
 import { ChatInput } from "./ChatInput"
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+    constructor(props: { children: React.ReactNode }) { super(props); this.state = { hasError: false }; }
+    static getDerivedStateFromError(error: any) { return { hasError: true }; }
+    componentDidCatch(error: any, errorInfo: any) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.error("Uncaught error:", error, errorInfo);
+        }
+    }
+    render() {
+        if (this.state.hasError) {
+            return <div className="p-8 text-zinc-900 font-sans h-screen flex items-center justify-center flex-col">
+                <AlertTriangle className="h-12 w-12 text-zinc-300 mb-4" />
+                <h2 className="text-xl font-bold">Something went wrong</h2>
+                <p className="text-zinc-500 mt-2 cursor-pointer border px-4 py-2 rounded-lg hover:bg-zinc-50" onClick={() => window.location.reload()}>Reload Mission Control</p>
+            </div>;
+        }
+        return this.props.children;
+    }
+}
+
 // ── Workspace Unlocked Message (Stateless) ─────────────────────────
 function mkWelcomeBackItem(
     firstName: string | null,
@@ -317,7 +337,7 @@ export function WorkspaceLayout() {
             }
             setWorkingStatus(null)
         } catch (err) {
-            console.error("Protocols failed", err)
+            if (process.env.NODE_ENV !== 'production') console.error("Protocols failed", err)
             setWorkingStatus("⚠ Protocol check failed — tap retry or check Settings.")
             setTimeout(() => setWorkingStatus(null), 5000)
         } finally {
@@ -344,7 +364,7 @@ export function WorkspaceLayout() {
                     // ✅ Step 2: Fire-and-return: queue jobs + start polling
                     setShowSyncWidget(true)
                     triggerInitialSync().catch((err: any) => {
-                        console.warn("[WorkspaceLayout] OAuth triggerInitialSync failed:", err?.message)
+                        if (process.env.NODE_ENV !== 'production') console.warn("[WorkspaceLayout] OAuth triggerInitialSync failed:", err?.message)
                     })
 
                     // Refresh health (non-blocking)
@@ -453,7 +473,7 @@ export function WorkspaceLayout() {
                     }
                 }
             } catch (err) {
-                console.error("[SSE] Connection failed:", err)
+                if (process.env.NODE_ENV !== 'production') console.error("[SSE] Connection failed:", err)
                 if (alive) setIsLiveOffline(true)
             }
         }
@@ -498,7 +518,7 @@ export function WorkspaceLayout() {
             })
             .catch((err) => {
                 clearTimeout(timer)
-                console.error("Onboarding check failed:", err)
+                if (process.env.NODE_ENV !== 'production') console.error("Onboarding check failed:", err)
                 setOnboardingComplete(false)
                 setOnboardingChecked(true)
                 fetchHealth().catch(() => { })
@@ -548,7 +568,11 @@ export function WorkspaceLayout() {
         }
 
         refresh() // initial load
-        const intervalId = setInterval(refresh, REFRESH_INTERVAL_MS)
+        const intervalId = setInterval(() => {
+            if (useSystemStore.getState().isLiveOffline) {
+                refresh()
+            }
+        }, REFRESH_INTERVAL_MS)
         return () => clearInterval(intervalId)
     }, [emailAccessible]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -634,14 +658,18 @@ export function WorkspaceLayout() {
     const loadCounts = React.useCallback(() => {
         inboxService.getCounts().then(res => {
             setCounts(res)
-        }).catch(console.error)
-        fetchHealth().catch(console.error)
+        }).catch((err) => { if (process.env.NODE_ENV !== 'production') console.error(err) })
+        fetchHealth().catch((err) => { if (process.env.NODE_ENV !== 'production') console.error(err) })
     }, [refreshTrigger, fetchHealth])
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
         loadCounts()
-        const interval = setInterval(loadCounts, 15000)
+        const interval = setInterval(() => {
+            if (useSystemStore.getState().isLiveOffline) {
+                loadCounts()
+            }
+        }, 15000)
         return () => clearInterval(interval)
     }, [refreshTrigger])
 
@@ -715,6 +743,16 @@ export function WorkspaceLayout() {
         feedScrollRef.current.scrollTo({ top: feedScrollRef.current.scrollHeight, behavior: "smooth" })
     }, [messages])
 
+    // Auto-clear Toasts logic
+    React.useEffect(() => {
+        if (toasts.length > 0) {
+            const timers = toasts.map(t => setTimeout(() => {
+                setToasts(prev => prev.filter(toast => toast.id !== t.id))
+            }, 5000));
+            return () => timers.forEach(clearTimeout);
+        }
+    }, [toasts]);
+
     // ── If still checking, show skeleton ──────────────────────────────
     if (!onboardingChecked) {
         return (
@@ -774,362 +812,364 @@ export function WorkspaceLayout() {
     // Workspace always renders — onboarding is a modal triggered from chat
 
     return (
-        <div className="flex h-screen bg-white overflow-hidden relative">
-            <style dangerouslySetInnerHTML={{
-                __html: `
+        <ErrorBoundary>
+            <div className="flex h-screen bg-white overflow-hidden relative">
+                <style dangerouslySetInnerHTML={{
+                    __html: `
                 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.05); border-radius: 10px; }
             `}} />
 
 
-            {/* 1. Left Panel: Queue List */}
-            <div className="w-56 shrink-0 flex flex-col">
-                <LeftSidebar
-                    currentSection={currentSection}
-                    onNavigate={handleNavigate}
-                    onOpenGuidelines={() => setGuidelinesOpen(true)}
-                    onOpenSettings={() => setSettingsOpen(true)}
-                    counts={uiCounts}
-                    hasUnread={hasUnread}
-                    disabled={!connectionHealth?.email_accessible}
-                />
-            </div>
+                {/* 1. Left Panel: Queue List */}
+                <div className="w-56 shrink-0 flex flex-col">
+                    <LeftSidebar
+                        currentSection={currentSection}
+                        onNavigate={handleNavigate}
+                        onOpenGuidelines={() => setGuidelinesOpen(true)}
+                        onOpenSettings={() => setSettingsOpen(true)}
+                        counts={uiCounts}
+                        hasUnread={hasUnread}
+                        disabled={!connectionHealth?.email_accessible}
+                    />
+                </div>
 
-            {/* 2. Middle Panel: Thread List (toggled) */}
-            <AnimatePresence>
-                {queueOpen && (
-                    <motion.div
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: 384, opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 35 }}
-                        className="shrink-0 border-r border-zinc-100 flex flex-col bg-white overflow-hidden"
-                    >
-                        <div className="h-20 border-b border-zinc-100 flex items-center px-4 shrink-0">
-                            <h2 className="text-sm font-bold text-zinc-900 capitalize">
-                                {currentSection.replace('_', ' ')}
-                            </h2>
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            <ThreadList
-                                onSelect={handleThreadSelect}
-                                selectedId={selectedThread?.id}
-                                filter={currentSection}
-                                refreshTrigger={refreshTrigger}
-                                seenIds={seenDemoIds}
-                            />
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                {/* 2. Middle Panel: Thread List (toggled) */}
+                <AnimatePresence>
+                    {queueOpen && (
+                        <motion.div
+                            initial={{ width: 0, opacity: 0 }}
+                            animate={{ width: 384, opacity: 1 }}
+                            exit={{ width: 0, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                            className="shrink-0 border-r border-zinc-100 flex flex-col bg-white overflow-hidden"
+                        >
+                            <div className="h-20 border-b border-zinc-100 flex items-center px-4 shrink-0">
+                                <h2 className="text-sm font-bold text-zinc-900 capitalize">
+                                    {currentSection.replace('_', ' ')}
+                                </h2>
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                <ThreadList
+                                    onSelect={handleThreadSelect}
+                                    selectedId={selectedThread?.id}
+                                    filter={currentSection}
+                                    refreshTrigger={refreshTrigger}
+                                    seenIds={seenDemoIds}
+                                />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
-            {/* 3. Main Panel: Conversation Workspace */}
-            <main className="flex-1 flex flex-col bg-white" onClick={handleMainClick}>
-                {/* Header */}
-                <header className="h-16 border-b border-borderSubtle bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 shrink-0 z-10 sticky top-0 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-                    <div className="flex items-center gap-3 text-sm min-w-0 flex-1 overflow-hidden">
-                        {selectedThread && (
-                            <div className="flex items-center gap-3">
+                {/* 3. Main Panel: Conversation Workspace */}
+                <main className="flex-1 flex flex-col bg-white" onClick={handleMainClick}>
+                    {/* Header */}
+                    <header className="h-16 border-b border-borderSubtle bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 shrink-0 z-10 sticky top-0 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                        <div className="flex items-center gap-3 text-sm min-w-0 flex-1 overflow-hidden">
+                            {selectedThread && (
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors border border-zinc-100"
+                                        onClick={() => {
+                                            setSelectedThread(null)
+                                            setActiveAttachment(null)
+                                        }}
+                                    >
+                                        <CornerUpLeft className="h-4 w-4" />
+                                    </button>
+                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Message Detail</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-4 shrink-0 px-2">
+                            {/* Right side header content removed per user request */}
+                        </div>
+                    </header>
+
+                    {/* Content */}
+
+                    {/* Content */}
+                    {selectedThread ? (
+                        <div className="flex-1 overflow-y-auto w-full relative" onClick={(e) => e.stopPropagation()}>
+                            {/* Floating Back Button */}
+                            <div className="absolute top-6 left-6 z-50">
                                 <button
-                                    className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors border border-zinc-100"
+                                    className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur border border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-xl transition-all"
                                     onClick={() => {
                                         setSelectedThread(null)
                                         setActiveAttachment(null)
                                     }}
                                 >
-                                    <CornerUpLeft className="h-4 w-4" />
+                                    <CornerUpLeft className="h-4 w-4" /> <span className="text-[12px] font-bold tracking-tight">Back</span>
                                 </button>
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">Message Detail</span>
                             </div>
-                        )}
-                    </div>
-
-                    <div className="flex items-center gap-4 shrink-0 px-2">
-                        {/* Right side header content removed per user request */}
-                    </div>
-                </header>
-
-                {/* Content */}
-
-                {/* Content */}
-                {selectedThread ? (
-                    <div className="flex-1 overflow-y-auto w-full relative" onClick={(e) => e.stopPropagation()}>
-                        {/* Floating Back Button */}
-                        <div className="absolute top-6 left-6 z-50">
-                            <button
-                                className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur border border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-xl transition-all"
-                                onClick={() => {
+                            <ThreadReader
+                                thread={selectedThread}
+                                onAttachmentClick={(att) => setActiveAttachment(att)}
+                                onAction={(action) => {
+                                    // Close the thread view
                                     setSelectedThread(null)
                                     setActiveAttachment(null)
+                                    // Trigger an immediate feed refresh from DB
+                                    setRefreshTrigger(t => t + 1)
                                 }}
-                            >
-                                <CornerUpLeft className="h-4 w-4" /> <span className="text-[12px] font-bold tracking-tight">Back</span>
-                            </button>
+                            />
                         </div>
-                        <ThreadReader
-                            thread={selectedThread}
-                            onAttachmentClick={(att) => setActiveAttachment(att)}
-                            onAction={(action) => {
-                                // Close the thread view
-                                setSelectedThread(null)
-                                setActiveAttachment(null)
-                                // Trigger an immediate feed refresh from DB
-                                setRefreshTrigger(t => t + 1)
-                            }}
-                        />
-                    </div>
-                ) : (
-                    <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 py-8 md:px-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
-                        <div className="max-w-5xl mx-auto space-y-4 relative">
-                            <AnimatePresence>
-                                {showSyncWidget && syncProgress.phase !== "idle" && (
-                                    <SyncStatusWidget
-                                        onDismiss={() => {
-                                            setShowSyncWidget(false)
+                    ) : (
+                        <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 py-8 md:px-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+                            <div className="max-w-5xl mx-auto space-y-4 relative">
+                                <AnimatePresence>
+                                    {showSyncWidget && syncProgress.phase !== "idle" && (
+                                        <SyncStatusWidget
+                                            onDismiss={() => {
+                                                setShowSyncWidget(false)
+                                            }}
+                                        />
+                                    )}
+                                </AnimatePresence>
+
+                                <div className="flex flex-col">
+                                    <CardFeed
+                                        items={messages.map(m => {
+                                            if (m.type === "new-email-arrival") return m as any;
+                                            return {
+                                                id: m.id,
+                                                type: m.role === "user" ? "user-command" : "response",
+                                                text: m.content || "",
+                                                title: m.role === "assistant" ? "Aaliyah" : undefined,
+                                                timestamp: "Just now"
+                                            } as any;
+                                        })}
+                                        onUpdateDraft={(id, draft) => {
+                                            updateDraft(id, draft).catch((err: any) => console.error("Draft update failed", err))
+                                        }}
+                                        onApprovalAction={(action, id) => {
+                                            if (action === "approve") {
+                                                sendDraft(readLocalStorage(WORKSPACE_KEYS) || "", id)
+                                                    .then(() => setMessages(prev => [...prev, { id: `send_${Date.now()}`, role: "assistant", content: "Email sent successfully." }]))
+                                                    .catch((err: any) => console.error("Send failed", err))
+                                            }
+                                        }}
+                                        onCardAction={handleCardAction}
+                                        onOpenIntelligence={(tab) => {
+                                            setCurrentSection(tab)
+                                            setQueueOpen(true)
+                                        }}
+                                        onSourceClick={async (ev) => {
+                                            if (ev.type === 'thread') {
+                                                try {
+                                                    const thread = await getThreadDetails(ev.id, ev.provider)
+                                                    if (thread) setSelectedThread(thread)
+                                                } catch (err) {
+                                                    console.error("Failed to load thread source", err)
+                                                }
+                                            }
                                         }}
                                     />
-                                )}
-                            </AnimatePresence>
-
-                            <div className="flex flex-col">
-                                <CardFeed
-                                    items={messages.map(m => {
-                                        if (m.type === "new-email-arrival") return m as any;
-                                        return {
-                                            id: m.id,
-                                            type: m.role === "user" ? "user-command" : "response",
-                                            text: m.content || "",
-                                            title: m.role === "assistant" ? "Aaliyah" : undefined,
-                                            timestamp: "Just now"
-                                        } as any;
-                                    })}
-                                    onUpdateDraft={(id, draft) => {
-                                        updateDraft(id, draft).catch((err: any) => console.error("Draft update failed", err))
-                                    }}
-                                    onApprovalAction={(action, id) => {
-                                        if (action === "approve") {
-                                            sendDraft(readLocalStorage(WORKSPACE_KEYS) || "", id)
-                                                .then(() => setMessages(prev => [...prev, { id: `send_${Date.now()}`, role: "assistant", content: "Email sent successfully." }]))
-                                                .catch((err: any) => console.error("Send failed", err))
-                                        }
-                                    }}
-                                    onCardAction={handleCardAction}
-                                    onOpenIntelligence={(tab) => {
-                                        setCurrentSection(tab)
-                                        setQueueOpen(true)
-                                    }}
-                                    onSourceClick={async (ev) => {
-                                        if (ev.type === 'thread') {
-                                            try {
-                                                const thread = await getThreadDetails(ev.id, ev.provider)
-                                                if (thread) setSelectedThread(thread)
-                                            } catch (err) {
-                                                console.error("Failed to load thread source", err)
-                                            }
-                                        }
-                                    }}
-                                />
-                                {!onboardingComplete && messages.length > 0 && (
-                                    <div className="flex w-full gap-3 mb-6 pl-11">
-                                        <button
-                                            onClick={() => setOnboardingOpen(true)}
-                                            className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
-                                        >
-                                            Begin Setup
-                                            <ArrowRight className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )}
-                                {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-                                    <ChatMessage
-                                        role="assistant"
-                                        content="..."
-                                    />
-                                )}
-                            </div>
-
-                            {messages.length === 0 && syncProgress.phase === "idle" && (
-                                <div className="h-full flex flex-col items-center justify-center pt-20 text-center px-6">
-                                    <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6">
-                                        <BrainCircuit className="h-8 w-8 text-zinc-300" />
-                                    </div>
-
-                                    {!connectionHealth?.email_accessible ? (
-                                        <>
-                                            <h2 className="text-2xl font-black text-zinc-900 mb-3 tracking-tight">Connect Your Email</h2>
-                                            <p className="text-base text-zinc-500 max-w-sm leading-relaxed mb-8">
-                                                Connect your Gmail or Outlook in Settings to unlock inbox management, smart triage, and calendar intelligence.
-                                            </p>
+                                    {!onboardingComplete && messages.length > 0 && (
+                                        <div className="flex w-full gap-3 mb-6 pl-11">
                                             <button
-                                                onClick={() => setSettingsOpen(true)}
-                                                className="inline-flex items-center gap-2 px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all shadow-lg hover:shadow-zinc-900/10 active:scale-95"
+                                                onClick={() => setOnboardingOpen(true)}
+                                                className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
                                             >
-                                                Open Settings
-                                                <ArrowRight className="h-4 w-4" />
+                                                Begin Setup
+                                                <ArrowRight className="w-4 h-4" />
                                             </button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
-                                            <p className="text-sm text-zinc-400 max-w-sm">
-                                                Ask me to search your emails, check your calendar, or manage your commitments.
-                                            </p>
-                                        </>
+                                        </div>
+                                    )}
+                                    {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+                                        <ChatMessage
+                                            role="assistant"
+                                            content="..."
+                                        />
                                     )}
                                 </div>
-                            )}
+
+                                {messages.length === 0 && syncProgress.phase === "idle" && (
+                                    <div className="h-full flex flex-col items-center justify-center pt-20 text-center px-6">
+                                        <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6">
+                                            <BrainCircuit className="h-8 w-8 text-zinc-300" />
+                                        </div>
+
+                                        {!connectionHealth?.email_accessible ? (
+                                            <>
+                                                <h2 className="text-2xl font-black text-zinc-900 mb-3 tracking-tight">Connect Your Email</h2>
+                                                <p className="text-base text-zinc-500 max-w-sm leading-relaxed mb-8">
+                                                    Connect your Gmail or Outlook in Settings to unlock inbox management, smart triage, and calendar intelligence.
+                                                </p>
+                                                <button
+                                                    onClick={() => setSettingsOpen(true)}
+                                                    className="inline-flex items-center gap-2 px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all shadow-lg hover:shadow-zinc-900/10 active:scale-95"
+                                                >
+                                                    Open Settings
+                                                    <ArrowRight className="h-4 w-4" />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
+                                                <p className="text-sm text-zinc-400 max-w-sm">
+                                                    Ask me to search your emails, check your calendar, or manage your commitments.
+                                                </p>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Chat Input Bar */}
+                    <div className="shrink-0 border-t border-zinc-100 px-6 py-4 bg-white">
+                        <div className="max-w-3xl mx-auto w-full">
+                            <ChatInput
+                                value={input}
+                                onChange={(val) => setInput(val)}
+                                onSubmit={() => sendMessage()}
+                                isLoading={isLoading}
+                                placeholder={isSyncing ? "Syncing..." : "Ask Aaliyah anything..."}
+                            />
+
+                            <AnimatePresence>
+                                {workingStatus && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        className="flex justify-center mt-3"
+                                    >
+                                        <div className="flex items-center gap-2 px-3 py-1 bg-zinc-50 text-zinc-400 border border-zinc-100 rounded-full text-[10px] font-black tracking-widest uppercase">
+                                            <span className="h-1 w-1 rounded-full bg-zinc-400 animate-pulse" />
+                                            {workingStatus}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     </div>
-                )}
+                </main>
 
-                {/* Chat Input Bar */}
-                <div className="shrink-0 border-t border-zinc-100 px-6 py-4 bg-white">
-                    <div className="max-w-3xl mx-auto w-full">
-                        <ChatInput
-                            value={input}
-                            onChange={(val) => setInput(val)}
-                            onSubmit={() => sendMessage()}
-                            isLoading={isLoading}
-                            placeholder={isSyncing ? "Syncing..." : "Ask Aaliyah anything..."}
+                {/* 4. Full-Screen Attachment Viewer Overlay (Gmail-style) */}
+                <AnimatePresence>
+                    {activeAttachment && (
+                        <AttachmentViewer
+                            attachment={activeAttachment}
+                            allAttachments={selectedThread?.attachments || []}
+                            onClose={() => setActiveAttachment(null)}
+                            onNavigate={(att) => setActiveAttachment(att)}
                         />
-
-                        <AnimatePresence>
-                            {workingStatus && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: 10 }}
-                                    className="flex justify-center mt-3"
-                                >
-                                    <div className="flex items-center gap-2 px-3 py-1 bg-zinc-50 text-zinc-400 border border-zinc-100 rounded-full text-[10px] font-black tracking-widest uppercase">
-                                        <span className="h-1 w-1 rounded-full bg-zinc-400 animate-pulse" />
-                                        {workingStatus}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                </div>
-            </main>
-
-            {/* 4. Full-Screen Attachment Viewer Overlay (Gmail-style) */}
-            <AnimatePresence>
-                {activeAttachment && (
-                    <AttachmentViewer
-                        attachment={activeAttachment}
-                        allAttachments={selectedThread?.attachments || []}
-                        onClose={() => setActiveAttachment(null)}
-                        onNavigate={(att) => setActiveAttachment(att)}
-                    />
-                )}
-            </AnimatePresence>
-
-            {/* Toasts */}
-            <div className="fixed bottom-24 right-8 flex flex-col gap-2 z-50 pointer-events-none">
-                <AnimatePresence>
-                    {toasts.map(toast => (
-                        <motion.div
-                            key={toast.id}
-                            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-zinc-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-white/10 min-w-[280px]"
-                        >
-                            <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                            <span className="text-[13px] font-medium">{toast.message}</span>
-                        </motion.div>
-                    ))}
+                    )}
                 </AnimatePresence>
+
+                {/* Toasts */}
+                <div className="fixed bottom-24 right-8 flex flex-col gap-2 z-50 pointer-events-none">
+                    <AnimatePresence>
+                        {toasts.map(toast => (
+                            <motion.div
+                                key={toast.id}
+                                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="bg-zinc-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-white/10 min-w-[280px]"
+                            >
+                                <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                                <span className="text-[13px] font-medium">{toast.message}</span>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
+                </div>
+
+                {/* Overlays */}
+                {isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {guidelinesOpen && (
+                            <motion.div
+                                key="guidelines-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setGuidelinesOpen(false)}
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )}
+
+                {isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {settingsOpen && (
+                            <motion.div
+                                key="settings-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setSettingsOpen(false)}
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <SettingsForm onClose={() => setSettingsOpen(false)} />
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )}
+
+                {isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {onboardingOpen && (
+                            <motion.div
+                                key="onboarding-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] backdrop-blur-sm flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setOnboardingOpen(false)}
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <OnboardingWizard onComplete={() => {
+                                        setOnboardingOpen(false)
+                                        setOnboardingComplete(true)
+                                        // Inject thank-you message into chat
+                                        setMessages([{
+                                            id: `onboarding_done_${Date.now()}`,
+                                            role: "assistant",
+                                            content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
+                                        }])
+                                    }} />
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )}
             </div>
-
-            {/* Overlays */}
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {guidelinesOpen && (
-                        <motion.div
-                            key="guidelines-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setGuidelinesOpen(false)}
-                        >
-                            <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
-                            >
-                                <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
-                            </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
-
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {settingsOpen && (
-                        <motion.div
-                            key="settings-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setSettingsOpen(false)}
-                        >
-                            <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
-                            >
-                                <SettingsForm onClose={() => setSettingsOpen(false)} />
-                            </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
-
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {onboardingOpen && (
-                        <motion.div
-                            key="onboarding-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] backdrop-blur-sm flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setOnboardingOpen(false)}
-                        >
-                            <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
-                            >
-                                <OnboardingWizard onComplete={() => {
-                                    setOnboardingOpen(false)
-                                    setOnboardingComplete(true)
-                                    // Inject thank-you message into chat
-                                    setMessages([{
-                                        id: `onboarding_done_${Date.now()}`,
-                                        role: "assistant",
-                                        content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
-                                    }])
-                                }} />
-                            </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
-        </div>
+        </ErrorBoundary>
     )
 }

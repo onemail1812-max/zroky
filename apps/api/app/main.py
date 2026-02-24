@@ -81,7 +81,7 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
         }
     }
 
-    if settings.debug:
+    if settings.debug and getattr(settings, "environment", "development") == "development":
         import traceback
         content["error"]["message"] = f"Internal server error: {str(exc)}"
         content["error"]["traceback"] = traceback.format_exc()
@@ -101,7 +101,7 @@ async def startup_event() -> None:
     import asyncio
 
     # Dev-friendly: auto-create tables for SQLite.
-    if settings.database_url.startswith("sqlite"):
+    if settings.database_url.startswith("sqlite") and settings.debug:
         Base.metadata.create_all(bind=engine)
         
     # Start the async background worker loop
@@ -134,7 +134,7 @@ app.add_middleware(
     allow_headers=settings.cors_headers,
 )
 
-app.add_middleware(RateLimiterMiddleware, requests_per_minute=120)  # Increased for rapid workspace sync
+# Removed Global RateLimiterMiddleware (120 req/min) in favor of slowapi per-endpoint limits
 
 
 # ── Routers ──────────────────────────────────────────────────────────────
@@ -165,7 +165,10 @@ async def health_check():
 
 
 @app.get("/health/workers")
-async def health_check_workers(db: Session = Depends(get_db)):
+async def health_check_workers(
+    db: Session = Depends(get_db),
+    _: dict = Depends(get_current_user)
+):
     """Health metrics for background workers (SQLite queue)."""
     from app.models.job import Job, JobStatus
     from sqlalchemy import func
@@ -269,72 +272,12 @@ async def get_current_user_profile(
     membership = db.query(Membership).filter(Membership.user_id == user_id).first()
 
     if not user or not membership:
-        email = token_payload.get("email") or f"{user_id}@clerk.local"
-        full_name = (
-            token_payload.get("user_metadata", {}).get("full_name")
-            if isinstance(token_payload.get("user_metadata"), dict)
-            else None
-        )
-        if not user:
-            user = User(
-                id=user_id,
-                email=email,
-                hashed_password="",
-                full_name=full_name,
-                is_active=True,
-            )
-            db.add(user)
-            db.commit()
+        raise HTTPException(status_code=404, detail="User profile or workspace not found. Please complete onboarding.")
 
-        if not membership:
-            import re
-            import uuid
-            from app.models.workspace import Workspace
-
-            def _slugify(value: str) -> str:
-                value = value.lower().strip()
-                value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
-                return value or "workspace"
-
-            def _unique_slug(base: str) -> str:
-                slug = base
-                counter = 1
-                while db.query(Workspace).filter(Workspace.slug == slug).first():
-                    slug = f"{base}-{counter}"
-                    counter += 1
-                return slug
-
-            name = (
-                token_payload.get("user_metadata", {}).get("workspace_name")
-                if isinstance(token_payload.get("user_metadata"), dict)
-                else None
-            ) or f"{(email.split('@')[0] if email else 'My').title()} Workspace"
-            slug = _unique_slug(_slugify(name))
-            workspace = Workspace(
-                id=str(uuid.uuid4()),
-                name=name,
-                slug=slug,
-                owner_id=user_id,
-            )
-            db.add(workspace)
-            db.commit()
-
-            from app.models.membership import MembershipRole
-
-            membership = Membership(
-                id=str(uuid.uuid4()),
-                workspace_id=workspace.id,
-                user_id=user_id,
-                role=MembershipRole.ADMIN,
-            )
-            db.add(membership)
-            db.commit()
-
-    membership = membership or db.query(Membership).filter(Membership.user_id == user_id).first()
     return {
         "user_id": user.id,
-        "workspace_id": membership.workspace_id if membership else None,
-        "role": membership.role if membership else None,
+        "workspace_id": membership.workspace_id,
+        "role": membership.role,
         "email": user.email,
         "full_name": user.full_name,
     }

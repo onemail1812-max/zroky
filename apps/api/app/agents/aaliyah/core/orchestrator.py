@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parseaddr
+from app.models.triaged_thread import TriagedThread
 import json
 import re
 import threading
@@ -121,12 +122,13 @@ class AaliyahOrchestrator:
              self.comm_engine.add_event(state.communication, "daily_6am_sync_complete", p)
 
         # Attempt flush
-        db = SessionLocal()
+        db = None
         try:
+            db = SessionLocal()
             workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
             preferences = workspace.settings_json if workspace else {}
             # Potentially fetch name from settings or default to Boss
-            user_name = "Boss"
+            user_name = preferences.get("user_name") or preferences.get("first_name") or "there"
             
             msg = await self.comm_engine.flush(
                 state.communication, 
@@ -141,7 +143,8 @@ class AaliyahOrchestrator:
             import logging
             logging.getLogger(__name__).error(f"CommEngine flush failed: {e}")
         finally:
-            db.close()
+            if db:
+                db.close()
 
     async def broadcast_updates(self, db: Session) -> None:
         """Fetch and broadcast latest counts and stats."""
@@ -388,6 +391,9 @@ class AaliyahOrchestrator:
             scores["CONFLICT"] += 2.0
 
         # Draft intent: must show clear drafting desire, not just mention "email"
+        if any(neg in text for neg in ("don't", "don't", "not", "no need to")):
+            if "draft" in text:
+                scores["DRAFT"] -= 1.5
         if any(w in text for w in ("draft a reply", "write a reply", "compose", "draft an email", "write an email")):
             scores["DRAFT"] += 2.0
         if any(w in text for w in ("reply to", "respond to")):
@@ -1135,8 +1141,8 @@ class AaliyahOrchestrator:
         # 1. Parallel Classification (Speed up LLM calls)
         import asyncio
         
-        # Limit concurrency to 5 to avoid Rate Limits (429) from OpenRouter/LLM
-        semaphore = asyncio.Semaphore(5)
+        # Limit concurrency to 25 to avoid Rate Limits but allow fast per-workspace processing
+        semaphore = asyncio.Semaphore(25)
         
         async def safe_classify(msg):
             async with semaphore:
@@ -1711,7 +1717,7 @@ class AaliyahOrchestrator:
             # --- Drafting Agent: Auto-generate reply for actionable items ---
             if "Awaiting Reply" in label_decision.labels and not label_decision.skip_auto:
                 try:
-                    from app.services.aaliyah.drafting import DraftingAgent
+                    from app.agents.aaliyah.core.drafting import DraftingAgent
                     draft_agent = DraftingAgent(db, self.workspace_id)
                     await self._emit("drafting_started", f"Drafting reply for {sender_display}...", {"message_id": normalized.id})
                     

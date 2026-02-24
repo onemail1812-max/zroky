@@ -50,7 +50,7 @@ _ask_rate_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60)
 _webhook_rate_limiter = InMemoryRateLimiter(max_requests=120, window_seconds=60)
 _sync_rate_limiter = InMemoryRateLimiter(max_requests=5, window_seconds=60)
 _idempotency_store = InMemoryIdempotencyStore(ttl_seconds=3600)
-_LIVE_TOKEN_TTL_SECONDS = 300
+_LIVE_TOKEN_TTL_SECONDS = 30
 
 
 class UserMessage(BaseModel):
