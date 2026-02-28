@@ -27,7 +27,7 @@ export type DraftArtifact = {
 
 const itemVariants = {
     hidden: { opacity: 0, y: 30, scale: 0.96, filter: "blur(4px)" },
-    visible: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transition: { type: "spring", stiffness: 300, damping: 24 } }
+    visible: { opacity: 1, y: 0, scale: 1, filter: "blur(0px)", transition: { type: "spring" as const, stiffness: 300, damping: 24 } }
 }
 
 export function EmailDraftArtifact({
@@ -328,7 +328,7 @@ export function EmailDraftArtifact({
                                     <Paperclip className="h-3.5 w-3.5 text-zinc-400" />
                                     <span className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400">{att.filename}</span>
                                     <button
-                                        onClick={() => openDocument({ id: att.id, name: att.filename, url: "" })}
+                                        onClick={() => openDocument({ id: att.id, name: att.filename, url: "", type: "unknown" })}
                                         className="text-[10px] font-black text-indigo-500 uppercase tracking-tighter opacity-0 group-hover/att:opacity-100 transition-opacity"
                                     >
                                         View
