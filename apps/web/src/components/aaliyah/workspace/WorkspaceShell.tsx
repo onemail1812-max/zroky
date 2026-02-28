@@ -94,11 +94,11 @@ export default function WorkspaceShell() {
 
     if (activeTriageQueue === "priority") {
       filteredItems = filteredItems.filter(i => i.priority === "urgent" || i.priority === "high")
-    } else if (activeTriageQueue === "reply") {
+    } else if (activeTriageQueue === "needs_reply") {
       filteredItems = filteredItems.filter(i => i.category === "needs_reply")
     } else if (activeTriageQueue === "approvals") {
       filteredItems = filteredItems.filter(i => !!i.requires_approval)
-    } else if (activeTriageQueue === "followup") {
+    } else if (activeTriageQueue === "follow_ups") {
       filteredItems = filteredItems.filter(i => i.category === "fyi" || i.category === "followup")
     } else if (activeTriageQueue === "all") {
       filteredItems = filteredItems.filter(excludeNoise)

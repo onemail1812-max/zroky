@@ -87,13 +87,13 @@ export function LeftPanel({
             />
 
             <StreamCard
-              id="reply"
+              id="needs_reply"
               label="Needs Reply"
               icon={Clock}
               iconColor="text-amber-500"
               iconBg="bg-amber-100/50"
-              selected={activeTriageQueue === "reply"}
-              onClick={() => setActiveTriageQueue("reply")}
+              selected={activeTriageQueue === "needs_reply"}
+              onClick={() => setActiveTriageQueue("needs_reply")}
               badge={replyCount > 0 ? (
                 <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200/50">
                   {replyCount}
@@ -117,13 +117,13 @@ export function LeftPanel({
             />
 
             <StreamCard
-              id="followup"
+              id="follow_ups"
               label="Followup"
               icon={Info}
               iconColor="text-emerald-500"
               iconBg="bg-emerald-100/50"
-              selected={activeTriageQueue === "followup"}
-              onClick={() => setActiveTriageQueue("followup")}
+              selected={activeTriageQueue === "follow_ups"}
+              onClick={() => setActiveTriageQueue("follow_ups")}
               badge={followupCount > 0 ? (
                 <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200/50">
                   {followupCount}
