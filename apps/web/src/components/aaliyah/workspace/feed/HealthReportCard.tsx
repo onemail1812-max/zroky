@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ShieldCheck, ShieldAlert, ShieldTriangle, ArrowRight } from "lucide-react"
+import { ShieldCheck, ShieldAlert, AlertTriangle, ArrowRight } from "lucide-react"
 import { CardShell } from "@/components/aaliyah/workspace/feed/CardShell"
 import { cn } from "@/lib/utils"
 
@@ -13,7 +13,7 @@ export function HealthReportCard({ health }: { health: any }) {
 
     return (
         <CardShell
-            headerIcon={isHealthy ? ShieldCheck : isWarning ? ShieldTriangle : ShieldAlert}
+            headerIcon={isHealthy ? ShieldCheck : isWarning ? AlertTriangle : ShieldAlert}
             headerLabel="System Integrity Report"
             headerColorClass={isHealthy ? "text-emerald-500" : isWarning ? "text-amber-500" : "text-rose-500"}
         >
