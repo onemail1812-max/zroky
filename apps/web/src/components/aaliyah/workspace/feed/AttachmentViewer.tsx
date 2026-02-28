@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { X, FileText, Image as ImageIcon, Table, Download, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react"
+import { X, FileText, Image as ImageIcon, Table, Download, ExternalLink, ChevronLeft, ChevronRight, Loader2, AlertCircle } from "lucide-react"
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
+import * as XLSX from "xlsx"
 
 interface Attachment {
     id: string
@@ -11,6 +12,130 @@ interface Attachment {
     mimeType: string
     size: number
     url?: string
+}
+
+function SpreadsheetRenderer({ url, filename }: { url?: string, filename: string }) {
+    const [data, setData] = React.useState<any[][]>([])
+    const [error, setError] = React.useState<string | null>(null)
+    const [loading, setLoading] = React.useState(true)
+
+    React.useEffect(() => {
+        if (!url) {
+            setError("No file URL provided.")
+            setLoading(false)
+            return
+        }
+
+        async function fetchAndParse() {
+            try {
+                const response = await fetch(url as string)
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+
+                const arrayBuffer = await response.arrayBuffer()
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+
+                // Get first sheet
+                const firstSheetName = workbook.SheetNames[0]
+                const worksheet = workbook.Sheets[firstSheetName]
+
+                // Convert to array of arrays (handling up to 100 rows for performance)
+                const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 })
+                setData(jsonData.slice(0, 100))
+            } catch (e: any) {
+                console.error("Spreadsheet rendering error:", e)
+                setError(e.message || "Failed to parse spreadsheet.")
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        fetchAndParse()
+    }, [url])
+
+    if (loading) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 bg-zinc-50/50">
+                <Loader2 className="h-8 w-8 animate-spin mb-4 text-emerald-500" />
+                <p className="text-sm font-medium">Parsing {filename}...</p>
+            </div>
+        )
+    }
+
+    if (error || data.length === 0) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 bg-zinc-50/50">
+                <AlertCircle className="h-10 w-10 mb-4 text-red-400" />
+                <p className="text-sm font-medium text-red-500">{error || "Spreadsheet is empty or could not be parsed."}</p>
+                <a href={url} download className="mt-4 px-4 py-2 bg-emerald-500 text-white text-xs font-semibold rounded shadow hover:bg-emerald-600 transition">
+                    Download File Instead
+                </a>
+            </div>
+        )
+    }
+
+    // Determine max columns
+    const maxCols = Math.max(...data.map(row => row.length))
+    const colLetters = Array.from({ length: maxCols }, (_, i) => {
+        let name = ''
+        let temp = i
+        while (temp >= 0) {
+            name = String.fromCharCode((temp % 26) + 65) + name
+            temp = Math.floor(temp / 26) - 1
+        }
+        return name
+    })
+
+    return (
+        <div className="flex-1 flex flex-col overflow-hidden bg-white">
+            {/* Sticky column headers */}
+            <div className="h-9 border-b border-zinc-200 flex items-center bg-zinc-50 pl-0 shrink-0 sticky top-0 z-10 w-fit min-w-full shadow-sm">
+                <div className="w-12 shrink-0 text-[10px] font-bold text-zinc-400 text-center border-r border-zinc-200 sticky left-0 bg-zinc-100 z-20 flex items-center justify-center h-full shadow-[1px_0_0_0_#e4e4e7]">#</div>
+                {colLetters.map(col => (
+                    <div key={col} className="w-32 shrink-0 text-[10px] font-bold text-zinc-500 text-center border-r border-zinc-200 last:border-r-0 flex items-center justify-center h-full">
+                        {col}
+                    </div>
+                ))}
+            </div>
+
+            {/* Scrollable rows */}
+            <div className="flex-1 overflow-auto w-full">
+                <div className="w-fit min-w-full pb-8">
+                    {data.map((row, rowIndex) => (
+                        <div key={rowIndex} className="flex border-b border-zinc-100 hover:bg-emerald-50/40 relative">
+                            {/* Row number sticky left */}
+                            <div className="w-12 shrink-0 bg-zinc-50/80 border-r border-zinc-200 text-[10px] text-zinc-400 font-bold flex items-center justify-center py-2 sticky left-0 z-10 shadow-[1px_0_0_0_#e4e4e7] backdrop-blur-sm">
+                                {rowIndex + 1}
+                            </div>
+
+                            {/* Cells */}
+                            {Array.from({ length: maxCols }).map((_, colIndex) => {
+                                const val = row[colIndex]
+                                const isHeaderRow = rowIndex === 0
+                                return (
+                                    <div
+                                        key={colIndex}
+                                        className={cn(
+                                            "w-32 shrink-0 border-r border-zinc-100 last:border-r-0 px-3 py-2 text-[12px] truncate transition-colors",
+                                            isHeaderRow ? "bg-zinc-50/50 text-zinc-700 font-bold shadow-[0_1px_0_0_#e4e4e7]" : "text-zinc-600 hover:bg-white",
+                                            val === undefined || val === null || val === "" ? "text-transparent" : ""
+                                        )}
+                                        title={String(val || '')}
+                                    >
+                                        {val !== undefined && val !== null ? String(val) : '-'}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    ))}
+                    {data.length === 100 && (
+                        <div className="py-4 text-center text-xs text-zinc-400 italic border-t border-zinc-100">
+                            Showing first 100 rows. Download to view full file.
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
 }
 
 interface AttachmentViewerProps {
@@ -123,38 +248,7 @@ export function AttachmentViewer({ attachment, allAttachments = [], onClose, onN
                     )}
                 >
                     {isSpreadsheet ? (
-                        <div className="flex-1 flex flex-col overflow-hidden">
-                            {/* Sticky column headers */}
-                            <div className="h-9 border-b border-zinc-200 flex items-center bg-zinc-50 px-0 shrink-0">
-                                <div className="w-12 shrink-0 text-[10px] font-bold text-zinc-400 text-center border-r border-zinc-200">#</div>
-                                {['A', 'B', 'C', 'D', 'E', 'F'].map(col => (
-                                    <div key={col} className="flex-1 text-[10px] font-bold text-zinc-400 text-center border-r border-zinc-200 last:border-r-0">{col}</div>
-                                ))}
-                            </div>
-                            {/* Scrollable rows */}
-                            <div className="flex-1 overflow-auto">
-                                {Array.from({ length: 30 }, (_, i) => i + 1).map(row => (
-                                    <div key={row} className="flex border-b border-zinc-100 hover:bg-blue-50/30">
-                                        <div className="w-12 shrink-0 bg-zinc-50 border-r border-zinc-200 text-[10px] text-zinc-400 font-bold flex items-center justify-center py-2.5">{row}</div>
-                                        {[
-                                            row === 1 ? 'Category' : `Item ${row}`,
-                                            row === 1 ? 'Revenue' : `$${(Math.random() * 10000).toFixed(2)}`,
-                                            row === 1 ? 'Growth' : `${(Math.random() * 50).toFixed(1)}%`,
-                                            row === 1 ? 'Quarter' : `Q${Math.ceil(Math.random() * 4)}`,
-                                            row === 1 ? 'Region' : ['North', 'South', 'East', 'West'][Math.floor(Math.random() * 4)],
-                                            row === 1 ? 'Status' : ['Active', 'Pending', 'Closed'][Math.floor(Math.random() * 3)],
-                                        ].map((val, i) => (
-                                            <div key={i} className={cn(
-                                                "flex-1 border-r border-zinc-100 last:border-r-0 px-3 py-2.5 text-[12px] font-medium truncate",
-                                                row === 1 ? "bg-zinc-50 text-zinc-600 font-bold" : "text-zinc-700"
-                                            )}>
-                                                {val}
-                                            </div>
-                                        ))}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <SpreadsheetRenderer url={attachment.url} filename={attachment.filename} />
                     ) : isImage ? (
                         <div className="flex items-center justify-center">
                             <div className="bg-zinc-800 rounded-xl p-12 flex flex-col items-center gap-4 shadow-2xl">

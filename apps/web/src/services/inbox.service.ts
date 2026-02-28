@@ -17,9 +17,9 @@ export interface EmailMessage {
         body: string;
         status: 'pending' | 'ready' | 'sent' | 'failed' | 'pending_approval';
         reasoning?: string;
-        intent?: string;
         risk_labels?: string[];
         sources_used?: string[];
+        tone_tags?: string[];
     };
     attachments?: {
         id: string;
@@ -92,7 +92,7 @@ export class InboxService {
 
             // Map priority to labels
             const labels = [];
-            if (item.priority === 'high' || item.priority === 'urgent') labels.push('priority');
+            if (item.priority?.toLowerCase() === 'high' || item.priority?.toLowerCase() === 'urgent') labels.push('priority');
             if (item.category) labels.push(item.category);
 
             return {
@@ -116,13 +116,10 @@ export class InboxService {
                     reasoning: item.draft.rationale || item.reasoning,
                     intent: item.draft.intent,
                     risk_labels: item.draft.risk_labels,
-                    sources_used: item.draft.sources_used
+                    sources_used: item.draft.sources_used,
+                    tone_tags: item.draft.tone_tags
                 } : undefined,
-                attachments: [
-                    { id: 'att-1', filename: 'Q3_Financial_Report.pdf', mimeType: 'application/pdf', size: 2450000 },
-                    { id: 'att-2', filename: 'Project_Timeline.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 1200000 },
-                    { id: 'att-3', filename: 'Design_Mockup.png', mimeType: 'image/png', size: 4500000 },
-                ]
+                attachments: item.attachments || []
             };
         });
 

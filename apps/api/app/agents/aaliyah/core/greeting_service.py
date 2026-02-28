@@ -22,8 +22,14 @@ class GreetingService:
 
     def _resolve_name(self) -> str:
         """Resolve first name with priority: Workspace Profile -> Integration Profile -> Email -> Fallback."""
-        # 1. Workspace Profile (if exists)
-        # Assuming workspace doesn't hold user profile directly, checking User model
+        # 1. Workspace Profile (Aaliyah Settings)
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        if workspace and workspace.settings_json:
+            aaliyah_settings = workspace.settings_json.get("aaliyah", {})
+            if aaliyah_settings.get("user_name"):
+                return aaliyah_settings.get("user_name").split(" ")[0]
+
+        # 2. User model (if exists)
         user = self.db.query(User).filter(User.id == self.user_id).first()
         if user and user.full_name:
             return user.full_name.split(" ")[0]

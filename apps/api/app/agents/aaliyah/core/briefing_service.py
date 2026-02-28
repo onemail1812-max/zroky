@@ -4,6 +4,7 @@ import json
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
+import hashlib
 from sqlalchemy.orm import Session
 from sqlalchemy import text # For direct updates
 
@@ -70,7 +71,8 @@ class MorningBriefingService:
         # Case C: Data Exists but No Briefing (Trigger Generation?)
         # For now, return a placeholder and let the UI/Worker trigger generation
         # We return a specific string that UI can handle or just a polite wait message
-        return "I'm analyzing your latest emails and calendar. Check back in a moment for your full Morning Briefing."
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+        return f"I'm analyzing your latest emails and calendar, {user_name}. Check back in a moment for your full Morning Briefing."
 
     async def generate_fresh_briefing(self) -> str:
         """
@@ -113,10 +115,22 @@ class MorningBriefingService:
         except Exception:
             events = []
 
-        # 3. EMPTY STATE GUARD (Deterministic)
+        # 3. GENERATE DATA FINGERPRINT (Semantic Caching)
+        fingerprint = self._generate_data_fingerprint(emails, events, total_unread, pending_drafts)
+        
+        # Check if we can reuse the cached briefing even if it's "freshness" TTL has expired, 
+        # as long as the data is identical.
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        last_briefing = (workspace.settings_json or {}).get("aaliyah", {}).get("last_briefing", {})
+        if last_briefing.get("fingerprint") == fingerprint:
+            logger.info("Semantic Cache Hit: Data hasn't changed. Reusing cached briefing.")
+            return last_briefing.get("content", "")
+
+        # 4. EMPTY STATE GUARD (Deterministic)
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
         if not emails and not events and total_unread == 0:
             content = (
-                "Good morning. Your workspace is clear today. "
+                f"Good morning, {user_name}. Your workspace is clear today. "
                 "No urgent emails, pending drafts, or meetings require your attention. "
                 "I'll stand by for new tasks."
             )
@@ -152,8 +166,8 @@ class MorningBriefingService:
         meeting_intel_block = "\n\n".join(meeting_contexts) if meeting_contexts else "No specific past context found for today's meetings."
 
         system_prompt = (
-            "You are Aaliyah, an elite Executive Assistant. "
-            "Write a 'Morning Briefing' for your principal based ONLY on the provided data. "
+            f"You are Aaliyah, an elite Executive Assistant for {user_name}. "
+            f"Write a 'Morning Briefing' for {user_name} based ONLY on the provided data. "
             "STRICT RULES:\n"
             "1. DO NOT invent, hallucinate, or assume any information not present in the data.\n"
             "2. PROACTIVE PREP: For each meeting, use the 'Meeting Intelligence' context to provide a one-line 'Cheat Sheet' or 'Talking Point'.\n"
@@ -197,10 +211,17 @@ class MorningBriefingService:
                       f"You have {total_unread} unread emails to review."
 
         # 7. Cache Result
-        self._cache_briefing(content)
+        self._cache_briefing(content, fingerprint)
         return content
 
-    def _cache_briefing(self, content: str):
+    def _generate_data_fingerprint(self, emails: list, events: list, unread: int, drafts: int) -> str:
+        """Create a unique hash of the data context to prevent redundant LLM calls."""
+        email_ids = sorted([e.id for e in emails])
+        event_ids = sorted([str(evt.id) for evt in events])
+        raw_string = f"unread:{unread}|drafts:{drafts}|emails:{','.join(email_ids)}|events:{','.join(event_ids)}"
+        return hashlib.sha256(raw_string.encode()).hexdigest()
+
+    def _cache_briefing(self, content: str, fingerprint: str):
         """Persist to Workspace settings using raw SQL to allow easy JSON partial updates if needed, 
         but ORM is safer for full object update."""
         try:
@@ -212,7 +233,8 @@ class MorningBriefingService:
                 
                 settings["aaliyah"]["last_briefing"] = {
                     "content": content,
-                    "generated_at": datetime.now(timezone.utc).isoformat()
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "fingerprint": fingerprint
                 }
                 
                 workspace.settings_json = settings

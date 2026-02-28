@@ -48,12 +48,31 @@ class OpenRouterProvider:
         max_tokens: int,
         images: Optional[list[str]] = None,
     ) -> BrainResponse:
+        actual_model = model or self.default_model
+        request_url = f"{self.base_url}/chat/completions"
+        auth_token = self.api_key
+
+        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.groq_api_key:
+            logger.info("⚡ Enterprise Routing: Diverting to native Groq for model %s", actual_model)
+            request_url = "https://api.groq.com/openai/v1/chat/completions"
+            auth_token = settings.groq_api_key
+            if actual_model.startswith("groq/"):
+                actual_model = actual_model.replace("groq/", "", 1)
+            # Ensure compatible model names for Groq natively
+            if "llama-3.3-70b" in actual_model.lower():
+                actual_model = "llama-3.3-70b-versatile"
+            elif "llama-3.1-8b" in actual_model.lower():
+                actual_model = "llama-3.1-8b-instant"
+
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {auth_token}",
             "Content-Type": "application/json",
-            "HTTP-Referer": settings.openrouter_app_url,
-            "X-Title": settings.openrouter_app_name,
         }
+        
+        # Openrouter specific headers 
+        if "openrouter.ai" in request_url:
+            headers["HTTP-Referer"] = settings.openrouter_app_url
+            headers["X-Title"] = settings.openrouter_app_name
 
         user_content: Any = prompt
         if images:
@@ -70,7 +89,7 @@ class OpenRouterProvider:
                 })
 
         payload: Dict[str, Any] = {
-            "model": model or self.default_model,
+            "model": actual_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
@@ -85,7 +104,7 @@ class OpenRouterProvider:
         try:
             session = await self._get_session()
             async with session.post(
-                f"{settings.openrouter_base_url}/chat/completions",
+                request_url,
                 headers=headers,
                 json=payload,
                 timeout=timeout,
@@ -128,3 +147,68 @@ class OpenRouterProvider:
             raise BrainProviderError(f"Network error while calling OpenRouter: {exc}") from exc
         except TimeoutError as exc:
             raise BrainTimeoutError("Timeout while calling OpenRouter") from exc
+
+    async def generate_stream(
+        self,
+        *,
+        prompt: str,
+        system_prompt: str,
+        model: str,
+        temperature: float,
+        images: Optional[list[str]] = None,
+    ):
+        """Streaming version of generate, specifically for chat streaming."""
+        from openai import AsyncOpenAI
+        
+        actual_model = model or self.default_model
+        base_url = self.base_url
+        auth_token = self.api_key
+
+        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.groq_api_key:
+            logger.info("⚡ Enterprise Routing (Stream): Diverting to native Groq for model %s", actual_model)
+            base_url = "https://api.groq.com/openai/v1"
+            auth_token = settings.groq_api_key
+            if actual_model.startswith("groq/"):
+                actual_model = actual_model.replace("groq/", "", 1)
+            if "llama-3.3-70b" in actual_model.lower():
+                actual_model = "llama-3.3-70b-versatile"
+            elif "llama-3.1-8b" in actual_model.lower():
+                actual_model = "llama-3.1-8b-instant"
+
+        client = AsyncOpenAI(
+            base_url=base_url,
+            api_key=auth_token,
+            default_headers={
+                "HTTP-Referer": settings.openrouter_app_url,
+                "X-Title": settings.openrouter_app_name,
+            } if "openrouter.ai" in base_url else None,
+        )
+
+        user_content: Any = prompt
+        if images:
+            user_content = [{"type": "text", "text": prompt}]
+            for img in images:
+                img_url = img
+                if not img.startswith("http") and not img.startswith("data:"):
+                    img_url = f"data:image/jpeg;base64,{img}"
+                
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img_url}
+                })
+
+        stream = await client.chat.completions.create(
+            model=actual_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            stream=True,
+            temperature=temperature,
+        )
+        
+        async for chunk in stream:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield delta.content

@@ -101,6 +101,11 @@ export function InboxList({ onSelect, selectedId, refreshTrigger, filter, onLoad
                     {/* Labels / Attributes */}
                     <div className="flex flex-wrap gap-1.5 mt-auto">
                         {[
+                            msg.needsClarity && (
+                                <span key="c" className="px-1.5 py-0.5 bg-rose-950 text-rose-200 text-[8px] font-bold uppercase tracking-wider rounded border border-rose-900/50 flex items-center gap-1">
+                                    <AlertCircle className="h-2 w-2" /> Needs Clarity
+                                </span>
+                            ),
                             msg.labels?.includes("priority") && (
                                 <span key="p" className="px-1.5 py-0.5 bg-red-950/80 text-red-200 text-[8px] font-bold uppercase tracking-wider rounded border border-red-900/50">Priority</span>
                             ),

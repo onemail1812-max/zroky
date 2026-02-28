@@ -13,11 +13,14 @@ Shlok operates with read-only contextual memory assembled at request time.
 from __future__ import annotations
 
 from typing import Dict, List
+import logging
 
 from sqlalchemy.orm import Session
 
 from app.models.message import Message, AuthorType
 from app.models.guideline import Guideline
+
+logger = logging.getLogger(__name__)
 
 
 def load_thread_context(
@@ -70,5 +73,6 @@ def load_shlok_guideline(
         import json
 
         return json.loads(guideline.content_json) or {}
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to parse guideline content JSON for workspace {workspace_id}: {e}", exc_info=True)
         return {}

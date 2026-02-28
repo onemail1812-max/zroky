@@ -39,8 +39,9 @@ export function EmailEditor({ content, onChange, editable = true, placeholder = 
     })
 
     // Update content if it changes externally (e.g. AI update)
+    // PREVENT CURSOR JUMP: Only update if not currently focused or if content is significantly different
     React.useEffect(() => {
-        if (editor && content !== editor.getHTML()) {
+        if (editor && !editor.isFocused && content !== editor.getHTML()) {
             editor.commands.setContent(content)
         }
     }, [content, editor])

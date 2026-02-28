@@ -22,11 +22,11 @@ class ConflictAgent:
         self.workspace_id = workspace_id
         self.brain = brain or Brain()
 
-    async def analyze_conflicts(self) -> List[Dict[str, Any]]:
+    async def analyze_conflicts(self, db: Session) -> List[Dict[str, Any]]:
         """
         Scans for existing conflicts in the DB and generates resolution proposals.
         """
-        conflicts = self.db.query(CalendarConflict).filter(
+        conflicts = db.query(CalendarConflict).filter(
             CalendarConflict.workspace_id == self.workspace_id
         ).all()
         
@@ -36,7 +36,7 @@ class ConflictAgent:
         results = []
         for conflict in conflicts:
             # Generate a resolution proposal using LLM
-            proposal = await self._propose_resolution(conflict)
+            proposal = await self._propose_resolution(db, conflict)
             results.append({
                 "conflict_id": conflict.id,
                 "type": conflict.conflict_type,
@@ -46,11 +46,17 @@ class ConflictAgent:
             
         return results
 
-    async def _propose_resolution(self, conflict: CalendarConflict) -> str:
+    async def _propose_resolution(self, db: Session, conflict: CalendarConflict) -> str:
         """Uses LLM to think of the best way to resolve a specific conflict."""
+        # Fetch User Profile
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
         system_prompt = (
-            "You are Aaliyah Conflict Sub-Agent. "
-            "Your goal is to resolve calendar overlaps for your principal. "
+            f"You are Aaliyah Conflict Sub-Agent for {user_name}. "
+            f"Your goal is to resolve calendar overlaps for {user_name}. "
             "Propose a tactful, executive solution (e.g., reschedule, delegate, or skip). "
             "STRICT RULES:\n"
             "- Favor buffer times.\n"

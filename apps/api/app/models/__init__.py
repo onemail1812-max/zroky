@@ -30,6 +30,7 @@ from app.models.booking_link import BookingLink
 from app.models.draft import Draft, DraftStatus
 from app.models.meeting_transcript import MeetingTranscript
 from app.models.search_index import EmailIndex, CalendarIndex
+from app.models.chat_message import ChatMessageRow
 
 
 __all__ = [
@@ -80,4 +81,5 @@ __all__ = [
     "TriagedEmail",
     "EmailIndex",
     "CalendarIndex",
+    "ChatMessageRow",
 ]

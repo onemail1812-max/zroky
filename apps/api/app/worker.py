@@ -26,8 +26,13 @@ HANDLERS = {
 
 async def main():
     setup_logging("worker.json.log")
-    logger.info("--- ZROKY WORKER (Stateless Mode) — No sync loops ---")
-    await queue.worker_loop(HANDLERS)
+    logger.info("--- ZROKY WORKER (v2.1 Hardened) — Active Watchdogs ---")
+    
+    # Run worker loop and watchdog concurrently
+    await asyncio.gather(
+        queue.worker_loop(HANDLERS),
+        queue.run_watchdog()
+    )
 
 
 if __name__ == "__main__":

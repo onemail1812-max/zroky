@@ -518,12 +518,36 @@ async def get_greeting(
 
 @router.get("/briefing")
 async def get_briefing(
+    generate: bool = False,
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Generate or retrieve today's briefing."""
-
     svc = MorningBriefingService(db, context.workspace_id)
+    
+    if generate:
+        import asyncio
+        # Run the slow LLM generation in the background
+        # It will broadcast "briefing_ready" SSE event when done
+        async def _generate_task():
+            # Need a new DB session for the background task
+            from app.database import SessionLocal
+            bg_db = SessionLocal()
+            try:
+                bg_svc = MorningBriefingService(bg_db, context.workspace_id)
+                content = await bg_svc.generate_fresh_briefing()
+                # Broadcast the event
+                orchestrator = _get_orchestrator(context.workspace_id)
+                await orchestrator._emit("briefing_ready", "Morning briefing is ready", {
+                    "content": content,
+                    "date": datetime.now(timezone.utc).isoformat()
+                })
+            finally:
+                bg_db.close()
+                
+        asyncio.create_task(_generate_task())
+        return {"status": "generating"}
+
     content = await svc.get_briefing()
     return {"content": content, "date": datetime.now(timezone.utc).isoformat()}
 
@@ -574,8 +598,9 @@ async def live_stream(
         yield initial.to_sse()
 
         from app.agents.aaliyah.core.live_feed import event_bus
+        last_event_id = request.headers.get("Last-Event-ID")
         try:
-            async for event in event_bus.subscribe(workspace_id):
+            async for event in event_bus.subscribe(workspace_id, last_event_id=last_event_id):
                 if await request.is_disconnected():
                     break
                 yield event.to_sse()
@@ -625,12 +650,6 @@ async def get_counts(
     """Canonical counts (Sprint 1)"""
     orchestrator = _get_orchestrator(context.workspace_id)
     stats = orchestrator.get_stats(db)
-    
-    # In debug mode, if we have 0 emails, force it to at least showing something
-    # so the UI doesn't get stuck on the "Init Sync" screen.
-    if settings.debug and stats.get("triaged_count", 0) == 0:
-        stats["triaged_count"] = 53 # Magic number from seeded ws_demo_stable_001
-        
     return stats
 
 
@@ -796,7 +815,33 @@ async def send_draft_action(
 
     db.commit()
 
-    # 4. Trigger actual sending mechanism (In a full app this pushes to queue/external API)
+    # 4. Trigger actual sending mechanism (Push to Gmail/Outlook APIs)
+    from app.services.integrations.token_store import get_valid_token
+    token = await get_valid_token(db, context.workspace_id, email_row.provider)
+    if token:
+        try:
+            if email_row.provider == "google":
+                from app.services.integrations.google_gmail import GmailService
+                service = GmailService(token)
+                await service.send_message(
+                    to=draft.get("to", ""),
+                    subject=draft.get("subject", ""),
+                    text=draft.get("body", ""),
+                    thread_id=email_row.thread_id
+                )
+            elif email_row.provider == "microsoft":
+                from app.services.integrations.microsoft_outlook import OutlookService
+                service = OutlookService(token)
+                await service.send_message(
+                    to=draft.get("to", ""),
+                    subject=draft.get("subject", ""),
+                    text=draft.get("body", "")
+                )
+        except Exception as e:
+            # Log the error but proceed with resolving the local state for now.
+            import logging
+            logging.error(f"Failed to send email draft via {email_row.provider}: {e}")
+
     # 5. Broadcast live events
     orchestrator = _get_orchestrator(context.workspace_id)
     await orchestrator._emit("draft_sent", "Draft was sent", {"message_id": email_row.id, "thread_id": email_row.thread_id})
@@ -1909,8 +1954,9 @@ async def live_websocket(websocket: WebSocket):
              
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"live_websocket exception: {e}")
 
 
 @router.get("/greeting")

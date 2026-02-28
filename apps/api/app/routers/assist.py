@@ -16,6 +16,7 @@ from app.agents.aaliyah.core.ingestion.email_ingestor import EmailIngestor
 from app.agents.aaliyah.core.ingestion.calendar_sync import CalendarSync
 from app.services.brain.core import Brain
 from app.core.limiter import limiter
+from app.services.email.parsing.reply_parser import parse_email_body
 
 class SearchRequest(BaseModel):
     user_query: str
@@ -26,14 +27,32 @@ class SearchRequest(BaseModel):
 class AnswerRequest(BaseModel):
     message: str
     workspace_id: Optional[str] = None
+    email_id: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str
     content: str
 
+class AttachmentRequest(BaseModel):
+    name: str
+    type: str # mime type
+    data: str # base64
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     workspace_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    email_id: Optional[str] = None
+    attachments: Optional[List[AttachmentRequest]] = []
+
+class ComposeRequest(BaseModel):
+    to: List[str]
+    cc: Optional[List[str]] = []
+    bcc: Optional[List[str]] = []
+    subject: str
+    body: str
+    workspace_id: Optional[str] = None
+    attachments: Optional[List[AttachmentRequest]] = []
 
 class ExecuteActionRequest(BaseModel):
     item_id: str
@@ -196,14 +215,38 @@ async def get_event(
         raise HTTPException(status_code=404, detail="Event not found")
         
     return {
-        "title": event.get("title"),
-        "attendees": event.get("attendees"),
-        "start_at": event.get("start_at"),
-        "end_at": event.get("end_at"),
-        "location": event.get("location"),
+        "event": event,
         "description": event.get("description"),
         "provider": provider
     }
+
+@router.get("/messages")
+async def get_messages(
+    thread_id: Optional[str] = None,
+    email_id: Optional[str] = None,
+    limit: int = 50,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db)
+):
+    """
+    Get chat history for a specific thread or global chat.
+    """
+    from app.models.chat_message import ChatRepository
+    repo = ChatRepository(db, context.workspace_id)
+    messages = repo.list_messages(thread_id=thread_id, email_id=email_id, limit=limit)
+    
+    # Format for frontend
+    return [
+        {
+            "id": msg.id,
+            "role": msg.role,
+            "content": msg.content,
+            "type": msg.msg_type,
+            "payload": msg.payload,
+            "created_at": msg.created_at.isoformat()
+        }
+        for msg in messages
+    ]
 
 @router.post("/answer")
 @limiter.limit("10/minute")
@@ -222,19 +265,30 @@ async def answer(
     # Initialize Brain
     brain = Brain() # Assuming default init works or uses env vars
     
-    # Initialize Orchestrator
-    # Note: orchestrator expects workspace_id.
-    # If payload.workspace_id is None, we might fail.
-    # Frontend sends workspaceId.
+    # Generate Response (Note: this is simplified, Orchestrator stream handling is better)
+    # We need a proper orchestrator stream method, or we use the async generator if implemented
+    # For now, we will call brain stream manually here as a shim until Orchestrator supports it
+    
+    # 1. Update memory
+    from app.models.triaged_email import TriagedEmail
+    context_str = ""
+    if payload.email_id:
+         email = db.query(TriagedEmail).filter(TriagedEmail.id == payload.email_id).first()
+         if email:
+             context_str = f"Context (Specific Email):\nSubject: {email.subject}\nSender: {email.sender}\nBody: {email.snippet}\n\n"
     
     orchestrator = AaliyahOrchestrator(workspace_id, brain)
+    memory = orchestrator._intent_from_message(payload.message) # Just to initialize something
+    
+    prompt = f"{context_str}User: {payload.message}"
     
     # Execute
     try:
         response = await orchestrator.handle_chat(
             db=db,
             user_id=context.user_id,
-            message=payload.message
+            message=payload.message,
+            email_id=payload.email_id
         )
         return response
     except Exception as e:
@@ -295,19 +349,17 @@ async def answer_stream(
 @router.post("/chat")
 @limiter.limit("20/minute")
 async def chat(
-    payload: ChatRequest,
     request: Request,
+    payload: ChatRequest,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db)
 ):
     """
-    Clean SSE streaming chat endpoint.
-    Auth is optional — falls back to demo context if no token.
+    Enterprise Chat Endpoint: SSE Streaming + Orchestration + Persistence.
     """
-    from openai import AsyncOpenAI
-    from app.config import settings
-    import traceback
-    import logging
-
-    logger = logging.getLogger(__name__)
+    workspace_id = payload.workspace_id or context.workspace_id
+    user_id = context.user_id
+    thread_id = payload.thread_id
 
     # Get last user message
     user_messages = [m for m in payload.messages if m.role == "user"]
@@ -316,77 +368,66 @@ async def chat(
     
     last_message = user_messages[-1].content
 
-    # API key resolution (same fallback chain as Brain.__init__)
-    api_key = settings.brain_api_key or settings.openrouter_api_key
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="No API key configured. Set BRAIN_API_KEY or OPENROUTER_API_KEY."
+    # Initialize Orchestrator
+    orchestrator = AaliyahOrchestrator(workspace_id=workspace_id)
+    
+    # PERSISTENCE: Save User Message
+    from app.models.chat_message import ChatRepository
+    import uuid
+    import json
+    
+    # Init DB and Repo
+    db = next(get_db())
+    repo = ChatRepository(db, workspace_id)
+    
+    # 1. Save user message first if there's a new one
+    # Note: frontend sends full history, we only want to process the LAST message if it's from user
+    if payload.messages and payload.messages[-1].role == "user":
+        user_msg = payload.messages[-1]
+        repo.add_message(
+            id=f"user_{uuid.uuid4().hex[:12]}",
+            role="user",
+            content=user_msg.content,
+            thread_id=payload.thread_id,
+            email_id=payload.email_id
         )
 
     async def stream_generator():
+        current_db = next(get_db()) # Explicit session for generator context
         try:
-            # Groq = fastest free inference (~0.5s response time)
-            groq_key = settings.GROQ_API_KEY
+            full_content = ""
+            async for chunk in orchestrator.handle_chat_stream(
+                db=current_db,
+                user_id=user_id,
+                message=last_message,
+                thread_id=thread_id,
+                attachments=payload.attachments
+            ):
+                if chunk.get("type") == "delta":
+                    full_content += chunk.get("content", "")
+                
+                yield f"data: {json.dumps(chunk)}\n\n"
             
-            client = AsyncOpenAI(
-                base_url="https://api.groq.com/openai/v1",
-                api_key=groq_key or api_key,
-            )
-
-            system_prompt = (
-                "You are Aaliyah, an elite AI Executive Assistant. "
-                "Respond directly, sharply, and professionally. "
-                "Use markdown formatting when helpful.\n\n"
-                "RULES: "
-                "Never say 'Great question', 'Certainly', 'Of course', 'I hope this helps'. "
-                "No em dashes. No filler phrases. Be direct. Vary sentence length. "
-                "Use active voice. Have personality. No emoji."
-            )
-
-            # Build messages array (include conversation history for context)
-            llm_messages = [{"role": "system", "content": system_prompt}]
-            for m in payload.messages[-10:]:  # Last 10 messages for context
-                llm_messages.append({"role": m.role, "content": m.content})
-
-            # Try Groq first (instant), then fall back to OpenRouter
-            providers = [
-                {"base_url": "https://api.groq.com/openai/v1", "key": groq_key, "model": "llama-3.3-70b-versatile"},
-                {"base_url": settings.openrouter_base_url, "key": api_key, "model": "openrouter/free"},
-            ]
-
-            stream = None
-            last_err = None
-            for provider in providers:
-                try:
-                    c = AsyncOpenAI(base_url=provider["base_url"], api_key=provider["key"])
-                    stream = await c.chat.completions.create(
-                        model=provider["model"],
-                        messages=llm_messages,
-                        stream=True,
-                        temperature=0.3,
-                    )
-                    break
-                except Exception as e:
-                    last_err = e
-                    logger.warning(f"Provider {provider['base_url']} failed: {e}")
-                    continue
-
-            if stream is None:
-                yield f"data: {json.dumps({'type': 'error', 'content': f'All providers failed: {last_err}'})}\n\n"
-                return
-
-            async for chunk in stream:
-                if chunk.choices and len(chunk.choices) > 0:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        yield f"data: {json.dumps({'type': 'delta', 'content': delta.content})}\n\n"
-
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            # PERSISTENCE: Save Assistant Message
+            if full_content:
+                repo = ChatRepository(current_db, workspace_id)
+                repo.add_message(
+                    id=f"asst_{uuid.uuid4().hex[:12]}",
+                    role="assistant",
+                    content=full_content,
+                    thread_id=payload.thread_id,
+                    email_id=payload.email_id,
+                    msg_type="text"
+                )
+            
+            yield f"data: [DONE]\n\n"
 
         except Exception as e:
-            logger.error(f"Chat stream failed: {e}", exc_info=True)
+            import logging
+            logging.getLogger(__name__).error(f"Chat stream failed: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        finally:
+            current_db.close()
 
     return StreamingResponse(
         stream_generator(),
@@ -425,8 +466,118 @@ async def execute_action(
         # Mock archive logic
         return {"message": f"Message {item_id} has been archived."}
     
-    if action_label == "Draft Reply":
-        # This could trigger a drafting job
-        return {"message": f"I've started drafting a reply for you. It'll appear in your feed shortly."}
+    if action_label in ["Draft Reply", "Draft Nudge"]:
+        # Trigger a drafting job via queue
+        from app.core.queue import queue, JobType
+        import asyncio
+        asyncio.create_task(
+            queue.enqueue(
+                job_type=JobType.PROCESS_DRAFT.value,
+                payload={"workspace_id": workspace_id, "triaged_id": item_id},
+                dedupe_id=f"draft:{item_id}"
+            )
+        )
+        msg = "I've started drafting a reply for you." if action_label == "Draft Reply" else "I'll prepare a follow-up nudge for you right away."
+        return {"message": msg}
 
     return {"message": f"Action '{action_label}' received and processed."}
+
+
+@router.post("/historical-sync")
+async def start_historical_sync(
+    days: int = 180,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger a historical backfill for the last N days.
+    """
+    orchestrator = AaliyahOrchestrator(workspace_id=context.workspace_id)
+    import asyncio
+    # We run this as a background task
+    asyncio.create_task(orchestrator.historical_sync(db, days))
+    return {"message": f"Historical sync for {days} days started in background."}
+
+@router.get("/history")
+async def get_chat_history(
+    thread_id: Optional[str] = None,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch server-side chat history for a thread or global context.
+    """
+    from app.models.chat_message import ChatRepository
+    repo = ChatRepository(db, context.workspace_id)
+    messages = repo.list_messages(thread_id=thread_id)
+    
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "type": m.msg_type,
+            "payload": m.payload,
+            "created_at": m.created_at
+        } for m in messages
+    ]
+
+@router.post("/compose")
+@limiter.limit("5/minute")
+async def compose_email(
+    request: Request,
+    payload: ComposeRequest,
+    context: CurrentContext = Depends(get_current_context),
+    db: Session = Depends(get_db)
+):
+    """
+    Send an email from scratch (Feature 6).
+    """
+    workspace_id = payload.workspace_id or context.workspace_id
+    
+    from app.services.integrations.token_store import get_valid_token
+    from app.services.integrations.google_gmail import GmailService
+    
+    # Try google first
+    token_google = get_valid_token(db, workspace_id, "google")
+    token_outlook = get_valid_token(db, workspace_id, "outlook")
+    
+    if token_google:
+        service = GmailService(token_google)
+    elif token_outlook:
+        from app.services.integrations.microsoft_outlook import OutlookService
+        service = OutlookService(token_outlook)
+    else:
+        raise HTTPException(status_code=400, detail="No active Google or Outlook email integration found.")
+    
+    try:
+        to_str = ", ".join(payload.to)
+        cc_str = ", ".join(payload.cc) if payload.cc else None
+        bcc_str = ", ".join(payload.bcc) if payload.bcc else None
+        
+        # Append signature if exists
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if workspace:
+             settings = getattr(workspace, "settings_json", {}) or {}
+             signature = settings.get("aaliyah", {}).get("signature", "")
+             if not signature:
+                  style = getattr(workspace, "style_profile_json", {}) or {}
+                  signature = style.get("signature", "--\nSent via Aaliyah")
+             if signature and signature not in payload.body:
+                  payload.body = f"{payload.body}\n\n{signature}"
+
+        await service.send_message(
+            to=to_str,
+            subject=payload.subject,
+            text=payload.body,
+            cc=cc_str,
+            bcc=bcc_str,
+            attachments=[a.model_dump() for a in (payload.attachments or [])]
+        )
+        return {"status": "success", "message": "Email sent."}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Compose failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+

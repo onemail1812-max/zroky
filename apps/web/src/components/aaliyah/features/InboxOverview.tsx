@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { AlertTriangle, Inbox, RefreshCw, FileText, Send, Edit, X } from "lucide-react"
-import { getInbox, getCalendarConflicts, syncInbox, syncCalendar, sendDraft, getUpcomingMeetings } from "@/lib/aaliyah/api"
+import { getInbox, getCalendarConflicts, syncInbox, syncCalendar, sendDraft, getUpcomingMeetings, getEventPrep } from "@/lib/aaliyah/api"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/aaliyah/ui/Card"
 import { Button } from "@/components/aaliyah/ui/Button"
 import { Chip } from "@/components/aaliyah/ui/Chip"
@@ -62,6 +62,7 @@ export function InboxOverview() {
     const [loading, setLoading] = React.useState(true)
     const [syncing, setSyncing] = React.useState(false)
     const [sendingIds, setSendingIds] = React.useState<Set<string>>(new Set())
+    const [generatingPrepIds, setGeneratingPrepIds] = React.useState<Set<string>>(new Set())
 
     const lastSync = useSystemStore(state => state.lastSync)
 
@@ -148,6 +149,30 @@ export function InboxOverview() {
         }
     }
 
+    async function handleGeneratePrep(eventId: string) {
+        setGeneratingPrepIds(prev => new Set(prev).add(eventId))
+        try {
+            const data = await getEventPrep(eventId, true)
+            if (data?.prep) {
+                setUpcoming(prev => prev.map(item => {
+                    if (item.id === eventId) {
+                        return { ...item, meeting_prep: data.prep }
+                    }
+                    return item
+                }))
+            }
+        } catch (e) {
+            console.error("Failed to generate meeting prep", e)
+            alert("Failed to generate meeting prep. Check console.")
+        } finally {
+            setGeneratingPrepIds(prev => {
+                const next = new Set(prev)
+                next.delete(eventId)
+                return next
+            })
+        }
+    }
+
     return (
         <div className="space-y-6">
             <h2 className="text-xl font-bold tracking-tight">Intelligence Feed</h2>
@@ -196,51 +221,72 @@ export function InboxOverview() {
 
             {/* Upcoming Briefings */}
             {
-                upcoming.some(u => u.meeting_prep) && (
+                upcoming.length > 0 && (
                     <Card className="border-blue-200 bg-blue-50/50">
                         <CardHeader className="pb-2">
                             <CardTitle className="flex items-center text-blue-800 text-sm">
                                 <FileText className="mr-2 h-4 w-4" />
-                                Upcoming Meeting Briefings
+                                Upcoming Meetings
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            {upcoming.filter(u => u.meeting_prep).map((u) => (
-                                <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
-                                    <div className="flex justify-between font-medium">
-                                        <span>{u.title}</span>
-                                        <span className="opacity-70 text-xs whitespace-nowrap ml-2">
-                                            {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-                                    <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
-
-                                    {u.meeting_prep && (
-                                        <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs">
-                                            <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
-                                            <div className="mb-1 italic">{u.meeting_prep.summary}</div>
-
-                                            {u.meeting_prep.recommendation && (
-                                                <div className="mt-2">
-                                                    <span className="font-semibold text-blue-800">Strategy: </span>
-                                                    {u.meeting_prep.recommendation}
-                                                </div>
-                                            )}
-
-                                            {u.meeting_prep.talking_points?.length > 0 && (
-                                                <div className="mt-2">
-                                                    <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
-                                                    <ul className="list-disc list-inside opacity-80 space-y-0.5">
-                                                        {u.meeting_prep.talking_points.map((tp, i) => (
-                                                            <li key={i}>{tp}</li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            )}
+                            {upcoming.map((u) => {
+                                const isGenerating = generatingPrepIds.has(u.id);
+                                return (
+                                    <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
+                                        <div className="flex justify-between font-medium items-center">
+                                            <span>{u.title}</span>
+                                            <div className="flex items-center gap-2">
+                                                {!u.meeting_prep && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-6 text-[10px] text-blue-700 hover:text-blue-900 hover:bg-blue-100 uppercase tracking-wider px-2"
+                                                        onClick={() => handleGeneratePrep(u.id)}
+                                                        disabled={isGenerating}
+                                                    >
+                                                        {isGenerating ? (
+                                                            <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                                                        ) : (
+                                                            <FileText className="mr-1 h-3 w-3" />
+                                                        )}
+                                                        {isGenerating ? "Preparing..." : "Brief Me"}
+                                                    </Button>
+                                                )}
+                                                <span className="opacity-70 text-xs whitespace-nowrap ml-2">
+                                                    {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
-                            ))}
+                                        <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
+
+                                        {u.meeting_prep && (
+                                            <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs animate-in fade-in duration-300">
+                                                <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
+                                                <div className="mb-1 italic">{u.meeting_prep.summary}</div>
+
+                                                {u.meeting_prep.recommendation && (
+                                                    <div className="mt-2">
+                                                        <span className="font-semibold text-blue-800">Strategy: </span>
+                                                        {u.meeting_prep.recommendation}
+                                                    </div>
+                                                )}
+
+                                                {u.meeting_prep.talking_points?.length > 0 && (
+                                                    <div className="mt-2">
+                                                        <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
+                                                        <ul className="list-disc list-inside opacity-80 space-y-0.5">
+                                                            {u.meeting_prep.talking_points.map((tp, i) => (
+                                                                <li key={i}>{tp}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )
+                            })}
                         </CardContent>
                     </Card>
                 )

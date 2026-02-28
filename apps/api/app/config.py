@@ -56,9 +56,10 @@ class Settings(BaseSettings):
     OPENROUTER_APP_NAME: str = "Aaliyah AI"
     
     # Models
-    AALIYAH_DRAFT_MODEL: str = "google/gemini-2.5-flash-lite"
-    AALIYAH_VERIFY_MODEL: str = "deepseek/deepseek-r1"
-    BRAIN_MODEL: str = "google/gemini-2.5-flash-lite"
+    AALIYAH_DRAFT_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
+    AALIYAH_REASONING_MODEL: str = "arcee-ai/trinity-large-preview:free"
+    AALIYAH_VERIFY_MODEL: str = "deepseek/deepseek-r1:free"
+    BRAIN_MODEL: str = "groq/llama-3.1-8b-instant"
     BRAIN_API_KEY: Optional[str] = Field(None, description="Primary key for Intelligence.")
     GROQ_API_KEY: Optional[str] = Field(None, description="Groq API key for fast inference.")
     OPENROUTER_EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
@@ -126,7 +127,9 @@ class Settings(BaseSettings):
     @property
     def aaliyah_draft_model(self): return self.AALIYAH_DRAFT_MODEL
     @property
-    def aaliyah_reasoning_model(self): return "deepseek/deepseek-r1:free"
+    def aaliyah_reasoning_model(self): return self.AALIYAH_REASONING_MODEL
+    @property
+    def aaliyah_verify_model(self): return self.AALIYAH_VERIFY_MODEL
     
     @property
     def server_host(self): return self.SERVER_HOST
@@ -197,6 +200,9 @@ class Settings(BaseSettings):
     
     @property
     def brain_api_key(self): return self.BRAIN_API_KEY
+
+    @property
+    def groq_api_key(self): return self.GROQ_API_KEY
 
     @property
     def openrouter_embedding_model(self): return self.OPENROUTER_EMBEDDING_MODEL

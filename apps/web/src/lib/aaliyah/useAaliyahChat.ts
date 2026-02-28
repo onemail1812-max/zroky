@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useSystemStore } from "@/lib/aaliyah/store";
 
 export interface ChatMessage {
     id: string;
@@ -12,26 +13,31 @@ export interface ChatMessage {
 
 interface UseAaliyahChatOptions {
     api?: string;
+    threadId?: string | null;
+    emailId?: string | null;
 }
 
-const STORAGE_KEY = "aaliyah_chat_messages";
+function getStorageKey(threadId?: string | null, emailId?: string | null) {
+    if (emailId) return `aaliyah_chat_messages_email_${emailId}`;
+    return `aaliyah_chat_messages_${threadId || "global"}`;
+}
 
-function loadMessages(): ChatMessage[] {
+function loadMessages(threadId?: string | null, emailId?: string | null): ChatMessage[] {
     if (typeof window === "undefined") return [];
     try {
-        const stored = sessionStorage.getItem(STORAGE_KEY);
+        const stored = sessionStorage.getItem(getStorageKey(threadId, emailId));
         return stored ? JSON.parse(stored) : [];
     } catch {
         return [];
     }
 }
 
-function saveMessages(msgs: ChatMessage[]) {
+function saveMessages(msgs: ChatMessage[], threadId?: string | null, emailId?: string | null) {
     if (typeof window === "undefined") return;
     try {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+        sessionStorage.setItem(getStorageKey(threadId, emailId), JSON.stringify(msgs));
     } catch {
-        // Storage full or unavailable — silently ignore
+        // Storage full or unavailable
     }
 }
 
@@ -40,30 +46,90 @@ function saveMessages(msgs: ChatMessage[]) {
  * Persists messages in sessionStorage so they survive tab switches.
  */
 export function useAaliyahChat(options?: UseAaliyahChatOptions) {
-    const [messages, setMessagesRaw] = useState<ChatMessage[]>(loadMessages);
+    const threadId = options?.threadId;
+    const emailId = options?.emailId;
+    const [messages, setMessagesRaw] = useState<ChatMessage[]>(() => loadMessages(threadId, emailId));
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
     const apiUrl = options?.api || "/assist/chat";
 
-    // Persist messages to sessionStorage on every change
+    // Reload messages when threadId changes
+    useEffect(() => {
+        const fetchHistory = async () => {
+            setIsLoading(true);
+            try {
+                const emailParam = emailId ? `&email_id=${emailId}` : "";
+                const threadParam = threadId ? `thread_id=${threadId}` : "";
+                const url = `/assist/history?${threadParam}${emailParam}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && Array.isArray(data)) {
+                        setMessagesRaw(prev => {
+                            // Prevent backend empty array from overwriting the locally injected Welcome Message
+                            if (data.length === 0 && prev.length > 0) return prev;
+                            saveMessages(data, threadId, emailId);
+                            return data;
+                        });
+                    }
+                } else {
+                    // Fallback to local
+                    setMessagesRaw(prev => prev.length > 0 ? prev : loadMessages(threadId, emailId));
+                }
+            } catch (err) {
+                setMessagesRaw(prev => prev.length > 0 ? prev : loadMessages(threadId, emailId));
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchHistory();
+    }, [threadId]);
+
     const setMessages = useCallback((updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
         setMessagesRaw(prev => {
             const next = typeof updater === "function" ? updater(prev) : updater;
-            saveMessages(next);
+            saveMessages(next, threadId, emailId);
             return next;
         });
-    }, []);
+    }, [threadId, emailId]);
 
-    const sendMessage = useCallback(async (userInput?: string) => {
+    const sendMessage = useCallback(async (userInput?: string, attachments?: any[]) => {
         const text = (userInput || input).trim();
-        if (!text || isLoading) return;
+        if ((!text && (!attachments || attachments.length === 0)) || isLoading) return;
+
+        const currentThreadId = options?.threadId;
+
+        const health = useSystemStore.getState().connectionHealth;
+
+        // Only block when health is completely unknown (still initializing)
+        // When disconnected, the backend handles smart intent routing (limited mode)
+        if (health === null) {
+            setInput("");
+            const userMsg: ChatMessage = {
+                id: `user-blocked-${Date.now()}`,
+                role: "user",
+                content: text,
+                attachments: attachments,
+                threadId: currentThreadId,
+            };
+            const assistantMsg: ChatMessage = {
+                id: `assistant-blocked-${Date.now()}`,
+                role: "assistant",
+                content: "I'm still initializing and checking your account status. Give me a moment, then try again.",
+            };
+            setMessages(prev => [...prev, userMsg, assistantMsg]);
+            return;
+        }
 
         // Add user message
         const userMsg: ChatMessage = {
             id: `user-${Date.now()}`,
             role: "user",
             content: text,
+            attachments: attachments,
+            threadId: currentThreadId,
         };
 
         const assistantMsg: ChatMessage = {
@@ -77,10 +143,14 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
         setIsLoading(true);
 
         // Build the messages payload (include history for context)
-        const allMessages = [...messages, userMsg].map(m => ({
-            role: m.role,
-            content: m.content,
-        }));
+        // Sanitization: Ensure role and content are valid, filter out non-textual UI types
+        const allMessages = [...messages, userMsg]
+            .filter(m => m.role === "user" || (m.role === "assistant" && (m.content || m.type === "text")))
+            .map(m => ({
+                role: m.role,
+                content: String(m.content || ""),
+                attachments: m.attachments,
+            }));
 
         try {
             abortRef.current = new AbortController();
@@ -88,7 +158,11 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
             const response = await fetch(apiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ messages: allMessages }),
+                body: JSON.stringify({
+                    messages: allMessages,
+                    thread_id: currentThreadId,
+                    email_id: emailId
+                }),
                 signal: abortRef.current.signal,
                 credentials: "include",
             });
@@ -121,16 +195,29 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                     try {
                         const parsed = JSON.parse(data);
 
-                        if (parsed.type === "delta" && parsed.content) {
+                        if ((parsed.type === "delta" || parsed.type === "chunk") && parsed.content) {
                             setMessages(prev => {
                                 const updated = [...prev];
                                 const last = updated[updated.length - 1];
-                                if (last && last.role === "assistant") {
+                                if (last && last.role === "assistant" && last.type !== "email_action") {
                                     updated[updated.length - 1] = {
                                         ...last,
-                                        content: last.content + parsed.content,
+                                        content: (last.content || "") + parsed.content,
                                     };
                                 }
+                                return updated;
+                            });
+                        } else if (parsed.type === "email_action" || parsed.type === "compose_action") {
+                            // Enterprise Rich Action Card
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                // We push a new special message for the action card
+                                updated.push({
+                                    id: `action-${Date.now()}`,
+                                    role: "assistant",
+                                    type: parsed.type,
+                                    payload: parsed.payload
+                                });
                                 return updated;
                             });
                         } else if (parsed.type === "error") {
@@ -152,9 +239,10 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                     }
                 }
             }
-        } catch (err: any) {
-            if (err.name !== "AbortError") {
-                console.error("Chat stream error:", err);
+        } catch (err: unknown) {
+            const e = err as Error;
+            if (e.name !== "AbortError") {
+                console.error("Chat stream error:", e);
                 setMessages(prev => {
                     const updated = [...prev];
                     const last = updated[updated.length - 1];
@@ -168,6 +256,14 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                 });
             }
         } finally {
+            // Cleanup: remove empty assistant bubbles (stream ended with no content)
+            setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === "assistant" && !last.content && !last.type) {
+                    return prev.slice(0, -1);
+                }
+                return prev;
+            });
             setIsLoading(false);
             abortRef.current = null;
         }

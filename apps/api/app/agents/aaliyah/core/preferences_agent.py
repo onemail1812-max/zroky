@@ -45,7 +45,7 @@ Task: determine which settings to update.
 - If the user wants to enable/disable auto-labeling, return "auto_label_enabled".
 
 Return valid JSON only. Omit fields that should not change.
-Example: {{"vip_senders": ["boss@company.com", "ceo@company.com"]}}
+Example: {{"vip_senders": ["contact@company.com", "other@domain.com"]}}
 """
         try:
             response = await self.brain.think(
@@ -76,9 +76,9 @@ Example: {{"vip_senders": ["boss@company.com", "ceo@company.com"]}}
             valid_keys = {"enabled_labels", "vip_senders", "internal_domains", "keyword_rules", "auto_label_enabled", "auto_sync_interval_seconds"}
             filtered = {k: v for k, v in updates.items() if k in valid_keys}
             
-            # Mock fallback for dev if empty and query mentions vip/boss
-            if not filtered and "boss" in user_query.lower() and "vip" in user_query.lower():
-                 return {"vip_senders": ["boss@mycompany.com"]}
+            # Mock fallback for dev if empty and query mentions vip
+            if not filtered and "vip" in user_query.lower():
+                 return {"vip_senders": ["contact@mycompany.com"]}
 
             return filtered
 

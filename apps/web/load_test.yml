@@ -1,0 +1,23 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 30
+      arrivalRate: 10
+      name: Warm up
+    - duration: 60
+      arrivalRate: 20
+      rampTo: 50
+      name: Ramp up load
+  environments:
+    production:
+      target: "https://your-production-url.com"
+
+scenarios:
+  - name: "Health Check and Priority Triage Load"
+    flow:
+      - get:
+          url: "/aaliyah/health/providers"
+      - think: 1
+      - get:
+          url: "/inbox/summary/priority"
+      - think: 2

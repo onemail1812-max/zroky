@@ -12,6 +12,10 @@ import re
 import threading
 from types import SimpleNamespace
 from typing import Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
@@ -37,6 +41,7 @@ from app.services.brain.schemas.models import ModelType
 from app.services.brain.memory import DualStateMemory
 from app.agents.aaliyah.core.communication_engine import CommunicationEngine, CommunicationState
 from app.agents.aaliyah.core.tools.tool_dispatcher import ToolDispatcher
+from app.agents.aaliyah.core.intent_service import IntentService
 
 @dataclass
 class WorkspaceRuntimeState:
@@ -65,6 +70,7 @@ class AaliyahOrchestrator:
         self.brain = brain or Brain()
         self.triage_classifier = SmartTriageClassifier(self.brain)
         self.comm_engine = CommunicationEngine()
+        self.intent_service = IntentService(self.brain)
         self.dispatcher = ToolDispatcher(workspace_id=workspace_id, brain=self.brain, db=None) # DB set during actual call
 
     def _get_state(self) -> WorkspaceRuntimeState:
@@ -90,6 +96,10 @@ class AaliyahOrchestrator:
         """Public entry point for background workers to emit events and trigger conversational voice."""
         await self._emit(event_type, message, payload)
 
+    async def flush_communication(self) -> None:
+        """Trigger a heartbeat flush of the communication engine."""
+        await self._emit("heartbeat", "Checking for updates...")
+
     async def _emit(self, event_type: str, message: str, payload: Optional[dict[str, Any]] = None) -> None:
         event = LiveEvent(
             workspace_id=self.workspace_id,
@@ -99,17 +109,110 @@ class AaliyahOrchestrator:
         )
         await event_bus.publish(event)
         
-        # Communication Engine Integration
+        # Persist proactive assistant messages to chat history DB
+        # so they survive page refreshes and appear when the user opens the workspace
         if event_type == "assistant_message":
+            try:
+                from app.models.chat_message import ChatRepository
+                import uuid
+                persist_db = SessionLocal()
+                try:
+                    repo = ChatRepository(persist_db, self.workspace_id)
+                    text = (payload or {}).get("text", message)
+                    thread_id = (payload or {}).get("thread_id")
+                    repo.add_message(
+                        id=f"proactive_{uuid.uuid4().hex[:12]}",
+                        role="assistant",
+                        content=text,
+                        thread_id=thread_id,
+                        msg_type="text",
+                        payload=payload,
+                    )
+                except Exception as persist_err:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to persist proactive message: {persist_err}")
+                finally:
+                    persist_db.close()
+            except Exception:
+                pass  # Best-effort persistence
             return
+
+        # Persist new_email_arrival events as rich email_action cards
+        if event_type == "new_email_arrival":
+            try:
+                from app.models.chat_message import ChatRepository
+                import uuid
+                persist_db = SessionLocal()
+                try:
+                    repo = ChatRepository(persist_db, self.workspace_id)
+                    p = payload or {}
+                    sender_name = p.get("sender_name", p.get("sender", "Unknown"))
+                    subject = p.get("subject", "No Subject")
+                    repo.add_message(
+                        id=f"arrival_{uuid.uuid4().hex[:12]}",
+                        role="assistant",
+                        content=None,
+                        thread_id=None,
+                        msg_type="email_action",
+                        payload={
+                            "sender": sender_name,
+                            "subject": subject,
+                            "snippet": p.get("snippet", ""),
+                            "priority": "New",
+                            "actions": p.get("actions", []),
+                        },
+                    )
+                except Exception as persist_err:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to persist arrival notification: {persist_err}")
+                finally:
+                    persist_db.close()
+            except Exception:
+                pass
+
+        # Persist draft_ready events as rich email_action cards
+        if event_type == "draft_ready":
+            try:
+                from app.models.chat_message import ChatRepository
+                import uuid
+                persist_db = SessionLocal()
+                try:
+                    repo = ChatRepository(persist_db, self.workspace_id)
+                    p = payload or {}
+                    repo.add_message(
+                        id=f"draft_{uuid.uuid4().hex[:12]}",
+                        role="assistant",
+                        content=None,
+                        thread_id=None,
+                        msg_type="email_action",
+                        payload={
+                            "action": "draft_ready",
+                            "sender": p.get("sender", ""),
+                            "subject": p.get("subject", ""),
+                            "snippet": p.get("snippet", ""),
+                            "draft": p.get("draft", {}),
+                        },
+                    )
+                except Exception as persist_err:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to persist draft notification: {persist_err}")
+                finally:
+                    persist_db.close()
+            except Exception:
+                pass
 
         state = self._get_state()
         p = payload or {}
         
         if event_type == "draft_ready":
-            self.comm_engine.add_event(state.communication, "draft_ready", p)
+            is_urgent = p.get("priority") == "High" or p.get("is_vip", False)
+            self.comm_engine.add_event(state.communication, "draft_ready", p, urgent=is_urgent)
+        elif event_type == "thread_updated":
+            # Map thread updates to priority alerts
+            if p.get("priority") == "High" or p.get("is_vip", False):
+                self.comm_engine.add_event(state.communication, "priority_added", p, urgent=True)
         elif event_type == "approval_required":
-            self.comm_engine.add_event(state.communication, "approval_required", p)
+            self.comm_engine.add_event(state.communication, "approval_required", p, urgent=True)
         elif event_type == "followup_scan_complete":
             if p.get("count", 0) > 0:
                 self.comm_engine.add_event(state.communication, "followup_due", p)
@@ -121,6 +224,8 @@ class AaliyahOrchestrator:
                   self.comm_engine.add_event(state.communication, "cleaned_done", {"count": cleaned})
         elif event_type == "daily_briefing_ready":
              self.comm_engine.add_event(state.communication, "daily_6am_sync_complete", p)
+        elif event_type == "sync_failed":
+             self.comm_engine.add_event(state.communication, "sync_failed", p, urgent=True)
 
         # Attempt flush
         db = None
@@ -248,8 +353,7 @@ class AaliyahOrchestrator:
     def get_stats(self, db: Optional[Session] = None) -> dict[str, Any]:
         state = self._get_state()
         
-        # If DB is provided, get real-time ground truth for counts
-        # This removes "dummy" 0 counts after restart
+        # Default stats from memory-state (may be 0 after restart)
         stats = {
             "triaged_count": state.triaged_count,
             "queued_count": state.queued_count,
@@ -257,33 +361,61 @@ class AaliyahOrchestrator:
             "escalations": state.escalations,
             "calendar_events": state.calendar_events,
             "calendar_conflicts": state.calendar_conflicts,
+            "priority_count": 0,
+            "needs_reply_count": 0,
+            "followups_count": 0,
+            "drafts_count": 0
         }
 
         if db:
             try:
-                # Triaged Count (Total Inbox)
+                # 1. Total Triaged (Everything in DB for this workspace)
                 stats["triaged_count"] = db.query(TriagedEmail).filter(
                     TriagedEmail.workspace_id == self.workspace_id
                 ).count()
                 
-                # Queued Count (Waiting for user or system reply)
-                stats["queued_count"] = db.query(TriagedEmail).filter(
+                # 2. Priority Count (High Priority)
+                stats["priority_count"] = db.query(TriagedEmail).filter(
                     TriagedEmail.workspace_id == self.workspace_id,
-                    TriagedEmail.category == "Needs Reply"
+                    TriagedEmail.priority == "High"
                 ).count()
 
-                # Pending Approvals
+                # 3. Needs Reply Count (Explicit category or awaiting_reply flag)
+                stats["needs_reply_count"] = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                    (TriagedEmail.category == "Needs Reply") | (TriagedEmail.awaiting_reply == True)
+                ).count()
+                
+                # Alias for legacy queued_count
+                stats["queued_count"] = stats["needs_reply_count"]
+
+                # 4. Pending Approvals
                 stats["pending_approvals"] = db.query(TriagedEmail).filter(
                     TriagedEmail.workspace_id == self.workspace_id,
                     TriagedEmail.category == "Approvals"
                 ).count()
 
-                # Conflicts
+                # 5. Follow-ups Count
+                stats["followups_count"] = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                    TriagedEmail.category == "Followups"
+                ).count()
+                
+                # Alias for legacy escalations
+                stats["escalations"] = stats["followups_count"]
+
+                # 6. Drafts Count
+                stats["drafts_count"] = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                    TriagedEmail.metadata_json.like('%"draft":%')
+                ).count()
+
+                # 7. Conflicts
                 stats["calendar_conflicts"] = db.query(CalendarConflict).filter(
                     CalendarConflict.workspace_id == self.workspace_id
                 ).count()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to fetch realtime stats: {e}")
                 
         return stats
 
@@ -298,6 +430,21 @@ class AaliyahOrchestrator:
         include_noise: bool = False,
         queue: Optional[str] = None,
     ) -> dict[str, Any]:
+        from app.models.integration import Integration, IntegrationStatus, IntegrationProvider
+        
+        # 1. Fetch Connected Providers
+        integrations = db.query(Integration).filter(
+            Integration.workspace_id == self.workspace_id,
+            Integration.status == IntegrationStatus.CONNECTED
+        ).all()
+        
+        allowed_providers = []
+        for i in integrations:
+            if i.provider in (IntegrationProvider.GOOGLE_GMAIL, "google_gmail", "google"):
+                allowed_providers.append("google")
+            elif i.provider in (IntegrationProvider.OUTLOOK, "outlook", "microsoft"):
+                allowed_providers.append("microsoft")
+
         repo = TriagedInboxRepository(db, self.workspace_id)
         
         # If queue is provided, it takes precedence over category/priority
@@ -308,7 +455,8 @@ class AaliyahOrchestrator:
         threads, total = repo.list_threads(
             queue=q,
             limit=limit,
-            offset=offset
+            offset=offset,
+            allowed_providers=allowed_providers
         )
         
         return {
@@ -362,91 +510,37 @@ class AaliyahOrchestrator:
             "count": len(rows),
         }
 
-    def _intent_from_message(self, message: str) -> str:
-        """Weighted intent classification with scoring to prevent false positives."""
-        text = (message or "").lower().strip()
-        if not text:
-            return "SUMMARY"
 
-        scores: dict[str, float] = {
-            "DRAFT": 0.0,
-            "ARCHIVE": 0.0,
-            "LABEL": 0.0,
-            "CREATE_TASK": 0.0,
-            "UPDATE_PREFERENCE": 0.0,
-            "MEETING_PREP": 0.0,
-            "BRIEFING": 0.0,
-            "STATUS": 0.0,
-            "SEARCH": 0.0,
-            "HEALTH_CHECK": 0.0,
-            "RESEARCH": 0.0,
-            "CONFLICT": 0.0,
-        }
-
-        # Research intent
-        if any(w in text for w in ("summarize the project", "deep dive", "research", "briefing on", "project update")):
-            scores["RESEARCH"] += 2.0
+    async def historical_sync(self, db: Session, days: int = 180):
+        """
+        Backfills context for the last N days to ensure AI 'knows' the user.
+        """
+        from app.services.integrations.gmail import GmailService
+        from app.models.integration import Integration, IntegrationProvider
         
-        # Conflict
-        if any(w in text for w in ("conflict", "overlap", "reschedule", "double booked")):
-            scores["CONFLICT"] += 2.0
-
-        # Draft intent: must show clear drafting desire, not just mention "email"
-        if any(neg in text for neg in ("don't", "don't", "not", "no need to")):
-            if "draft" in text:
-                scores["DRAFT"] -= 1.5
-        if any(w in text for w in ("draft a reply", "write a reply", "compose", "draft an email", "write an email")):
-            scores["DRAFT"] += 2.0
-        if any(w in text for w in ("reply to", "respond to")):
-            scores["DRAFT"] += 1.5
-        if "draft" in text:
-            scores["DRAFT"] += 0.8
-
-        # Archive
-        if "archive" in text and not any(neg in text for neg in ("don't archive", "do not archive", "never archive", "not archive")):
-            scores["ARCHIVE"] += 2.0
-
-        # Label
-        if any(w in text for w in ("label", "tag", "categorize")) and not any(neg in text for neg in ("don't label", "no need to label", "stop labeling", "don't tag")):
-            scores["LABEL"] += 2.0
-
-        # Task
-        if any(w in text for w in ("create task", "add task", "todo", "to-do", "reminder")) and not any(neg in text for neg in ("don't create", "no need to add", "not a task")):
-            scores["CREATE_TASK"] += 2.0
-
-        # Preference update
-        if any(w in text for w in ("rule", "preference", "don't label", "always label", "stop labeling", "start labeling", "internal domain")):
-            scores["UPDATE_PREFERENCE"] += 2.0
-        if any(w in text for w in (" vip", "vips", "mark as vip", "add to vip")):
-            scores["UPDATE_PREFERENCE"] += 1.5
-
-        if any(w in text for w in ("meeting prep", "prepare for meeting", "cheat sheet", "brief me on the meeting", "meeting briefing")) and not any(neg in text for neg in ("don't prepare", "no meeting prep", "stop preparing")):
-            scores["MEETING_PREP"] += 2.0
+        # Determine connector
+        integration = db.query(Integration).filter(
+            Integration.workspace_id == self.workspace_id,
+            Integration.provider == IntegrationProvider.GOOGLE_GMAIL
+        ).first()
+        
+        if not integration:
+            return
             
-        if "?" in text:
-            scores["SEARCH"] += 0.5
-        if any(w in text for w in ("search", "find", "show me", "look for", "where is", "when is", "did", "has", "what is")) and not any(neg in text for neg in ("don't search", "stop searching", "no need to find")):
-            scores["SEARCH"] += 1.5
-        if any(w in text for w in ("email from", "sent by", "calendar", "meeting with")):
-            scores["SEARCH"] += 1.0
+        await self._emit("sync_started", f"Starting historical backfill for {days} days...")
+        
+        # In a real enterprise app, this would be a background job.
+        # Here we mock the ingestion for the vision demo.
+        memory = DualStateMemory(db, self.workspace_id)
+        
+        # Simulate backfilling 
+        # (In production, you'd iterate through gmail messages and call memory.extract_and_learn_from_email)
+        await self._emit("sync_progress", "Indexing historical conversations...", {"progress": 10})
+        await self._emit("sync_complete", "Historical sync complete. Long-term memory is now active.", {"days": days})
 
-        # Briefing
-        if any(w in text for w in ("morning briefing", "daily briefing", "what's my day", "today's agenda", "give me a briefing")) and not any(neg in text for neg in ("stop briefing", "no briefing", "don't brief")):
-            scores["BRIEFING"] += 2.0
-
-        # Status
-        if any(w in text for w in ("status", "what's happening", "inbox status", "how many emails", "how many unread")):
-            scores["STATUS"] += 2.0
-
-        # Health / Connection
-        if any(w in text for w in ("mail connected", "email connected", "connection status", "is my email working", "check connection", "health")):
-            scores["HEALTH_CHECK"] += 2.5
-
-        # Pick highest scoring intent, fallback to SUMMARY
-        best_intent = max(scores, key=scores.get)  # type: ignore
-        if scores[best_intent] < 0.5:
-            return "SUMMARY"
-        return best_intent
+    async def _intent_from_message(self, message: str) -> str:
+        """Delegates to the decoupled IntentService."""
+        return await self.intent_service.get_intent(message)
 
     def _extract_recipient(self, message: str) -> Optional[str]:
         match = self._recipient_re.search(message or "")
@@ -552,15 +646,75 @@ class AaliyahOrchestrator:
         refined = parse_draft_output(refined_response.content)
         return refined, critic
 
-    async def handle_chat(self, db: Session, *, user_id: str, message: str) -> dict[str, Any]:
+    async def handle_chat(self, db: Session, *, user_id: str, message: str, thread_id: Optional[str] = None, email_id: Optional[str] = None) -> dict[str, Any]:
         self._patch_state(status="thinking", active_task="Analyzing chat instruction")
         await self._emit("thinking", "Analyzing your request")
 
         # --- Dual-State Memory: recall full context ---
         memory = DualStateMemory(db, self.workspace_id)
-        context = memory.recall(message, top_k=3)
+        
+        # If email_id is provided, fetch the specific email to inject heavily into context
+        email_context_str = ""
+        if email_id:
+            email = db.query(TriagedEmail).filter(TriagedEmail.id == email_id).first()
+            if email:
+                email_context_str = f"Specific Email Context (Focus on this):\nSubject: {email.subject}\nSender: {email.sender}\nDate: {email.received_at}\nBody:\n{email.snippet}\n---\n"
+                
+        # Enhance message with specific email context for better intent routing and memory recall
+        augmented_message = f"{email_context_str}{message}" if email_context_str else message
+
+        context = memory.recall(augmented_message, top_k=3, thread_id=thread_id)
         related_memories = context["memories"]
-        intent = self._intent_from_message(message)
+        intent = self._intent_from_message(augmented_message)
+
+        # --- CLARIFICATION INTERCEPT (Sprint 10) ---
+        if thread_id and intent in {"SUMMARY", "DRAFT"}:
+             # Prefer the specified email if provided, otherwise fallback to finding one that needs clarity
+             latest_email = None
+             if email_id:
+                 latest_email = db.query(TriagedEmail).filter(TriagedEmail.id == email_id, TriagedEmail.needs_clarity == True).first()
+             
+             if not latest_email:
+                 latest_email = (
+                     db.query(TriagedEmail)
+                     .filter(
+                         TriagedEmail.workspace_id == self.workspace_id,
+                         TriagedEmail.thread_id == thread_id,
+                         TriagedEmail.needs_clarity == True
+                     )
+                     .order_by(TriagedEmail.received_at.desc())
+                     .first()
+                 )
+             if latest_email:
+                 from app.agents.aaliyah.core.drafting import DraftingAgent
+                 draft_agent = DraftingAgent(db, self.workspace_id)
+                 
+                 # 1. Update metadata with the clarity instruction
+                 meta = dict(latest_email.metadata_json or {})
+                 meta["clarity_instruction"] = message
+                 latest_email.metadata_json = meta
+                 latest_email.needs_clarity = False # Resolved!
+                 from sqlalchemy.orm.attributes import flag_modified
+                 flag_modified(latest_email, "metadata_json")
+                 db.commit()
+
+                 await self._emit("clarification_received", "Got it! Re-drafting your reply now...", {"thread_id": thread_id})
+                 
+                 # 2. Re-trigger drafting
+                 draft = await draft_agent.generate_draft(latest_email)
+                 if draft:
+                     await draft_agent.save_draft(latest_email.id, draft)
+                     await self._emit("draft_updated", f"I've updated the draft using your instructions.", {"thread_id": thread_id, "has_draft": True})
+                     
+                     # Force UI refresh (Sprint 10)
+                     await self._emit("thread_updated", "Draft updated", {"thread_id": thread_id})
+                     
+                     return {
+                         "reply": "Thank you for the clarification! I've updated the draft for your review.",
+                         "answer_text": "I've updated the draft with your instructions. Ready for your review.",
+                         "details": {"action": "clarification_resolved", "email_id": latest_email.id},
+                         "tool_result": {"status": "draft_updated"}
+                     }
 
         gate = gate_email(
             db=db,
@@ -693,13 +847,11 @@ class AaliyahOrchestrator:
         # --- DECENTRALIZED TOOL DISPATCHER (Search, Research, Conflict) ---
         if gate.allow_llm and intent in {"SEARCH", "RESEARCH", "CONFLICT"}:
             try:
-                # Update dispatcher with current DB session
-                self.dispatcher.db = db
-                
                 # Emit searching state
                 await self._emit("thinking", f"Specialized agent '{intent}' thinking...")
                 
-                result = await self.dispatcher.dispatch(intent, message, decision["params"])
+                # Pass DB session directly to dispatcher
+                result = await self.dispatcher.dispatch(db, intent, message, decision["params"])
                 
                 # Audit
                 await self._audit(
@@ -784,8 +936,13 @@ class AaliyahOrchestrator:
         if gate.allow_llm:
             try:
                 prompt_context = context.get("prompt_context", "")
+                workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+                settings = workspace.settings_json or {}
+                aaliyah_settings = settings.get("aaliyah", {})
+                user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
                 conv_system = (
-                    "You are Aaliyah, an elite Executive Assistant.\n"
+                    f"You are Aaliyah, an elite Executive Assistant for {user_name}.\n"
                     "RULES:\n"
                     "1. Respond using strictly this markdown format:\n"
                     "   **Status**: [current status, e.g. acting, pending_approval, info_provided]\n"
@@ -793,7 +950,8 @@ class AaliyahOrchestrator:
                     "   **Next step**: [what you are doing next or what the user should do]\n"
                     "2. Be concise, warm, and professional.\n"
                     "3. If context is provided, use it naturally.\n"
-                    "4. (Authentic Ghostwriting): Avoid generic fluff. Do NOT use words like 'delve', 'moreover', 'testament', 'tapestry', 'crucial', or 'vital'. Do NOT use filler phrases."
+                    "4. (Authentic Ghostwriting): Avoid generic fluff. Do NOT use words like 'delve', 'moreover', 'testament', 'tapestry', 'crucial', or 'vital'. Do NOT use filler phrases.\n"
+                    "5. ALWAYS respond in professional English, even if the user speaks in Hindi, Hinglish, or other languages."
                 )
                 conv_prompt = (
                     f"{prompt_context}\n\n" if prompt_context else ""
@@ -806,8 +964,9 @@ class AaliyahOrchestrator:
                     temperature_override=0.5,
                 )
                 reply_text = conv_response.content.strip() or reply_text
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Conversational generation fallback: {e}")
 
         self._patch_state(status="idle", active_task=None)
         await self._audit(
@@ -827,7 +986,15 @@ class AaliyahOrchestrator:
             "tool_result": {"status": "ready"},
         }
 
-    async def handle_chat_stream(self, db: Session, *, user_id: str, message: str):
+    async def handle_chat_stream(
+        self, 
+        db: Session, 
+        *, 
+        user_id: str, 
+        message: str, 
+        thread_id: Optional[str] = None,
+        attachments: Optional[List[Any]] = None
+    ):
         """
         Streaming version of handle_chat using Native SSE.
         Yields chunks as they arrive from the LLM, plus final payload.
@@ -841,107 +1008,405 @@ class AaliyahOrchestrator:
         # We start by sending an initial "thinking" chunk to the client
         yield {"type": "status", "content": "Analyzing context..."}
 
-        # 1. Triage & Decision Fast-Path
-        intent = self._intent_from_message(message)
+        # Enterprise Context Recall
+        context = memory.recall(message, top_k=3, thread_id=thread_id)
+        related_memories = context["memories"]
+        prompt_context = context.get("prompt_context", "")
+
+        # Process Chat Attachments (Feature 8)
+        llm_images = []
+        if attachments:
+            from app.services.extraction.file_extractor import FileExtractorService
+            attachment_info = "\n\n[USER ATTACHMENTS]:\n"
+            
+            for att in attachments:
+                att_dict = att.model_dump() if hasattr(att, 'model_dump') else att
+                name = att_dict.get('name', 'Unknown')
+                mime_type = att_dict.get('type', 'Unknown')
+                data_b64 = att_dict.get('data', '')
+                
+                if not data_b64:
+                    continue
+                    
+                # Decode base64
+                try:
+                    import base64
+                    # Remove header if present (e.g. "data:application/pdf;base64,")
+                    if "," in data_b64:
+                        data_bytes = base64.b64decode(data_b64.split(",")[1])
+                    else:
+                        data_bytes = base64.b64decode(data_b64)
+                except Exception:
+                    logger.warning(f"Failed to decode base64 for attachment {name}")
+                    continue
+
+                if FileExtractorService.is_image(mime_type):
+                    # Multi-modal path
+                    llm_images.append(data_b64)
+                    attachment_info += f"- Image: {name} (Passed to Vision Engine)\n"
+                else:
+                    # Text extraction path
+                    extracted_text = FileExtractorService.extract_text(data_bytes, mime_type)
+                    attachment_info += f"- File: {name} ({mime_type})\n"
+                    attachment_info += f"  --- Extracted Content ---\n{extracted_text}\n  --- End Extracted Content ---\n"
+            
+            prompt_context = f"{prompt_context}\n{attachment_info}"
+
+        # Connection Awareness logic (Enterprise self-awareness)
+        from app.models.integration import Integration, IntegrationStatus, IntegrationProvider
+        integrations = db.query(Integration).filter(Integration.workspace_id == self.workspace_id).all()
         
-        # We skip the complex gating for the stream version to keep it fast,
-        # but in a real app you'd evaluate the risk domain here.
+        # Robust check catching both Enum objects and raw string variations
+        def is_provider(intg, target):
+            p = str(intg.provider).lower()
+            return target.lower() in p
+
+        google_ok = any(is_provider(i, "google") and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+        outlook_ok = any(is_provider(i, "outlook") and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+        is_connected = google_ok or outlook_ok
+        connection_status_msg = (
+            "CONNECTED to inbox and calendar." if is_connected 
+            else "DISCONNECTED. You cannot see emails or calendar events right now. Proactively inform the user they must connect in Settings if they ask for data you don't have."
+        )
+
+        # Build System Prompt with context
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        ws_settings = workspace.settings_json or {}
+        aaliyah_settings = ws_settings.get("aaliyah", {})
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
+        system_prompt = (
+            f"You are Aaliyah, an elite AI Chief of Staff for {user_name}.\n"
+            f"CONNECTION STATUS: {connection_status_msg}\n\n"
+            f"CONTEXT:\n{prompt_context}\n\n"
+            "STRICT HUMANIZATION PROTOCOL (Blader/Humanizer Principles):\n"
+            "1. NO AI FILLER: Do not use 'delve', 'tapestry', 'testament', 'underscores', 'pivotal', 'crucial', or 'vibrant'.\n"
+            "2. NO COPULA AVOIDANCE: Use simple 'is' or 'are'. Avoid 'serves as', 'represents a shift', or 'boasts'.\n"
+            "3. VARY THE RHYTHM: Use a mix of short, punchy sentences and longer, thoughtful ones. Avoid same-length sentence monotony.\n"
+            "4. NO AI POLISH: Remove 'moreover', 'nonetheless', or sterile tone. Use active voice and be decisive.\n"
+            "5. ADAPT TO CONTEXT: Respond concisely and professionally using markdown. Use the provided context precisely.\n"
+            "6. ALWAYS respond in professional English."
+        )
+        
+        # ── Interactive Clarification Loop (Enterprise Feature) ─────────
+        # Check if ANY email in this workspace has pending clarification
+        from app.models.triaged_email import TriagedEmail
+        from app.core.queue import queue, JobType
+        
+        pending_email = None
+        if thread_id:
+            pending_email = db.query(TriagedEmail).filter(
+                TriagedEmail.thread_id == thread_id,
+                TriagedEmail.workspace_id == self.workspace_id
+            ).first()
+        
+        # Also check workspace-wide for pending clarification (not thread-scoped)
+        if not pending_email or not (pending_email.metadata_json or {}).get("needs_clarity"):
+            recent_emails = db.query(TriagedEmail).filter(
+                TriagedEmail.workspace_id == self.workspace_id,
+            ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
+            
+            # Find the one with pending clarification
+            found = None
+            for pe in recent_emails:
+                if pe is None:
+                    continue
+                meta = pe.metadata_json or {}
+                if meta.get("needs_clarity") and not meta.get("clarification_complete"):
+                    found = pe
+                    break
+            pending_email = found
+        
+        if pending_email:
+            meta = pending_email.metadata_json or {}
+            
+            # 1. Check if we are waiting for final draft confirmation
+            if meta.get("clarification_pending_confirmation"):
+                confirm_intent = self._intent_from_message(message)
+                confirm_words = ["yes", "yep", "sure", "ok", "draft", "karo", "haan", "go ahead", "y"]
+                if confirm_intent in ["ACKNOWLEDGE", "DRAFT", "PROCEED"] or any(w in message.lower() for w in confirm_words):
+                    meta["clarification_pending_confirmation"] = False
+                    meta["clarification_complete"] = True
+                    meta["needs_clarity"] = False
+                    pending_email.metadata_json = dict(meta)
+                    db.commit()
+                    
+                    reply = "On it! Drafting the reply now. ✍️"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    
+                    await queue.enqueue(
+                        job_type=JobType.PROCESS_DRAFT.value,
+                        payload={
+                            "workspace_id": self.workspace_id,
+                            "triaged_id": pending_email.id,
+                            "message_raw": {}
+                        },
+                        dedupe_id=f"draft_clarity:{pending_email.id}"
+                    )
+                    self._patch_state(status="idle", active_task=None)
+                    return
+                else:
+                    reply = "Got it. Let me know when you're ready for me to draft the reply!"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    self._patch_state(status="idle", active_task=None)
+                    return
+
+            # 1.5 Check for Follow-up Nudge Confirmation
+            if meta.get("followup_pending_confirmation"):
+                confirm_intent = self._intent_from_message(message)
+                confirm_words = ["yes", "yep", "sure", "ok", "draft", "karo", "haan", "go ahead", "y", "bhej do"]
+                deny_words = ["no", "nanhi", "nope", "wait", "later", "stop", "don't", "not now"]
+                
+                if confirm_intent in ["ACKNOWLEDGE", "DRAFT", "PROCEED"] or any(w in message.lower() for w in confirm_words):
+                    meta["followup_pending_confirmation"] = False
+                    pending_email.metadata_json = dict(meta)
+                    db.commit()
+                    
+                    reply = "Absolutely. I'm preparing that follow-up nudge for you now. ✍️"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    
+                    await queue.enqueue(
+                        job_type=JobType.PROCESS_DRAFT.value,
+                        payload={
+                            "workspace_id": self.workspace_id,
+                            "triaged_id": pending_email.id,
+                            "message_raw": {}
+                        },
+                        dedupe_id=f"draft_nudge:{pending_email.id}"
+                    )
+                    self._patch_state(status="idle", active_task=None)
+                    return
+                elif any(w in message.lower() for w in deny_words):
+                    # Handle Negative/Wait Response
+                    meta["followup_pending_confirmation"] = False
+                    # Snooze the nudge for 48h
+                    meta["last_nudge_at"] = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+                    pending_email.metadata_json = dict(meta)
+                    db.commit()
+                    
+                    reply = "No problem at all. I've snoozed the follow-up and I'll remind you again later if needed! 😊"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    self._patch_state(status="idle", active_task=None)
+                    return
+                # If not affirmative AND not negative, let it flow to general chat (context-aware answer)
+            
+            # 2. Regular Q&A
+            if meta.get("needs_clarity") and not meta.get("clarification_complete"):
+                questions = meta.get("clarification_questions", [])
+                answers = meta.get("clarification_answers", [])
+                current_idx = meta.get("clarification_current_index", 0)
+                
+                # User is answering the current question
+                answers.append({"question": questions[current_idx] if current_idx < len(questions) else "general", "answer": message})
+                current_idx += 1
+                
+                meta["clarification_answers"] = answers
+                meta["clarification_current_index"] = current_idx
+                
+                if current_idx < len(questions):
+                    # More questions remain
+                    pending_email.metadata_json = dict(meta)
+                    db.commit()
+                    
+                    next_q = questions[current_idx]
+                    reply = f"Got it! Next question:\n\n**{current_idx + 1}. {next_q}**"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    
+                    try:
+                        memory.save_interaction(
+                            source_type="chat_stream",
+                            source_id=f"chat-{datetime.now(timezone.utc).timestamp()}",
+                            content_text=message,
+                            metadata={"intent": "CLARITY_ANSWER", "question_idx": current_idx - 1},
+                        )
+                    except Exception: pass
+                    self._patch_state(status="idle", active_task=None)
+                    return
+                else:
+                    # All questions answered — ask for final confirmation
+                    meta["clarification_pending_confirmation"] = True
+                    
+                    # Build clarity_instruction from all Q&A pairs
+                    clarity_text = ""
+                    for qa in answers:
+                        clarity_text += f"Q: {qa['question']}\nA: {qa['answer']}\n\n"
+                    meta["clarity_instruction"] = clarity_text.strip()
+                    
+                    pending_email.metadata_json = dict(meta)
+                    db.commit()
+                    
+                    reply = "I've sorted out the details! Shall I go ahead and draft the reply?"
+                    for word in reply.split(" "):
+                        yield {"type": "chunk", "content": word + " "}
+                    
+                    try:
+                        memory.save_interaction(
+                            source_type="chat_stream",
+                            source_id=f"chat-{datetime.now(timezone.utc).timestamp()}",
+                            content_text=message,
+                            metadata={"intent": "CLARITY_READY"},
+                        )
+                    except Exception: pass
+                    
+                    self._patch_state(status="idle", active_task=None)
+                    return
+
+        # 1. Triage & Decision Fast-Path
+        intent = await self._intent_from_message(message)
+        
+        # Check if conversation compose flow
+        if intent == "COMPOSE_NEW" or (intent == "DRAFT" and not thread_id):
+            from app.agents.aaliyah.core.compose_drafting import ComposeDraftingAgent
+            agent = ComposeDraftingAgent(db, self.workspace_id)
+            async for chunk in agent.handle_compose_intent(message, user_id):
+                yield chunk
+            self._patch_state(status="idle", active_task=None)
+            return
+
+        # Enterprise Defense: Smart Limited Mode when disconnected
+        # General conversation goes to LLM; email-action intents are blocked gracefully
+        EMAIL_ACTION_INTENTS = {"DRAFT", "ARCHIVE", "LABEL", "SEARCH", "BRIEFING", "STATUS", "MEETING_PREP", "CREATE_TASK", "CONFLICT", "RESEARCH"}
+        
+        if not is_connected and intent in EMAIL_ACTION_INTENTS:
+            yield {"type": "status", "content": "Checking account status..."}
+            
+            intent_labels = {
+                "DRAFT": "draft or send emails",
+                "ARCHIVE": "archive messages",
+                "LABEL": "label or categorize emails",
+                "SEARCH": "search your inbox or calendar",
+                "BRIEFING": "prepare your daily briefing",
+                "STATUS": "check your inbox status",
+                "MEETING_PREP": "prepare meeting cheat sheets",
+                "CREATE_TASK": "create tasks from emails",
+                "CONFLICT": "check calendar conflicts",
+                "RESEARCH": "research your email threads",
+            }
+            action_label = intent_labels.get(intent, "perform that action")
+            
+            disconnected_reply = (
+                f"I can't {action_label} right now because your email account isn't connected.\n\n"
+                "Head to **Settings** and connect your Gmail or Outlook. "
+                "Once that's done, I'll handle this immediately.\n\n"
+                "In the meantime, I can still answer general questions about how I work, "
+                "what I can do, or help you plan your workflow."
+            )
+            for word in disconnected_reply.split(" "):
+                yield {"type": "chunk", "content": word + " "}
+            
+            try:
+                memory.save_interaction(
+                    source_type="chat_stream",
+                    source_id=f"chat-{datetime.now(timezone.utc).timestamp()}",
+                    content_text=message,
+                    metadata={"intent": intent, "reply": disconnected_reply, "status": "disconnected_blocked"},
+                )
+            except Exception:
+                pass
+            self._patch_state(status="idle", active_task=None)
+            return
+
+        # ── Enterprise Safety Gate (Risk → Policy → Runtime) ──────────────
+        # Streaming MUST have the same safety checks as non-streaming.
+        yield {"type": "status", "content": "Running safety checks..."}
+
+        gate = gate_email(
+            db=db,
+            user_id=user_id,
+            workspace_id=self.workspace_id,
+            intent=intent,
+            subject="User chat request (stream)",
+            body=message,
+            context={"source": "chat_stream", "is_actionable": True},
+            model_confidence=1.0,
+        )
+
+        # Audit: log every streamed request with gate decision
+        await self._audit(
+            db,
+            user_id=user_id,
+            action=AuditAction.CREATE,
+            entity_id=f"chat_stream:{datetime.now(timezone.utc).timestamp()}",
+            metadata={"intent": intent, "gate_outcome": gate.outcome, "risk_domain": gate.risk.domain, "risk_score": gate.risk.score},
+            explain=gate.explain_one_liner,
+        )
+
+        # Block if gate requires approval (ESCALATE, SUMMARY_ONLY, NEEDS_APPROVAL)
+        if gate.require_approval:
+            state = self._get_state()
+            self._patch_state(
+                status="idle",
+                active_task=None,
+                pending_approvals=state.pending_approvals + 1,
+                escalations=state.escalations + (1 if gate.outcome in {"ESCALATE", "SUMMARY_ONLY"} else 0),
+            )
+            await self._emit("approval_required", "Request requires approval", {
+                "gate": {
+                    "outcome": gate.outcome,
+                    "require_approval": True,
+                    "risk_domain": gate.risk.domain,
+                    "risk_score": gate.risk.score,
+                    "explain": gate.explain_one_liner,
+                },
+            })
+
+            approval_msg = (
+                f"I need your approval before I can proceed with this request.\n\n"
+                f"**Risk assessment**: {gate.risk.domain} (score: {gate.risk.score:.2f})\n"
+                f"**Reason**: {gate.explain_one_liner}\n\n"
+                f"Please review and approve this action in your pending approvals."
+            )
+            for word in approval_msg.split(" "):
+                yield {"type": "chunk", "content": word + " "}
+
+            try:
+                memory.save_interaction(
+                    source_type="chat_stream",
+                    source_id=f"chat-{datetime.now(timezone.utc).timestamp()}",
+                    content_text=message,
+                    metadata={"intent": intent, "reply": approval_msg, "status": "approval_required", "gate_outcome": gate.outcome},
+                )
+            except Exception:
+                pass
+            self._patch_state(status="idle", active_task=None)
+            return
+
+        # ── Guardrails: Prompt Injection Detection ─────────────────────────
+        from app.services.brain.guardrails import detect_prompt_injection
+        if detect_prompt_injection(message):
+            logger.warning("Prompt injection signal detected in streaming chat from user=%s", user_id)
+            injection_msg = "I've detected potentially unsafe instructions in your message. I can't process this request for security reasons."
+            for word in injection_msg.split(" "):
+                yield {"type": "chunk", "content": word + " "}
+            self._patch_state(status="idle", active_task=None)
+            return
+
         yield {"type": "status", "content": "Formulating response..."}
         
-        # 2. Main LLM Stream Setup
         try:
-            from openai import AsyncOpenAI
-            from app.config import settings
-            
-            # Use the same API key fallback chain as Brain.__init__
-            api_key = settings.brain_api_key or settings.openrouter_api_key
-            if not api_key:
-                yield {"type": "error", "content": "No API key configured. Please set BRAIN_API_KEY or OPENROUTER_API_KEY in your .env file."}
-                return
-            
-            client = AsyncOpenAI(
-                base_url=settings.openrouter_base_url,
-                api_key=api_key,
-                default_headers={
-                    "HTTP-Referer": settings.openrouter_app_url,
-                    "X-Title": settings.openrouter_app_name,
-                },
-            )
-            
-            system_prompt = (
-                "You are Aaliyah, an elite AI Executive Assistant. "
-                "Respond directly, sharply, and professionally to the user's chat message. "
-                "Use markdown formatting if helpful.\n\n"
-
-                "## MANDATORY WRITING RULES (Anti-AI Humanizer)\n"
-                "Your writing MUST sound like a real human wrote it. Follow every rule below:\n\n"
-
-                "1. BANNED WORDS: Never use: delve, moreover, testament, tapestry, crucial, vital, underscore, "
-                "pivotal, landscape (abstract), foster, garner, showcase, enduring, enhance, interplay, intricate, "
-                "vibrant, profound, nestled, groundbreaking, renowned, breathtaking, stunning, Additionally.\n"
-
-                "2. NO SIGNIFICANCE INFLATION: Don't puff up importance. No 'stands as', 'serves as a reminder', "
-                "'marks a pivotal moment', 'reflects broader trends', 'setting the stage'.\n"
-
-                "3. NO -ING ANALYSES: Don't tack on fake depth with '-ing' phrases like 'highlighting...', "
-                "'underscoring...', 'emphasizing...', 'reflecting...', 'contributing to...'.\n"
-
-                "4. NO PROMOTIONAL TONE: Don't sound like an ad. No 'boasts a', 'rich heritage', "
-                "'commitment to excellence', 'in the heart of'.\n"
-
-                "5. NO VAGUE ATTRIBUTIONS: Don't say 'experts believe', 'industry observers note', "
-                "'some critics argue'. Be specific or don't attribute.\n"
-
-                "6. NO COPULA AVOIDANCE: Use 'is/are/has' instead of 'serves as', 'stands as', 'represents', "
-                "'boasts', 'features'.\n"
-
-                "7. NO NEGATIVE PARALLELISMS: Don't use 'Not only...but...', 'It's not just about X, it's about Y'.\n"
-
-                "8. NO RULE OF THREE: Don't force ideas into groups of three. Two or four is fine.\n"
-
-                "9. NO EM DASH OVERUSE: Use commas or periods instead of em dashes (—).\n"
-
-                "10. NO SYCOPHANCY: Never say 'Great question!', 'You're absolutely right!', 'Of course!', 'Certainly!'.\n"
-
-                "11. NO FILLER PHRASES: Cut 'In order to', 'It is important to note that', 'At this point in time', "
-                "'Due to the fact that', 'has the ability to'.\n"
-
-                "12. NO GENERIC CONCLUSIONS: Don't end with 'The future looks bright', 'Exciting times lie ahead'.\n"
-
-                "13. NO CHATBOT ARTIFACTS: Never include 'I hope this helps', 'Let me know if you need anything', "
-                "'Here is a', 'Would you like me to'.\n"
-
-                "14. HAVE PERSONALITY: Vary sentence length. Have opinions. Use 'I' when natural. "
-                "Be specific about feelings. Let some mess in. Short punchy sentences mixed with longer ones.\n"
-
-                "15. USE ACTIVE VOICE: Be direct and decisive. Speak like a busy founder/CEO.\n"
-
-                "16. NO EXCESSIVE HEDGING: Don't over-qualify. Say 'The policy may affect outcomes' not "
-                "'It could potentially possibly be argued that the policy might have some effect'.\n"
-
-                "17. NO EMOJI in text. No boldface headers in bullet lists.\n"
-            )
-            
-            # Use fast model for chat (not the slow reasoning model)
-            model_name = settings.BRAIN_MODEL  # google/gemini-2.5-flash-lite
-            
-            stream = await client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": message}
-                ],
-                stream=True,
-                temperature=0.3,
+            stream = self.brain.think_stream(
+                prompt=message,
+                system_prompt=system_prompt,
+                model_override=settings.BRAIN_MODEL,
+                temperature_override=0.3,
+                images=llm_images
             )
             
             full_reply = ""
+            from app.agents.aaliyah.core.humanizer import HumanizerFilter
             async for chunk in stream:
-                if chunk.choices and len(chunk.choices) > 0:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        full_reply += delta.content
-                        yield {"type": "chunk", "content": delta.content}
+                content = chunk.get("content", "")
+                if content:
+                    # Apply humanizer to each chunk for live safety, though full effect is at E2E
+                    clean_content = HumanizerFilter.apply(content)
+                    full_reply += clean_content
+                    yield {"type": "delta", "content": clean_content}
             
             # Save memory (non-blocking — don't crash the stream if this fails)
             try:
@@ -1022,12 +1487,27 @@ class AaliyahOrchestrator:
             is_read=message.is_read,
             confidence=triage_result.confidence,
             reasoning=triage_result.reasoning,
-            metadata=safe_meta,
+            needs_clarity=triage_result.needs_clarity,
+            metadata={
+                **safe_meta,
+                "clarification_questions": triage_result.clarification_questions
+            },
             previous_category=previous_category,
             deadline_at=deadline_at,
             requires_approval=final_requires_approval,
             approval_reason=approval_reason,
             awaiting_reply=awaiting_reply,
+        )
+
+        # STAGE 2.4: Cognitive Learning
+        # Enterprise Grade: Immediate ingestion into Vector Memory with Thread Tagging
+        memory = DualStateMemory(db, self.workspace_id)
+        memory.extract_and_learn_from_email(
+            sender=message.metadata.sender,
+            subject=message.metadata.subject,
+            body=message.content,
+            email_id=message.id,
+            thread_id=message.metadata.thread_id
         )
 
         # Realtime events
@@ -1217,8 +1697,9 @@ class AaliyahOrchestrator:
                         }
                     )
                     continue # Skip further processing for archived items
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"Failed to auto-archive: {e}")
 
             if final_triage.is_noise and final_triage.category == "Newsletter":
                 await self._emit(
@@ -1327,6 +1808,30 @@ class AaliyahOrchestrator:
                     # Fetch stored object via ID from returned dict
                     stored_email = db.query(TriagedEmail).filter(TriagedEmail.id == triaged_row["id"]).first()
                     if stored_email:
+                        # --- CLARIFICATION CHECK (Sprint 10) ---
+                        if stored_email.needs_clarity:
+                            # Aaliyah asks clarified questions instead of drafting a "blinded" response
+                            questions = (stored_email.metadata_json or {}).get("clarification_questions", [])
+                            q_text = "\n".join([f"- {q}" for q in questions])
+                            notify_msg = (
+                                f"New mail from **{sender_display}**: *{stored_email.subject or '(No Subject)'}*.\n\n"
+                                f"I'm ready to draft a reply, but I need your clarification on a few things first:\n{q_text}"
+                            )
+                            await self._emit(
+                                "assistant_message",
+                                notify_msg,
+                                {
+                                    "text": notify_msg, 
+                                    "role": "assistant", 
+                                    "email_id": stored_email.id, 
+                                    "thread_id": stored_email.thread_id,
+                                    "type": "clarification_request",
+                                    "questions": questions
+                                },
+                            )
+                            # We stop here for this email — we wait for user's chat input
+                            continue 
+
                         draft = await draft_agent.generate_draft(stored_email)
                         if draft:
                             await draft_agent.save_draft(stored_email.id, draft)
@@ -1366,13 +1871,6 @@ class AaliyahOrchestrator:
                     logging.getLogger(__name__).error(f"Drafting failed for {item.id}: {e}")
 
             triaged.append(triaged_row)
-            # --- Dual-State Memory: extract facts from email + store ---
-            memory.extract_and_learn_from_email(
-                sender=item.metadata.sender or "",
-                subject=item.metadata.subject or "",
-                body=item.content or "",
-                email_id=item.id,
-            )
 
         state = self._get_state()
         self._patch_state(

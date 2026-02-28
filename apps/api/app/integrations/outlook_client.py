@@ -81,6 +81,77 @@ class OutlookClient:
             resp.raise_for_status()
             return True
 
+    async def send_message(self, to: str, subject: str, text: str, cc: Optional[str] = None, bcc: Optional[str] = None, thread_id: Optional[str] = None, attachments: list | None = None) -> bool:
+        """Sends an email via Microsoft Graph API."""
+        msg_payload = {
+            "subject": subject,
+            "body": {
+                "contentType": "Text",
+                "content": text
+            },
+            "toRecipients": [
+                {
+                    "emailAddress": {
+                        "address": r.strip()
+                    }
+                } for r in to.split(",") if r.strip()
+            ]
+        }
+        
+        if cc:
+            msg_payload["ccRecipients"] = [
+                {
+                    "emailAddress": {
+                        "address": r.strip()
+                    }
+                } for r in cc.split(",") if r.strip()
+            ]
+            
+        if bcc:
+            msg_payload["bccRecipients"] = [
+                {
+                    "emailAddress": {
+                        "address": r.strip()
+                    }
+                } for r in bcc.split(",") if r.strip()
+            ]
+
+        if thread_id:
+            # Graph uses 'comment' for thread replies usually, 
+            # but for simple send we just set the conversationId if known.
+            msg_payload["conversationId"] = thread_id
+        
+        if attachments:
+            msg_payload["hasAttachments"] = True
+            msg_payload["attachments"] = []
+            import mimetypes
+            for attach in attachments:
+                filename = attach.get("filename")
+                content = attach.get("content")
+                if not filename or not content:
+                    continue
+                mtype, _ = mimetypes.guess_type(filename)
+                msg_payload["attachments"].append({
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": filename,
+                    "contentType": mtype or "application/octet-stream",
+                    "contentBytes": content
+                })
+
+        payload = {
+            "message": msg_payload,
+            "saveToSentItems": "true"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GRAPH_API}/me/sendMail",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return True
+
     async def fetch_inbox(self, max_results: int = 50) -> list[dict]:
         """High-level: fetch inbox messages with parsed metadata.
         

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import type { PresenceState } from "@/components/aaliyah/workspace/left/PresenceBadge"
 import { PresenceBadge } from "@/components/aaliyah/workspace/left/PresenceBadge"
 import { useSystemStore } from "@/lib/aaliyah/store"
-import { Sun, Flame, Clock, Info, Activity, Archive } from "lucide-react"
+import { Sun, Flame, Clock, Info, Activity, Archive, Plus } from "lucide-react"
 
 export function LeftPanel({
   presence,
@@ -36,8 +36,16 @@ export function LeftPanel({
       {/* Soft Top Glow */}
       <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-white to-transparent pointer-events-none z-0" />
 
-      <div className="relative z-10 shrink-0 mb-6 px-1">
+      <div className="relative z-10 shrink-0 mb-6 px-1 flex flex-col gap-6">
         <PresenceBadge state={presence} />
+
+        <button
+          onClick={() => useSystemStore.getState().openCompose()}
+          className="w-full h-12 rounded-2xl bg-textPrimary text-surface font-bold text-[14px] flex items-center justify-center gap-2 shadow-lg shadow-zinc-200/50 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all"
+        >
+          <Plus className="h-4 w-4" strokeWidth={3} />
+          Compose
+        </button>
       </div>
 
       <div className="relative z-10 flex-1 overflow-y-auto pr-1 space-y-8 custom-scrollbar pb-10">

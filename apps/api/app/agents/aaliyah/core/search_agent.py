@@ -19,12 +19,12 @@ from app.services.brain.schemas.models import ModelType
 
 logger = logging.getLogger(__name__)
 
+from app.agents.aaliyah.core.search_cache import SEARCH_CACHE, CONTENT_CACHE
+
 class SearchAgent:
     """Agentic search engine for Aaliyah."""
 
-    # Sprint 7: Enterprise Caching & Limits
-    _SEARCH_CACHE: Dict[tuple, Any] = {}
-    _CONTENT_CACHE: Dict[tuple, Any] = {}
+    # Sprint 7: Enterprise Caching & Limits (Now using TTLCache)
     _CACHE_TTL_SEARCH = 60 # 60 seconds
     _CACHE_TTL_CONTENT = 3600 # 1 hour for content
 
@@ -66,11 +66,10 @@ class SearchAgent:
 
         # 0.5 Check Search Cache
         cache_key = (self.workspace_id, user_query)
-        if cache_key in self._SEARCH_CACHE:
-            data, ts = self._SEARCH_CACHE[cache_key]
-            if datetime.utcnow() - ts < timedelta(seconds=self._CACHE_TTL_SEARCH):
-                logger.debug(f"Search Cache HIT for query='{user_query}'")
-                return data
+        cached_result = SEARCH_CACHE.get(cache_key)
+        if cached_result:
+            logger.debug(f"Search Cache HIT for query='{user_query}'")
+            return cached_result
 
         # 1. Parse intent using QueryParser
         params = await self.parser.parse(user_query)
@@ -144,11 +143,10 @@ class SearchAgent:
             
             # Sprint 7: Check Content Cache first
             content_key = (self.workspace_id, ext_id)
-            if content_key in self._CONTENT_CACHE:
-                cached_text, ts = self._CONTENT_CACHE[content_key]
-                if datetime.now() - ts < timedelta(seconds=self._CACHE_TTL_CONTENT):
-                    full_content_map[ext_id] = cached_text
-                    continue
+            cached_text = CONTENT_CACHE.get(content_key)
+            if cached_text:
+                full_content_map[ext_id] = cached_text
+                continue
 
             # Determine if it's an email for audit logging
             is_email = (hasattr(cand, "thread_id") and cand.thread_id) or \
@@ -177,7 +175,7 @@ class SearchAgent:
                     if db_messages:
                         full_text = "\n".join([f"[{m.received_at}] {m.sender.get('name') or m.sender.get('email')}: {m.body_cleaned or m.snippet}" for m in db_messages])
                         full_content_map[ext_id] = full_text
-                        self._CONTENT_CACHE[content_key] = (full_text, datetime.now())
+                        CONTENT_CACHE.set(content_key, full_text)
                         continue
 
                     # Fallback to Provider API ONLY if DB is empty
@@ -185,7 +183,7 @@ class SearchAgent:
                     if thread and thread.get("messages"):
                         full_text = "\n".join([f"[{m.get('received_at')}] {m.get('sender')}: {m.get('body') or m.get('snippet')}" for m in thread["messages"]])
                         full_content_map[ext_id] = full_text
-                        self._CONTENT_CACHE[content_key] = (full_text, datetime.now())
+                        CONTENT_CACHE.set(content_key, full_text)
                 else:
                     # For calendar, check CalendarIndex description first
                     if hasattr(cand, "searchable_text") and len(getattr(cand, "searchable_text", "")) > 100:
@@ -201,7 +199,7 @@ class SearchAgent:
                     if event:
                         full_text = f"Title: {event.get('title')}\nDesc: {event.get('description')}\nAttendees: {event.get('attendees')}"
                         full_content_map[ext_id] = full_text
-                        self._CONTENT_CACHE[content_key] = (full_text, datetime.now())
+                        CONTENT_CACHE.set(content_key, full_text)
             except Exception as e:
                 logger.warning(f"Content access failed for {ext_id}")
 
@@ -254,7 +252,7 @@ class SearchAgent:
         }
         
         # Save to Search Cache
-        self._SEARCH_CACHE[cache_key] = (final_response, datetime.utcnow())
+        SEARCH_CACHE.set(cache_key, final_response)
         return final_response
 
     async def _synthesize_answer(self, user_query: str, results: Dict[str, Any], full_content_map: Dict[str, str]) -> Dict[str, Any]:

@@ -2,9 +2,11 @@
 
 import * as React from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Save, Loader2, Mail, Calendar, Activity, X, Check, Link2 } from "lucide-react"
+import { Save, Loader2, Mail, Calendar, Activity, X, Check, Link2, AlertCircle, RefreshCw } from "lucide-react"
 import { getAaliyahSettings, updateAaliyahSettings, AaliyahSettings } from "@/lib/aaliyah/api"
 import { cn } from "@/lib/utils"
+import { connectorService } from "@/services/connector.service"
+import { useSystemStore } from "@/lib/aaliyah/store"
 
 interface SettingsFormProps {
     onClose?: () => void
@@ -91,6 +93,13 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
         }).catch(console.error)
     }, [])
 
+    const { connectionHealth, fetchHealth } = useSystemStore()
+
+    // ── Auto-refresh health every time Settings opens ────────────────────
+    React.useEffect(() => {
+        fetchHealth()
+    }, [fetchHealth])
+
     const handleSave = async () => {
         setSaving(true)
         setMessage("")
@@ -150,6 +159,21 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
             console.error(err)
             setMessage("Failed.")
         } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleConnectClick = async (provider: string) => {
+        try {
+            setSaving(true)
+            const authUrl = await connectorService.getAuthUrl({
+                provider: provider as "google" | "microsoft",
+                serviceType: "both"
+            })
+            window.location.href = authUrl.authUrl
+        } catch (error) {
+            console.error("Failed to get auth URL:", error)
+            setMessage("Failed to start connection.")
             setSaving(false)
         }
     }
@@ -349,13 +373,30 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                         <div>
                                                             <h4 className="font-bold text-slate-900 text-sm">Gmail</h4>
                                                             <p className="text-xs text-slate-500">Connect your Google account for email and calendar</p>
+                                                            {connectionHealth?.providers?.google_gmail === 'CONNECTED' ? (
+                                                                <div className="flex items-center gap-1.5 mt-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Connected</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1.5 mt-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-red-400" />
+                                                                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Disconnected</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <button
-                                                        onClick={() => window.location.href = '/api/v1/connectors/oauth/google/init?service_type=email'}
-                                                        className="px-5 py-2.5 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm"
+                                                        onClick={() => handleConnectClick("google")}
+                                                        disabled={saving}
+                                                        className={cn(
+                                                            "px-5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm disabled:opacity-50",
+                                                            connectionHealth?.providers?.google_gmail === 'CONNECTED'
+                                                                ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                                                : "bg-black text-white hover:bg-slate-800 ring-2 ring-zinc-900 ring-offset-2"
+                                                        )}
                                                     >
-                                                        Connect
+                                                        {connectionHealth?.providers?.google_gmail === 'CONNECTED' ? "Reconnect" : "Connect"}
                                                     </button>
                                                 </div>
 
@@ -371,13 +412,30 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                         <div>
                                                             <h4 className="font-bold text-slate-900 text-sm">Outlook</h4>
                                                             <p className="text-xs text-slate-500">Connect your Microsoft account for email and calendar</p>
+                                                            {connectionHealth?.providers?.outlook === 'CONNECTED' ? (
+                                                                <div className="flex items-center gap-1.5 mt-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                                                    <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Connected</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-1.5 mt-2">
+                                                                    <div className="h-2 w-2 rounded-full bg-red-400" />
+                                                                    <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider">Disconnected</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <button
-                                                        onClick={() => window.location.href = '/api/v1/connectors/oauth/microsoft/init?service_type=email'}
-                                                        className="px-5 py-2.5 bg-black hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm"
+                                                        onClick={() => handleConnectClick("microsoft")}
+                                                        disabled={saving}
+                                                        className={cn(
+                                                            "px-5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95 shadow-sm disabled:opacity-50",
+                                                            connectionHealth?.providers?.outlook === 'CONNECTED'
+                                                                ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                                                                : "bg-black text-white hover:bg-slate-800 ring-2 ring-zinc-900 ring-offset-2"
+                                                        )}
                                                     >
-                                                        Connect
+                                                        {connectionHealth?.providers?.outlook === 'CONNECTED' ? "Reconnect" : "Connect"}
                                                     </button>
                                                 </div>
                                             </div>

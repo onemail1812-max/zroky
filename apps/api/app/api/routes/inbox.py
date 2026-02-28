@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
 @router.get("/threads")
 @limiter.limit("60/minute")
 async def list_threads(
+    request: Request,
     queue: Optional[str] = Query(None, description="Filter by category"),
     provider: str = Query("all", description="all | google | microsoft"),
     limit: int = Query(50, ge=1, le=100),
@@ -54,8 +55,18 @@ async def list_threads(
 
     # Filter by category if specified
     if queue:
-        parsed_queue = queue.replace("_", " ").lower()
-        query = query.filter(func.lower(TriagedEmail.category) == parsed_queue)
+        if queue.lower() == "cleaned":
+            # "Cleaned" is a special virtual queue for noise/archived items
+            query = query.filter(TriagedEmail.is_noise == True)
+        else:
+            parsed_queue = queue.replace("_", " ").lower()
+            query = query.filter(func.lower(TriagedEmail.category) == parsed_queue)
+            # When filtering by a specific actionable category, we usually want non-noise
+            # unless explicitly looking for noise in that category (rare).
+            query = query.filter(TriagedEmail.is_noise == False)
+    else:
+        # DEFAULT: Hide noise from the master / all view
+        query = query.filter(TriagedEmail.is_noise == False)
 
     # Get total count before pagination
     total_count = query.count()
@@ -143,6 +154,7 @@ async def get_email_body(
 @router.post("/{message_id}/archive")
 @limiter.limit("30/minute")
 async def archive_email(
+    request: Request,
     message_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -324,10 +336,18 @@ async def get_inbox_counts(
         TriagedEmail.category, func.count(TriagedEmail.id)
     ).filter(
         TriagedEmail.workspace_id == workspace_id,
-        TriagedEmail.is_read == False
+        TriagedEmail.is_read == False,
+        TriagedEmail.is_noise == False
     ).group_by(TriagedEmail.category).all()
 
     counts = {cat: cnt for cat, cnt in category_counts}
+
+    # "Cleaned" count: Aggregate all unread items marked as noise
+    cleaned_count = db.query(func.count(TriagedEmail.id)).filter(
+        TriagedEmail.workspace_id == workspace_id,
+        TriagedEmail.is_read == False,
+        TriagedEmail.is_noise == True
+    ).scalar() or 0
 
     # Check if any email integration is connected
     integrations = db.query(Integration).filter(
@@ -343,10 +363,10 @@ async def get_inbox_counts(
         "fyi": counts.get("fyi", 0),
         "needs_reply": counts.get("needs_reply", 0),
         "approvals": counts.get("approvals", 0),
-        "follow_ups": counts.get("follow_up", 0),
+        "follow_ups": counts.get("follow_ups", 0) or counts.get("follow_up", 0), # handle plural/singular
         "newsletter": counts.get("newsletter", 0),
         "noise": counts.get("noise", 0),
-        "cleaned": 0,
+        "cleaned": cleaned_count,
         "drafts": 0,
         "total": sum(counts.values()),
         "connected": has_email,
@@ -356,6 +376,7 @@ async def get_inbox_counts(
 @router.post("/sync")
 @limiter.limit("10/minute")
 async def sync_inbox(
+    request: Request,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):

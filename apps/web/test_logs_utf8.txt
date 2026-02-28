@@ -1,0 +1,33 @@
+﻿
+Running 1 test using 1 worker
+
+  Γ£ÿ  1 [chromium] ΓÇ║ e2e\enterprise_flow_draft_ready.spec.ts:88:9 ΓÇ║ Enterprise Flow: Draft Ready (Scenario A) - True E2E ΓÇ║ Verify Split-Screen Command Center, Context Card, and Magic Box (Draft Ready) (16.9s)
+
+
+  1) [chromium] ΓÇ║ e2e\enterprise_flow_draft_ready.spec.ts:88:9 ΓÇ║ Enterprise Flow: Draft Ready (Scenario A) - True E2E ΓÇ║ Verify Split-Screen Command Center, Context Card, and Magic Box (Draft Ready) 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('text=drafted a reply').first()
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 15000ms[22m
+    [2m  - waiting for locator('text=drafted a reply').first()[22m
+
+
+      101 |         // It should render naturally now that the payload strictly matches `inbox.service.ts` schemas.
+      102 |         const draftIndicator = page.locator('text=drafted a reply').first();
+    > 103 |         await expect(draftIndicator).toBeVisible({ timeout: 15000 });
+          |                                      ^
+      104 |
+      105 |         // 4. Validate actions inside the Magic Box
+      106 |         await expect(page.locator('button:has-text("Edit")')).toBeVisible();
+        at D:\Zroky\apps\web\e2e\enterprise_flow_draft_ready.spec.ts:103:38
+
+    Error Context: test-results\enterprise_flow_draft_read-9015d--and-Magic-Box-Draft-Ready--chromium\error-context.md
+
+  1 failed
+    [chromium] ΓÇ║ e2e\enterprise_flow_draft_ready.spec.ts:88:9 ΓÇ║ Enterprise Flow: Draft Ready (Scenario A) - True E2E ΓÇ║ Verify Split-Screen Command Center, Context Card, and Magic Box (Draft Ready) 

@@ -28,6 +28,8 @@ class JobType(Enum):
     PROCESS_DRAFT = "process_draft"
     PROCESS_AUDIO = "process_audio"
     AUTO_FOLLOWUP = "auto_followup"
+    HEARTBEAT = "heartbeat"
+    WATCHDOG = "watchdog"
 
 class AdvancedSQLiteQueue:
     def __init__(self, worker_id: Optional[str] = None):
@@ -52,7 +54,7 @@ class AdvancedSQLiteQueue:
                 id=job_id,
                 type=job_type,
                 workspace_id=payload.get("workspace_id"),
-                payload_json=json.dumps(payload),
+                payload_json=json.dumps(payload, default=str),
                 dedupe_id=dedupe_id,
                 run_at=run_at or datetime.utcnow(),
                 status=JobStatus.PENDING
@@ -105,6 +107,43 @@ class AdvancedSQLiteQueue:
             return None
         finally:
             db.close()
+
+    async def run_watchdog(self):
+        """
+        [v2.1 Scale] Background task to reclaim zombie jobs.
+        Uses randomized jitter to prevent multiple workers from colliding on the same recovery block.
+        """
+        import random
+        logger.info(f"Watchdog started for worker {self.worker_id}")
+        while True:
+            # 1. Random Heartbeat Jitter (Enterprise Grade)
+            # Prevents thundering herd when reclaiming jobs
+            await asyncio.sleep(60 + random.randint(0, 30))
+            
+            db = SessionLocal()
+            try:
+                now = datetime.utcnow()
+                # Stale jobs: Running but locked more than 10 mins ago
+                stale_threshold = now - timedelta(minutes=10)
+                
+                zombies = db.query(Job).filter(
+                    Job.status == JobStatus.RUNNING,
+                    Job.locked_at < stale_threshold
+                ).all()
+                
+                if zombies:
+                    logger.warning(f"Watchdog found {len(zombies)} zombie jobs. Reclaiming...")
+                    for job in zombies:
+                         job.status = JobStatus.PENDING
+                         job.locked_at = None
+                         job.locked_by = None
+                         job.attempts += 1 # Count as a failed attempt due to crash
+                    db.commit()
+            except Exception as e:
+                logger.error(f"Watchdog error: {e}")
+                db.rollback()
+            finally:
+                db.close()
 
     async def worker_loop(self, handlers: Dict[str, Callable]):
         logger.info(f"Advanced Native Worker '{self.worker_id}' started listening to SQLiteQueue...")
@@ -200,6 +239,13 @@ class AdvancedSQLiteQueue:
                             job_type=JobType.AUTO_FOLLOWUP.value,
                             payload={"workspace_id": workspace_id},
                             dedupe_id=f"auto_followup:{workspace_id}"
+                        )
+
+                        # Queue Orchestrator Heartbeat (Flush communication queues)
+                        await self.enqueue(
+                            job_type=JobType.HEARTBEAT.value,
+                            payload={"workspace_id": workspace_id},
+                            dedupe_id=f"heartbeat:{workspace_id}"
                         )
                 finally:
                     db.close()

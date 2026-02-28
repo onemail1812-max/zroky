@@ -35,3 +35,6 @@ class OutlookService:
                 headers={"Authorization": f"Bearer {self.client.access_token}"}
             )
             return resp.json()
+
+    async def send_message(self, to: str, subject: str, text: str, cc: str | None = None, bcc: str | None = None, thread_id: str | None = None, attachments: list | None = None) -> bool:
+        return await self.client.send_message(to, subject, text, cc=cc, bcc=bcc, thread_id=thread_id, attachments=attachments)

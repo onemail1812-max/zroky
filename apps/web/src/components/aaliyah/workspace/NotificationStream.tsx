@@ -2,7 +2,7 @@
 
 import * as React from "react"
 
-import { getThreadItem, sendChat, sendDraft } from "@/lib/aaliyah/api"
+import { getThreadItem, sendChat, sendDraft, getChatMessages } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { MorningBriefing } from "@/components/aaliyah/workspace/MorningBriefing"
 import { LiveStrip } from "@/components/aaliyah/workspace/main/LiveStrip"
@@ -34,11 +34,11 @@ export function NotificationStream({
 
   const [localFeedItems, setLocalFeedItems] = React.useState<FeedItem[]>([])
   const isMorningBriefing = activeConversation.id === "morning-briefing"
-  const feedItems = isMorningBriefing ? mainChatFeed : localFeedItems
+  const feedItems = isMorningBriefing ? (mainChatFeed as unknown as FeedItem[]) : localFeedItems
 
   const setFeedItems = React.useCallback((valOrFn: FeedItem[] | ((prev: FeedItem[]) => FeedItem[])) => {
     if (isMorningBriefing) {
-      setMainChatFeed(valOrFn)
+      setMainChatFeed(valOrFn as any)
     } else {
       setLocalFeedItems(valOrFn as React.SetStateAction<FeedItem[]>)
     }
@@ -65,23 +65,41 @@ export function NotificationStream({
     let alive = true
     setIsLoading(true)
 
-    getThreadItem(activeConversation.id)
-      .then((data) => {
+    const threadId = activeConversation.id
+
+    Promise.all([
+      getThreadItem(threadId),
+      getChatMessages(threadId === "morning-briefing" ? undefined : threadId)
+    ])
+      .then(([threadData, history]) => {
         if (!alive) return
 
         const items: FeedItem[] = [
           {
-            id: `${data.id}_intro`,
+            id: `${threadData.id}_intro`,
             type: "response",
             title: "Aaliyah Triage",
-            text: data.snippet,
+            text: threadData.snippet,
           }
         ]
 
-        if (data.status === "sent") {
-          items.push({ id: `${data.id}_exec`, type: "receipt", text: "Successfully sent.", timestamp: data.timestamp })
-        } else if (data.draft) {
-          items.push({ id: `${data.id}_draft`, type: "artifact-email", draft: data.draft })
+        if (threadData.status === "sent") {
+          items.push({ id: `${threadData.id}_exec`, type: "receipt", text: "Successfully sent.", timestamp: threadData.timestamp })
+        } else if (threadData.draft) {
+          items.push({ id: `${threadData.id}_draft`, type: "artifact-email", draft: threadData.draft })
+        }
+
+        // Add history
+        if (Array.isArray(history)) {
+          history.forEach((msg: any) => {
+            // Avoid duplicating the triage intro or drafts if they are also messages
+            // For now, we just add them as message bubbles
+            if (msg.role === "user") {
+              items.push({ id: msg.id, type: "user-command", text: msg.content, timestamp: formatTime(new Date(msg.created_at)) })
+            } else {
+              items.push({ id: msg.id, type: "response", title: "Aaliyah Response", text: msg.content })
+            }
+          })
         }
 
         setFeedItems(items)
@@ -196,7 +214,8 @@ export function NotificationStream({
     ])
 
     try {
-      const result = await sendChat(message)
+      const threadId = activeConversation.id === "morning-briefing" ? undefined : activeConversation.id
+      const result = await sendChat(message, threadId)
       if (requestIdRef.current !== requestId) return
 
       const replyText = String(result?.reply ?? result?.message ?? "Draft complete and ready for your review.")

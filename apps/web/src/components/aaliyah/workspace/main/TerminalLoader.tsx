@@ -14,7 +14,7 @@ const STREAM_MESSAGES = [
     "Finalizing inbox decryption..."
 ]
 
-export function TerminalLoader({ progress = 0 }: { progress?: number }) {
+export function TerminalLoader({ progress = 0, status }: { progress?: number, status?: string }) {
     const [msgIndex, setMsgIndex] = React.useState(0)
     const [elapsed, setElapsed] = React.useState(0)
 
@@ -102,7 +102,9 @@ export function TerminalLoader({ progress = 0 }: { progress?: number }) {
                             className="flex items-start gap-2"
                         >
                             <span className="text-zinc-400 shrink-0">[{elapsed.toFixed(1)}s]</span>
-                            <span className="text-indigo-600 font-medium">{STREAM_MESSAGES[msgIndex]}</span>
+                            <span className="text-indigo-600 font-medium">
+                                {status || STREAM_MESSAGES[msgIndex]}
+                            </span>
                         </motion.div>
                     </AnimatePresence>
                 </div>

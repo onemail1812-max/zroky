@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.models.triaged_email import TriagedEmail
 from app.models.workspace import Workspace
+from app.models.send_token import SendToken
 from app.services.audit_log_service import AuditAction, AuditEntityType, AuditLogService
 from app.services.integrations.email_connector import EmailConnectorFactory
 from app.agents.aaliyah.core.runtime_gate import final_action_gate
+import hashlib
 
 
 def _extract_labels(message: dict[str, Any] | None) -> list[str]:
@@ -26,10 +28,13 @@ def _extract_labels(message: dict[str, Any] | None) -> list[str]:
 class ActionExecutor:
     """Apply low-risk actions and persist immutable audit logs."""
     
-    _send_cache: dict[str, datetime] = {}
-
     def __init__(self, db: Session):
         self.db = db
+
+    def _generate_idempotency_token(self, workspace_id: str, email_id: str, body: str) -> str:
+        """MD5 Hash of the payload to detect identical sends."""
+        payload = f"{workspace_id}:{email_id}:{body.strip()}"
+        return hashlib.md5(payload.encode()).hexdigest()
 
     async def apply_label(
         self,
@@ -125,6 +130,13 @@ class ActionExecutor:
         workspace = self.db.query(Workspace).filter(Workspace.id == workspace_id).first()
         settings = getattr(workspace, "settings_json", {}) or {}
         
+        # --- [v2.1] DOUBLE-KEY SIGNATURE (High-Stakes Security) ---
+        is_high_stakes = email.category in {"Money", "Legal", "Complaint"}
+        if is_high_stakes:
+             requires_pin = settings.get("security", {}).get("require_high_stakes_pin", False)
+             if requires_pin and not meta.get("pin_authorized"):
+                  raise PermissionError("High-stakes action requires Secondary PIN authorization.")
+
         allowed = final_action_gate(
             action="SEND",
             email_row=email,
@@ -146,13 +158,29 @@ class ActionExecutor:
             )
             raise PermissionError("Action blocked by Final Action Gate. Approval or missing facts required.")
 
-        # 3. Rate Limiting (Provider Safety)
-        # Avoid spam flags by enforcing a cooldown on the same thread
-        cache_key = f"last_send_{email_id}"
-        if ActionExecutor._send_cache.get(cache_key):
-             last_send = ActionExecutor._send_cache[cache_key]
-             if datetime.now() - last_send < timedelta(seconds=60):
-                  return {"status": "rate_limited", "message": "Please wait 60s before re-sending to this thread."}
+        # 3. Persistent Idempotency (v2.1 Scale Hardening)
+        # Avoid duplicate sends across distributed workers
+        token_hash = self._generate_idempotency_token(workspace_id, email_id, draft.get("body", ""))
+        existing_token = self.db.query(SendToken).filter(SendToken.token_hash == token_hash).first()
+        
+        if existing_token:
+             # Check if it was sent recently (last 10 minutes)
+             if datetime.utcnow() - existing_token.created_at < timedelta(minutes=10):
+                  # [v2.1 Supreme Council Fix] - Only block if NOT already marked as failed in the email record
+                  # This allows retry if the previous attempt crashed before sent_result
+                  if draft.get("status") != "failed":
+                       return {"status": "idempotency_blocked", "message": "Duplicate action detected. Already processed."}
+        
+        # Create persistent token
+        new_token = SendToken(
+            token_hash=token_hash,
+            workspace_id=workspace_id,
+            entity_id=email_id,
+            action_type="SEND_REPLY",
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+        self.db.add(new_token)
+        self.db.commit()
         
         # 4. Signature Insertion
         signature = settings.get("aaliyah", {}).get("signature", "")
@@ -168,16 +196,20 @@ class ActionExecutor:
         # 5. Get Connector
         connector = await EmailConnectorFactory(self.db, workspace_id).get_connector(user_id, email.provider)
 
-        # 6. Send with proper identity and threading
+        # 6. Send with proper identity, threading, and attachments
+        attachments = draft.get("attachments", [])
+        
         try:
             sent_result = await connector.send_message(
                 recipient=email.sender, 
                 subject=draft.get("subject", f"Re: {email.subject}"),
                 body=body,
                 thread_id=email.thread_id,
-                reply_to_id=email.external_message_id
+                reply_to_id=email.external_message_id,
+                attachments=attachments
             )
-            ActionExecutor._send_cache[cache_key] = datetime.now()
+            # Legacy cache removal: distributed idempotency handled by SendToken above
+            pass
         except Exception as e:
             # 7. Failed Send Handling
             draft["status"] = "failed"

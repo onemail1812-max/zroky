@@ -67,11 +67,24 @@ export const assistApi = axios.create({
 
 assistApi.interceptors.request.use((config) => withAuth(config))
 
-export async function sendChat(message: string, workspaceId?: string) {
+export async function sendChat(message: string, threadId?: string, workspaceId?: string, emailId?: string) {
   try {
-    const response = await assistApi.post("/answer", {
-      message,
+    const response = await assistApi.post("/chat", {
+      messages: [{ role: "user", content: message }],
+      thread_id: threadId,
       workspace_id: workspaceId,
+      email_id: emailId,
+    })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getChatMessages(threadId?: string, emailId?: string, limit = 50) {
+  try {
+    const response = await assistApi.get("/messages", {
+      params: { thread_id: threadId, email_id: emailId, limit }
     })
     return response.data
   } catch (error) {
@@ -85,13 +98,14 @@ export async function sendChat(message: string, workspaceId?: string) {
 export async function sendChatStream(
   message: string,
   workspaceId: string | undefined,
+  emailId: string | undefined,
   onChunk: (chunk: any) => void,
   onDone: () => void,
   onError: (error: any) => void
 ) {
   try {
     const response = await assistApi.post("/answer/stream",
-      { message, workspace_id: workspaceId },
+      { message, workspace_id: workspaceId, email_id: emailId },
       {
         responseType: "stream",
         adapter: "fetch" // Required for streaming in axios with browser
@@ -155,6 +169,17 @@ export async function getEventDetails(eventId: string, provider: string) {
   try {
     const response = await assistApi.get(`/event/${eventId}`, {
       params: { provider }
+    })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+
+export async function getEventPrep(eventId: string, force: boolean = false) {
+  try {
+    const response = await assistApi.get(`/calendar/events/${eventId}/prep`, {
+      params: { force }
     })
     return response.data
   } catch (error) {
@@ -248,10 +273,11 @@ export async function runPreflight() {
   }
 }
 
-export async function getBriefing() {
+
+export async function triggerHistoricalSync(days = 180) {
   try {
-    const response = await aaliyahApi.get("/briefing")
-    return response.data.briefing
+    const response = await assistApi.post("/historical-sync", { days })
+    return response.data
   } catch (error) {
     throw toApiError(error)
   }
@@ -408,7 +434,7 @@ export async function sendDraft(workspaceId: string, emailId: string) {
   }
 }
 
-export async function updateDraft(emailId: string, payload: { to?: string; subject?: string; body: string; attachments?: any[] }) {
+export async function updateDraft(emailId: string, payload: { to?: string; subject?: string; body: string; attachments?: unknown[] }) {
   try {
     const response = await aaliyahApi.put(`/inbox/${emailId}/draft`, payload)
     return response.data
@@ -556,6 +582,7 @@ export async function getDebugSnapshot() {
 export interface SyncProgressItem {
   status: "syncing" | "done" | "waiting"
   count: number
+  progress?: number // [v2.1 Hardening] Granular progress tracking
   synced_at: string | null
   message: string
 }
@@ -617,6 +644,21 @@ export async function confirmBooking(slug: string, selectedSlot: BookingSlot, bo
       selected_slot: selectedSlot,
       booker_email: bookerEmail,
     })
+    return response.data
+  } catch (error) {
+    throw toApiError(error)
+  }
+}
+export async function composeEmail(payload: {
+  to: string[]
+  cc?: string[]
+  bcc?: string[]
+  subject: string
+  body: string
+  workspace_id?: string
+}) {
+  try {
+    const response = await assistApi.post("/compose", payload)
     return response.data
   } catch (error) {
     throw toApiError(error)

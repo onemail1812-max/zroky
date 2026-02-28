@@ -126,9 +126,15 @@ class MeetingPrepAgent:
             f"{email_context}"
         )
 
+        # Fetch User Profile
+        from app.models.workspace import Workspace
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
         system_prompt = (
-            "You are an executive assistant managing a calendar. "
-            "Analyze the conflict and provide a briefing note. "
+            f"You are Aaliyah, an elite Executive Assistant for {user_name}. "
+            f"Analyze the calendar conflict for {user_name} and provide a briefing note. "
             "Return valid JSON with keys: summary, people_involved (list[str]), recommendation, talking_points (list[str]), relevant_links (list[dict{title, url}])."
         )
         
@@ -247,8 +253,14 @@ class MeetingPrepAgent:
             f"{email_context}"
         )
 
+        # Fetch User Profile (already have access to workspace settings potentially, but let's be safe)
+        from app.models.workspace import Workspace
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
         system_prompt = (
-            "You are an elite Executive Assistant preparing a 'Meeting Cheat Sheet'. "
+            f"You are Aaliyah, an elite Executive Assistant for {user_name}. "
             "Analyze the meeting details and recent email history to provide a strategic summary. "
             "Return valid JSON with keys: summary, people_involved (list[str]), recommendation (strategic advice), talking_points (list[str]), relevant_links (list[dict{title, url}])."
         )

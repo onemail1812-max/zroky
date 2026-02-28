@@ -1,5 +1,5 @@
 """Authentication router for login/register."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 import re
@@ -43,9 +43,9 @@ def _unique_slug(db: Session, base: str) -> str:
 
 @router.post("/register")
 @limiter.limit("5/hour")
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)):
     """Create user + workspace + membership and return access token."""
-    existing = db.query(User).filter(User.email == request.email.lower()).first()
+    existing = db.query(User).filter(User.email == payload.email.lower()).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -55,14 +55,14 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     user_id = str(uuid.uuid4())
     user = User(
         id=user_id,
-        email=request.email.lower(),
-        hashed_password=hash_password(request.password),
-        full_name=request.full_name,
+        email=payload.email.lower(),
+        hashed_password=hash_password(payload.password),
+        full_name=payload.full_name,
         is_active=True,
     )
     db.add(user)
 
-    workspace_name = request.workspace_name or f"{request.full_name or 'My'} Workspace"
+    workspace_name = payload.workspace_name or f"{payload.full_name or 'My'} Workspace"
     workspace_id = str(uuid.uuid4())
     slug = _unique_slug(db, _slugify(workspace_name))
     workspace = Workspace(
@@ -94,10 +94,10 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login")
 @limiter.limit("10/minute")
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user and return access token."""
-    user = db.query(User).filter(User.email == request.email.lower()).first()
-    if not user or not verify_password(request.password, user.hashed_password):
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

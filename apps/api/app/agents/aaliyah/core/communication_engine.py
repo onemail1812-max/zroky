@@ -10,6 +10,7 @@ class CommunicationEvent:
     type: str
     payload: Dict[str, Any]
     timestamp: float
+    urgent: bool = False
 
 @dataclass
 class CommunicationState:
@@ -17,18 +18,19 @@ class CommunicationState:
     pending_events: List[CommunicationEvent] = field(default_factory=list)
 
 class CommunicationEngine:
-    MIN_INTERVAL_SECONDS = 120  # 2 minutes
+    MIN_INTERVAL_SECONDS = 60  # Reduced to 1 minute for standard batches
     MAX_BATCH_SIZE = 50
 
     def __init__(self):
         pass
 
-    def add_event(self, state: CommunicationState, event_type: str, payload: Dict[str, Any]) -> None:
+    def add_event(self, state: CommunicationState, event_type: str, payload: Dict[str, Any], urgent: bool = False) -> None:
         """Queue an event for the next communication batch."""
         event = CommunicationEvent(
             type=event_type,
             payload=payload,
-            timestamp=datetime.now(timezone.utc).timestamp()
+            timestamp=datetime.now(timezone.utc).timestamp(),
+            urgent=urgent
         )
         state.pending_events.append(event)
         # Prevent indefinite growth if not flushed
@@ -37,9 +39,10 @@ class CommunicationEngine:
 
     def should_flush(self, state: CommunicationState) -> bool:
         """Check if enough time has passed to send a batch."""
-        if not state.pending_events:
-            return False
-        
+        # If there's an urgent event, speak NOW
+        if any(e.urgent for e in state.pending_events):
+            return True
+
         now = datetime.now(timezone.utc).timestamp()
         time_since_last = now - state.last_message_at
         
@@ -77,6 +80,8 @@ class CommunicationEngine:
                 event_descriptions.append(f"- Morning sync complete. You have {e.payload.get('meeting_count', 0)} meetings today.")
             elif e.type == "cleaned_done":
                 event_descriptions.append(f"- Archive/Cleaned {e.payload.get('count', 0)} less important emails.")
+            elif e.type == "sync_failed":
+                event_descriptions.append("- I encountered an issue syncing your emails. It might be an expired connection or service issue.")
 
         joined_events = "\n".join(event_descriptions)
         
@@ -91,7 +96,8 @@ class CommunicationEngine:
             "1. Be conversational and human. Don't sound like a log.\n"
             "2. Group multiple events into a cohesive narrative.\n"
             "3. No generic fluff like 'I hope you are well'.\n"
-            "4. Match the user's preferred tone and directness."
+            "4. Match the user's preferred tone and directness.\n"
+            "5. ALWAYS respond in professional English, even if context or user preferences suggest otherwise."
         )
         
         prompt = (
@@ -110,7 +116,7 @@ class CommunicationEngine:
             return response.content.strip()
         except Exception:
             # Fallback to simple logic if LLM fails
-            return f"Boss, I've processed {len(events)} updates for you. Check the feed for details."
+            return f"{user_name}, I've processed {len(events)} updates for you. Check the feed for details."
 
 
     def _format_name(self, sender: str) -> str:

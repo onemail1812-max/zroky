@@ -87,9 +87,15 @@ class MeetingSummarizer:
         self.db.commit()
         
         try:
-            # Construct Prompt
+            # 1. Fetch User Profile
+            workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+            settings = workspace.settings_json or {}
+            aaliyah_settings = settings.get("aaliyah", {})
+            user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
+            # 2. Construct Prompt
             system_prompt = (
-                "You are Aaliyah, an expert Executive Assistant. "
+                f"You are Aaliyah, an expert Executive Assistant for {user_name}. "
                 "Your goal is to summarize meeting transcripts into actionable insights. "
                 "Identify key decisions, action items with owners, and a brief executive summary."
             )

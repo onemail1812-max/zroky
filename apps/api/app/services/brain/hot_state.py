@@ -106,7 +106,8 @@ class HotStateManager:
                 merged = dict(_DEFAULT_STATE)
                 merged.update(data)
                 return merged
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to deserialize hot state for {self._key}: {e}", exc_info=True)
             pass
         return dict(_DEFAULT_STATE)
 
@@ -163,7 +164,8 @@ class HotStateManager:
         if isinstance(deadlines, str):
             try:
                 deadlines = json.loads(deadlines)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Failed to parse deadlines JSON in add_deadline for {self._key}: {e}", exc_info=True)
                 deadlines = []
         due_str = due_at.isoformat() if isinstance(due_at, datetime) else str(due_at)
         # Deduplicate by label
@@ -177,7 +179,8 @@ class HotStateManager:
         if isinstance(deadlines, str):
             try:
                 deadlines = json.loads(deadlines)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Failed to parse deadlines JSON in remove_deadline for {self._key}: {e}", exc_info=True)
                 deadlines = []
         deadlines = [d for d in deadlines if d.get("label") != label]
         self.patch(deadlines=deadlines)
@@ -188,7 +191,8 @@ class HotStateManager:
         if isinstance(session, str):
             try:
                 session = json.loads(session)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Failed to parse session_notes JSON for {self._key}: {e}", exc_info=True)
                 session = {}
         session.update(notes)
         self.patch(session_notes=session)
@@ -204,7 +208,8 @@ class HotStateManager:
         if self._redis:
             try:
                 self._redis.delete(self._key)
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Failed to clear Redis hot state for {self._key}: {e}")
                 pass
         _inmemory_store.pop(self._key, None)
 

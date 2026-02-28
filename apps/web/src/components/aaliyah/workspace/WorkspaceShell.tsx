@@ -32,6 +32,7 @@ import { useViewerStore } from "@/lib/aaliyah/viewerStore"
 import type { ConversationSummary, IntelligenceTab } from "@/components/aaliyah/workspace/types"
 import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
 import { AnimatePresence } from "framer-motion"
+import { ComposeModal } from "@/components/aaliyah/workspace/main/ComposeModal"
 
 
 
@@ -212,7 +213,11 @@ export default function WorkspaceShell() {
         const token = await getLiveToken()
         if (!alive) return
 
-        es = new EventSource(`/aaliyah/live/stream?stream_token=${token}`)
+        // [v2.1 Scale Hardening] - Last-Event-ID recovery
+        const lastId = window.sessionStorage.getItem("aaliyah_last_event_id")
+        const url = `/aaliyah/live/stream?stream_token=${token}` + (lastId ? `&last_event_id=${lastId}` : "")
+
+        es = new EventSource(url)
         es.onopen = () => setIsLiveOffline(false)
         es.onerror = () => setIsLiveOffline(true)
         es.onmessage = (event) => {
@@ -222,9 +227,24 @@ export default function WorkspaceShell() {
             // Log everything interesting
             const { addLog } = useSystemStore.getState()
 
+            if (data.id) {
+              window.sessionStorage.setItem("aaliyah_last_event_id", data.id)
+            }
+
             if (data.type === "update" || data.type === "thread_updated" || data.type === "thread_moved") {
               void fetchStatus()
               void fetchInbox()
+            }
+
+            if (data.type === "briefing_ready") {
+              // Dispatch to window so MorningBriefing can pick it up
+              window.dispatchEvent(
+                new CustomEvent("aaliyah:briefing_ready", { detail: data.payload })
+              )
+            }
+
+            if (data.type === "compose_action") {
+              useSystemStore.getState().openCompose(data.payload)
             }
 
             if (data.message) {
@@ -294,10 +314,10 @@ export default function WorkspaceShell() {
     }
   }, [activeConversationId, conversations])
 
-  const openIntelligence = (tab: IntelligenceTab = "Research") => {
+  const openIntelligence = React.useCallback((tab: IntelligenceTab = "Research") => {
     setActiveTab(tab)
     setIsIntelligenceOpen(true)
-  }
+  }, [])
 
   const lastSyncMs = React.useMemo(() => {
     const values = [lastSync?.gmail, lastSync?.calendar].filter(Boolean) as string[]
@@ -393,7 +413,10 @@ export default function WorkspaceShell() {
                 </div>
               ) : isBooting || (syncProgress.phase === "syncing" && activeWork.length === 0) ? (
                 <div className="absolute inset-0 z-20 flex bg-white/95 backdrop-blur-xl items-center justify-center animate-in fade-in duration-500">
-                  <TerminalLoader progress={syncProgress.phase === "syncing" ? 45 : 12} />
+                  <TerminalLoader
+                    progress={syncProgress.phase === "syncing" ? (syncProgress.inbox?.progress || 45) : 12}
+                    status={syncProgress.inbox?.message}
+                  />
                 </div>
               ) : (
                 <NotificationStream
@@ -521,6 +544,8 @@ export default function WorkspaceShell() {
         }}
         unreadCount={inboxItems.filter(i => !i.is_read).length}
       />
+
+      <ComposeModal />
     </div>
   )
 }

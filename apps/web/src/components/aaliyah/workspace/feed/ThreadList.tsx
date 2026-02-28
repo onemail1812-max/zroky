@@ -42,65 +42,72 @@ function formatEmailTime(dateString: string) {
     }
 }
 
-// Demo threads for testing
-const DEMO_THREADS: Record<string, EmailMessage[]> = {
-    priority: [{
-        id: "demo-priority-1",
-        provider: "google",
-        sender: { name: "Rahul Sharma", email: "rahul@techcorp.com" },
-        subject: "Q4 Revenue Report — Urgent Review Required",
-        snippet: "Hi, please review the attached Q4 revenue report before our board meeting tomorrow. The numbers need your sign-off before we...",
-        bodyCleaned: "Hi,\n\nPlease review the attached Q4 revenue report before our board meeting tomorrow morning.\n\nThe numbers need your sign-off before we can finalize the presentation. Key highlights:\n\n• Revenue up 23% YoY\n• EBITDA margins improved to 18.5%\n• Three new enterprise clients onboarded\n\nLet me know if you have any questions.\n\nBest,\nRahul Sharma\nHead of Finance, TechCorp",
-        receivedAt: new Date(Date.now() - 25 * 60000).toISOString(),
-        isRead: false,
-        isPrimaryAccount: true,
-        labels: ["priority", "vip"],
-        draft: {
-            id: "demo-draft-1",
-            subject: "Re: Q4 Revenue Report — Urgent Review Required",
-            body: "Hi Rahul,\n\nThank you for sharing the Q4 report. The numbers look strong. I'll review the detailed breakdown and provide my sign-off by end of day.\n\nRegards",
-            status: "ready",
-            reasoning: "High-priority financial review from VIP sender. Drafted a concise acknowledgment."
-        }
-    }],
-    needs_reply: [{
-        id: "demo-reply-1",
-        provider: "google",
-        sender: { name: "Sarah Jenkins", email: "sarah.j@designpartners.co" },
-        subject: "Project Aaliyah — UI Feedback & Next Steps",
-        snippet: "The latest mockups look fantastic. I've shared some specific feedback regarding the sidebar transitions and the mobile responsiveness...",
-        bodyCleaned: "The latest mockups look fantastic. I've shared some specific feedback regarding the sidebar transitions and the mobile responsiveness. We're on track for the Friday deadline.\n\nCould you also confirm the availability for a quick sync on Thursday morning?\n\nBest,\nSarah",
-        receivedAt: new Date(Date.now() - 45 * 60000).toISOString(),
-        isRead: false,
-        isPrimaryAccount: true,
-        labels: ["needs_reply"],
-        draft: {
-            id: "demo-draft-2",
-            subject: "Re: Project Aaliyah — UI Feedback & Next Steps",
-            body: "Hi Sarah,\n\nGlad you liked the mockups! Thursday morning works for a sync. Does 10:00 AM work for you?\n\nBest regards",
-            status: "ready",
-            reasoning: "Scheduling request and feedback follow-up."
-        }
-    }],
-    fyi: [{
-        id: "demo-fyi-1",
-        provider: "microsoft",
-        sender: { name: "Microsoft 365", email: "notifications@microsoft.com" },
-        subject: "Your Weekly Productivity Summary",
-        snippet: "Here's your weekly productivity summary. You attended 12 meetings, sent 47 emails, and collaborated on 8 documents this week...",
-        bodyCleaned: "Here's your weekly productivity summary:\n\n📊 This Week's Highlights:\n• 12 meetings attended (3 less than last week)\n• 47 emails sent\n• 8 documents collaborated on\n• Focus time: 14 hours\n\nYour most active day was Wednesday with 21 emails sent.\n\nKeep up the great work!\n— Microsoft 365 Team",
-        receivedAt: new Date(Date.now() - 3 * 3600000).toISOString(),
-        isRead: true,
-        isPrimaryAccount: true,
-        labels: ["fyi"],
-    }]
+// Disconnected / Offline State
+function DisconnectedState({ onConnect }: { onConnect: () => void }) {
+    return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center animate-in fade-in slide-in-from-bottom-4 duration-700 bg-zinc-50/30">
+            <div className="relative mb-6">
+                <div className="h-16 w-16 rounded-3xl bg-white flex items-center justify-center border border-zinc-100 shadow-sm">
+                    <AlertCircle className="h-8 w-8 text-zinc-400" />
+                </div>
+                <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-amber-500 border-2 border-white flex items-center justify-center">
+                    <Clock className="h-3 w-3 text-white" />
+                </div>
+            </div>
+            <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-widest mb-2">Service Offline</h3>
+            <p className="text-xs text-zinc-500 max-w-[220px] leading-relaxed mb-6">
+                Your workspace is disconnected. I need access to your inbox to triage your priority items.
+            </p>
+            <button
+                onClick={onConnect}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-zinc-900 text-white text-xs font-bold rounded-xl hover:bg-black transition-all active:scale-95 shadow-lg shadow-zinc-900/10"
+            >
+                Connect Inbox
+            </button>
+        </div>
+    );
 }
 
-export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenIds = new Set() }: { onSelect: (email: EmailMessage) => void; selectedId?: string | null; filter?: string; refreshTrigger?: number; seenIds?: Set<string> }) {
+// Empty State Component
+function EmptyState() {
+    return (
+        <div className="flex flex-col items-center justify-center h-full p-8 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="h-16 w-16 rounded-3xl bg-zinc-50 flex items-center justify-center mb-6 border border-zinc-100">
+                <Sparkles className="h-8 w-8 text-zinc-300" />
+            </div>
+            <h3 className="text-sm font-bold text-zinc-900 uppercase tracking-widest mb-2">Inbox is Clean</h3>
+            <p className="text-xs text-zinc-500 max-w-[200px] leading-relaxed">
+                Aaliyah is monitoring your connections. New priority items will appear here automatically.
+            </p>
+        </div>
+    );
+}
+
+export function ThreadList({
+    onSelect,
+    selectedId,
+    filter,
+    refreshTrigger,
+    seenIds = new Set(),
+    isConnected = true,
+    onConnect
+}: {
+    onSelect: (email: EmailMessage) => void;
+    selectedId?: string | null;
+    filter?: string;
+    refreshTrigger?: number;
+    seenIds?: Set<string>;
+    isConnected?: boolean;
+    onConnect?: () => void;
+}) {
     const [emails, setEmails] = React.useState<EmailMessage[]>([])
     const [loading, setLoading] = React.useState(true)
 
     const load = async () => {
+        if (!isConnected) {
+            setLoading(false);
+            return;
+        }
         setLoading(true)
 
         try {
@@ -108,22 +115,15 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
             const apiEmails = res.data || []
 
             if (apiEmails.length > 0) {
-                // Real data available — use it
                 setEmails(apiEmails.sort((a, b) =>
                     new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
                 ))
             } else {
-                // No live data — fall back to demo threads so UI is never empty
-                const demoKey = filter && filter !== 'all' ? filter : 'priority'
-                const fallback = DEMO_THREADS[demoKey] || Object.values(DEMO_THREADS).flat()
-                setEmails(fallback)
+                setEmails([])
             }
         } catch (e) {
             console.error(e)
-            // On error, also show demo threads instead of empty
-            const demoKey = filter && filter !== 'all' ? filter : 'priority'
-            const fallback = DEMO_THREADS[demoKey] || Object.values(DEMO_THREADS).flat()
-            setEmails(fallback)
+            setEmails([])
         } finally {
             setLoading(false)
         }
@@ -131,7 +131,11 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
 
     React.useEffect(() => {
         load()
-    }, [filter, refreshTrigger])
+    }, [filter, refreshTrigger, isConnected])
+
+    if (!isConnected) {
+        return <DisconnectedState onConnect={onConnect || (() => { })} />
+    }
 
     if (loading && emails.length === 0) {
         return (
@@ -141,13 +145,17 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
         )
     }
 
+    if (!loading && emails.length === 0) {
+        return <EmptyState />
+    }
+
     return (
         <div className="h-full overflow-y-auto custom-scrollbar">
-            {emails.map((email) => {
+            {emails.map((email, idx) => {
                 const isUnseen = !email.isRead;
                 return (
                     <div
-                        key={email.id}
+                        key={`${email.id}_${idx}`}
                         onClick={() => onSelect(email)}
                         className={cn(
                             "px-4 py-3 cursor-pointer transition-all border-b border-zinc-100 hover:bg-zinc-50 relative",
@@ -188,6 +196,11 @@ export function ThreadList({ onSelect, selectedId, filter, refreshTrigger, seenI
 
                         {/* Row 4: Status Chips + Tags */}
                         <div className="flex flex-wrap gap-1.5">
+                            {email.needsClarity && (
+                                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    Needs Clarity
+                                </span>
+                            )}
                             {email.draft && (
                                 <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     Draft ready

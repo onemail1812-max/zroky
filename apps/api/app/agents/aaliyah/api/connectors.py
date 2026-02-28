@@ -564,8 +564,47 @@ async def revoke_account(
 
     integration.status = IntegrationStatus.DISCONNECTED
     integration.token_encrypted = None
-    db.commit()
-    return {"status": "revoked"}
+    
+    # ── Enterprise Cleanup ───────────────────────────────────────────────
+    # Proactively purge triaged data for this provider since we can no 
+    # longer sync or verify deletions.
+    from app.models.triaged_email import TriagedEmail
+    from app.models.search_index import EmailIndex
+    
+    provider_name = "google" if integration.provider == IntegrationProvider.GOOGLE_GMAIL else "microsoft"
+    
+    try:
+        deleted_emails = db.query(TriagedEmail).filter(
+            TriagedEmail.workspace_id == workspace_id,
+            TriagedEmail.provider == provider_name
+        ).delete(synchronize_session=False)
+        
+        # 2. Clean Search Index
+        deleted_index = db.query(EmailIndex).filter(
+            EmailIndex.workspace_id == workspace_id,
+            EmailIndex.provider == provider_name
+        ).delete(synchronize_session=False)
+        
+        db.commit()
+        
+        import logging
+        logging.getLogger(__name__).info(
+            f"Revoke Cleanup: workspace={workspace_id} provider={provider_name} "
+            f"purged={deleted_emails} emails, {deleted_index} index entries."
+        )
+        
+        # 4. Notify Frontend via Orchestrator to clear caches
+        from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+        orc = AaliyahOrchestrator(workspace_id)
+        await orc.broadcast_updates(db)
+        
+    except Exception as e:
+        db.rollback()
+        logging.getLogger(__name__).error(f"Revoke Cleanup failed: {e}")
+        # Note: We still proceed with the revocation even if cleanup has a hiccup
+        pass
+
+    return {"status": "revoked", "purged": True}
 
 
 class SetPrimaryRequest(BaseModel):

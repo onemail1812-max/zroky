@@ -14,6 +14,7 @@ from app.config import settings
 from app.database import Base, engine, get_db
 from app.logging_config import setup_logging
 from app.security import get_current_user
+from app.dependencies import get_current_context, CurrentContext
 from app.models.user import User
 from app.models.membership import Membership
 
@@ -108,13 +109,14 @@ async def startup_event() -> None:
         
     # Start the async background worker loop
     from app.core.queue import queue, JobType
-    from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting
+    from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting, process_heartbeat
     from app.workers.followup_worker import process_auto_followup
     handlers = {
         JobType.SYNC_PROVIDER.value: process_sync_provider,
         JobType.AI_TRIAGE.value: process_ai_triage,
         JobType.PROCESS_DRAFT.value: process_drafting,
-        JobType.AUTO_FOLLOWUP.value: process_auto_followup
+        JobType.AUTO_FOLLOWUP.value: process_auto_followup,
+        JobType.HEARTBEAT.value: process_heartbeat
     }
     
     # Run the worker listener
@@ -125,6 +127,8 @@ async def startup_event() -> None:
 
     logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
 
+
+# ── CORS ─────────────────────────────────────────────────────────────────
 
 # ── CORS ─────────────────────────────────────────────────────────────────
 
@@ -161,6 +165,32 @@ async def root():
     return {"message": "Welcome to Zroky API", "version": settings.app_version}
 
 
+@app.post("/admin/zdr/purge-now", tags=["admin", "zdr"])
+async def trigger_zdr_purge(
+    hours_ttl: int = 24,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger the Zero Data Retention (ZDR) policy.
+    Anonymizes all PII from TriagedEmail records older than the specified TTL.
+    """
+    from app.workers.zdr_purge import purge_stale_pii
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Manual ZDR Purge triggered with TTL={hours_ttl}h")
+    
+    anonymized_count, errors = purge_stale_pii(db, hours_ttl=hours_ttl)
+    
+    if errors > 0:
+        return {"status": "error", "message": "ZDR Purge encountered errors. Check logs."}
+        
+    return {
+        "status": "success",
+        "message": f"ZDR Policy enforced. Successfully anonymized {anonymized_count} stale records."
+    }
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "service": "api"}
@@ -195,7 +225,7 @@ async def health_check_workers(
 @app.get("/health/providers")
 async def health_check_providers(
     db: Session = Depends(get_db),
-    token_payload: dict = Depends(get_current_user),
+    context: CurrentContext = Depends(get_current_context),
 ):
     """
     Stateless provider health check.
@@ -204,30 +234,26 @@ async def health_check_providers(
     """
     from app.models.integration import Integration, IntegrationProvider, IntegrationStatus
 
-    user_id = token_payload.get("sub")
-    membership = db.query(Membership).filter(Membership.user_id == user_id).first()
-    if not membership:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-
-    workspace_id = membership.workspace_id
+    workspace_id = context.workspace_id
 
     # Check for Integration records with tokens
     integrations = db.query(Integration).filter(
         Integration.workspace_id == workspace_id
     ).all()
 
-    google_connected = any(
+    # Normalize providers for matching
+    google_connected = any([
         i.provider in ("google", "google_gmail", "GOOGLE_GMAIL", IntegrationProvider.GOOGLE_GMAIL) 
         and i.token_encrypted 
         and i.status == IntegrationStatus.CONNECTED
         for i in integrations
-    )
-    microsoft_connected = any(
+    ])
+    microsoft_connected = any([
         i.provider in ("microsoft", "outlook", "OUTLOOK", IntegrationProvider.OUTLOOK) 
         and i.token_encrypted 
         and i.status == IntegrationStatus.CONNECTED
         for i in integrations
-    )
+    ])
 
     email_accessible = google_connected or microsoft_connected
 
@@ -357,5 +383,5 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.server_host,
         port=settings.server_port,
-        reload=settings.debug,
+        reload=False,
     )

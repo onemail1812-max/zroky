@@ -38,7 +38,7 @@ class DualStateMemory:
     # Context retrieval (RAG + Hot + Graph)
     # -------------------------------------------------------------------
 
-    def recall(self, query: str, top_k: int = 3) -> dict[str, Any]:
+    def recall(self, query: str, top_k: int = 3, thread_id: Optional[str] = None) -> dict[str, Any]:
         """
         Full context recall for a given query.
 
@@ -53,7 +53,8 @@ class DualStateMemory:
         hot_summary = self.hot.summarize_for_prompt()
 
         # 2. Cold state — vector search
-        memories = self.cold.similarity_search(query, top_k=top_k)
+        filter_meta = {"thread_id": thread_id} if thread_id else None
+        memories = self.cold.similarity_search(query, top_k=top_k, filter_metadata=filter_meta)
 
         # 3. Knowledge graph context
         graph_summary = self.graph.summarize_for_prompt(query=query)
@@ -160,6 +161,7 @@ class DualStateMemory:
         subject: str,
         body: str,
         email_id: str,
+        thread_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """
         Extract structured facts from an email and store them.
@@ -187,11 +189,15 @@ class DualStateMemory:
 
         # Also save to vector store for semantic search
         content = f"Email from {sender} | Subject: {subject} | {body[:500]}"
+        meta = {"sender": sender, "subject": subject}
+        if thread_id:
+            meta["thread_id"] = thread_id
+            
         self.cold.upsert_text(
             source_type="email",
             source_id=email_id,
             content_text=content,
-            metadata={"sender": sender, "subject": subject},
+            metadata=meta,
         )
 
         return facts

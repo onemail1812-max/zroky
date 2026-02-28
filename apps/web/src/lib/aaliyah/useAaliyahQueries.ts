@@ -1,8 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { getInbox, getStatus, getCounts } from "@/lib/aaliyah/api"
-import { connectorService } from "@/services/connector.service"
+import { getStatus, getCounts } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 
 /**

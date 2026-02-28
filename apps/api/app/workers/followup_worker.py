@@ -37,8 +37,12 @@ async def process_auto_followup(payload: dict):
         
         from app.models.workspace import Workspace
         workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-        prefs = workspace.preferences if workspace and workspace.preferences else {}
-        user_name = prefs.get("user_name") or prefs.get("first_name") or "Boss"
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+
+        # Initialize Brain for intelligent nudging
+        from app.services.brain.core import Brain
+        brain = Brain()
 
         for thread in forgotten_threads:
             # Check if we already nudged in the last 24h to avoid spam
@@ -49,30 +53,59 @@ async def process_auto_followup(payload: dict):
                 if now - last_nudge_dt < timedelta(hours=24):
                     continue
             
+            # 1. Generate Conversational Nudge
+            prompt = f"""
+            Identify a friendly, proactive way to ask {user_name} if they want a follow-up email sent for this specific thread.
+            
+            THREAD DETAILS:
+            Sender: {thread.sender}
+            Subject: {thread.subject}
+            Snippet: {thread.snippet}
+            
+            STRICT RULES:
+            1. Be very concise (max 2 sentences).
+            2. Be warm and helpful.
+            3. Mention the specific topic naturally.
+            4. Do NOT use generic AI filler.
+            5. Ask if you should draft a follow-up.
+            """
+            
+            try:
+                response = await brain.think(
+                    prompt=prompt,
+                    system_prompt=f"You are Aaliyah, {user_name}'s proactive Executive Assistant. Help them stay on top of their inbox with friendly nudges.",
+                    model_override="google/gemini-flash-1.5" # Efficient for quick nudges
+                )
+                msg = response.content.strip()
+            except Exception:
+                # Fallback to a better static message if Brain fails
+                msg = f"Hey {user_name}, you haven't heard back from {thread.sender} regarding '{thread.subject}'. Shall I send a friendly follow-up nudge?"
+            
             # Phase 8: Default Actions for Follow-ups
             actions = [
                 {"label": "Draft Nudge", "type": "callback", "payload": {"intent": "draft_nudge"}, "primary": True},
                 {"label": "Snooze 24h", "type": "snooze", "payload": {"hours": 24}},
             ]
             
-            # Emit Nudge
+            # Emit Proactive Assistant Message (Conversational Follow-up)
             await orc.emit_status(
-                "followup-nudge",
-                f"{user_name}, you haven haven't heard back from {thread.sender} regarding '{thread.subject}'. Should I send a nudge?",
+                "assistant_message",
+                msg,
                 {
-                    "id": thread.id,
+                    "text": msg,
+                    "role": "assistant",
                     "thread_id": thread.thread_id,
-                    "external_message_id": thread.external_message_id,
-                    "sender": thread.sender,
-                    "subject": thread.subject,
-                    "received_at": thread.received_at.isoformat() if thread.received_at else None,
+                    "target_thread_id": thread.thread_id,
+                    "triaged_id": thread.id,
+                    "followup_nudge": True,
                     "actions": actions
                 }
             )
             
             # Update metadata to track the nudge
             meta["last_nudge_at"] = now.isoformat()
-            thread.metadata_json = meta
+            meta["followup_pending_confirmation"] = True
+            thread.metadata_json = dict(meta)
             
             logger.info(f"Nudge emitted for thread {thread.thread_id} in workspace {workspace_id}")
 

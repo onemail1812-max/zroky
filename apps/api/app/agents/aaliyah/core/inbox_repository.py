@@ -47,6 +47,7 @@ class TriagedInboxRepository:
         queue: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        allowed_providers: Optional[List[str]] = None,
     ) -> Tuple[List[TriagedEmail], int]:
         """Return paginated triaged emails from the database."""
         q = self.db.query(TriagedEmail).filter(
@@ -68,6 +69,9 @@ class TriagedInboxRepository:
             }
             category = queue_to_category.get(queue.lower(), queue)
             q = q.filter(TriagedEmail.category == category)
+
+        if allowed_providers is not None:
+             q = q.filter(TriagedEmail.provider.in_(allowed_providers))
 
         total = q.count()
         rows = q.order_by(desc(TriagedEmail.received_at)).offset(offset).limit(limit).all()

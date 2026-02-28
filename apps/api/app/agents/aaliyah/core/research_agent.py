@@ -26,10 +26,12 @@ class ResearchAgent:
         self.search_agent = SearchAgent(db, workspace_id, self.brain)
         self.web_tool = WebResearchTool(self.brain)
 
-    async def summarize_topic(self, topic: str) -> Dict[str, Any]:
+    async def summarize_topic(self, db: Session, topic: str) -> Dict[str, Any]:
         """
         Gathers all relevant context for a topic and generates a research report.
         """
+        # Ensure internal search agent uses current session
+        self.search_agent.db = db
         # 1. Broad Search
         search_results = await self.search_agent.execute_search(topic)
         
@@ -48,10 +50,12 @@ class ResearchAgent:
             "2. Key People Involved\n"
             "3. Next Actions\n"
             "4. Conflicts or Risks (if any)\n\n"
-            "STRICT RULES:\n"
-            "- Be concise but thorough.\n"
-            "- Citations MUST be included.\n"
-            "- No fluff or AI filler words."
+            "STRICT HUMANIZATION PROTOCOL (Blader/Humanizer Principles):\n"
+            "1. NO AI FILLER: Do not use 'delve', 'tapestry', 'testament', 'underscores', 'pivotal', 'crucial', or 'vibrant'.\n"
+            "2. NO COPULA AVOIDANCE: Use simple 'is' or 'are'. Avoid 'serves as', 'represents a shift', or 'boasts'.\n"
+            "3. VARY THE RHYTHM: Use a mix of short, punchy sentences and longer, thoughtful ones. Avoid same-length sentence monotony.\n"
+            "4. NO AI POLISH: Remove 'moreover', 'nonetheless', or sterile tone. Use active voice and be decisive.\n"
+            "5. NO PIVOTAL MOMENTS: Stick to facts and actions. No dramatic AI storytelling."
         )
         
         # Prepare context for LLM (using evidence text)
@@ -71,8 +75,11 @@ class ResearchAgent:
             temperature_override=0.2
         )
 
+        from app.agents.aaliyah.core.humanizer import HumanizerFilter
+        clean_report = HumanizerFilter.apply(report.content)
+
         return {
-            "answer": report.content,
+            "answer": clean_report,
             "status": "success",
             "evidence": evidence
         }

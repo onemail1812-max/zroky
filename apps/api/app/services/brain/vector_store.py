@@ -203,7 +203,7 @@ class PostgresVectorStore:
         self.db.refresh(entry)
         return entry
 
-    def similarity_search(self, query_text: str, top_k: int = 3) -> list[dict[str, Any]]:
+    def similarity_search(self, query_text: str, top_k: int = 3, filter_metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """
         Level 5 Retrieval: Hybrid Search with Reciprocal Rank Fusion (RRF).
         Combines Semantic (Vector) + Keyword (FTS) for best-in-class accuracy.
@@ -213,33 +213,38 @@ class PostgresVectorStore:
         # 1. Semantic Search
         semantic_results = []
         if self._check_pgvector():
-            semantic_results = self._pgvector_search(query_embedding, top_k=20)
+            semantic_results = self._pgvector_search(query_embedding, top_k=20, filter_metadata=filter_metadata)
         else:
-            semantic_results = self._python_cosine_search(query_embedding, top_k=20)
+            semantic_results = self._python_cosine_search(query_embedding, top_k=20, filter_metadata=filter_metadata)
 
         # 2. Keyword Search (Full Text)
-        keyword_results = self._keyword_search(query_text, top_k=20)
+        keyword_results = self._keyword_search(query_text, top_k=20, filter_metadata=filter_metadata)
 
         # 3. Reciprocal Rank Fusion (RRF)
         return self._rrf_merge(semantic_results, keyword_results, top_k)
 
-    def _keyword_search(self, query_text: str, top_k: int) -> list[dict[str, Any]]:
+    def _keyword_search(self, query_text: str, top_k: int, filter_metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """Simple keyword search (SQL LIKE or POSIX regex for portability)."""
         try:
             # We use a broad search across source types and content
             search_pattern = f"%{query_text}%"
-            sql = text("""
+            
+            where_clause = "workspace_id = :ws_id AND content_text LIKE :query"
+            params = {"ws_id": self.workspace_id, "query": search_pattern, "limit": top_k}
+            
+            if filter_metadata:
+                for key, value in filter_metadata.items():
+                    param_name = f"meta_{key}"
+                    where_clause += f" AND metadata_json->>'{key}' = :{param_name}"
+                    params[param_name] = str(value)
+
+            sql = text(f"""
                 SELECT id, source_type, source_id, content_text, metadata_json
                 FROM memory_entries
-                WHERE workspace_id = :ws_id
-                  AND content_text ILIKE :query
+                WHERE {where_clause}
                 LIMIT :limit
             """)
-            result = self.db.execute(sql, {
-                "ws_id": self.workspace_id,
-                "query": search_pattern,
-                "limit": top_k
-            })
+            result = self.db.execute(sql, params)
             rows = result.fetchall()
             return [
                 {
@@ -289,23 +294,32 @@ class PostgresVectorStore:
             
         return final_results
 
-    def _pgvector_search(self, query_embedding: list[float], top_k: int) -> list[dict[str, Any]]:
+    def _pgvector_search(self, query_embedding: list[float], top_k: int, filter_metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """Use native pgvector cosine distance operator."""
         try:
             vector_str = "[" + ",".join(str(v) for v in query_embedding) + "]"
-            sql = text("""
-                SELECT id, source_type, source_id, content_text, metadata_json,
-                       1 - (embedding_json::vector <=> :query_vec::vector) AS similarity
-                FROM memory_entries
-                WHERE workspace_id = :ws_id
-                ORDER BY embedding_json::vector <=> :query_vec::vector
-                LIMIT :top_k
-            """)
-            result = self.db.execute(sql, {
+            where_clause = "workspace_id = :ws_id"
+            params = {
                 "query_vec": vector_str,
                 "ws_id": self.workspace_id,
                 "top_k": max(1, min(top_k, 20)),
-            })
+            }
+
+            if filter_metadata:
+                for key, value in filter_metadata.items():
+                    param_name = f"meta_{key}"
+                    where_clause += f" AND metadata_json->>'{key}' = :{param_name}"
+                    params[param_name] = str(value)
+
+            sql = text(f"""
+                SELECT id, source_type, source_id, content_text, metadata_json,
+                       1 - (embedding_json::vector <=> :query_vec::vector) AS similarity
+                FROM memory_entries
+                WHERE {where_clause}
+                ORDER BY embedding_json::vector <=> :query_vec::vector
+                LIMIT :top_k
+            """)
+            result = self.db.execute(sql, params)
             rows = result.fetchall()
             return [
                 {
@@ -323,11 +337,16 @@ class PostgresVectorStore:
             self._pgvector_available = False
             return self._python_cosine_search(query_embedding, top_k)
 
-    def _python_cosine_search(self, query_embedding: list[float], top_k: int) -> list[dict[str, Any]]:
+    def _python_cosine_search(self, query_embedding: list[float], top_k: int, filter_metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
         """In-Python cosine similarity (works with SQLite and Postgres without pgvector)."""
+        query = self.db.query(MemoryEntry).filter(MemoryEntry.workspace_id == self.workspace_id)
+        
+        if filter_metadata:
+            for key, value in filter_metadata.items():
+                query = query.filter(MemoryEntry.metadata_json[key].as_string() == str(value))
+
         rows = (
-            self.db.query(MemoryEntry)
-            .filter(MemoryEntry.workspace_id == self.workspace_id)
+            query
             .order_by(MemoryEntry.updated_at.desc())
             .limit(250)
             .all()

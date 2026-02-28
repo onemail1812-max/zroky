@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import re
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
+from typing import Optional
 
 from app.services.brain.core import Brain
 from app.services.brain.schemas.models import ModelType
+from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .ingestion.email_ingestor import NormalizedEmailMessage
 
@@ -20,42 +23,51 @@ Example 1:
 Sender: alerts@github.com
 Subject: [Dependabot] Security vulnerability in lodash
 Snippet: A high severity vulnerability was found in lodash...
-Answer: {"category": "Priority", "priority": "High", "is_noise": false, "confidence": 0.92, "reasoning": "Security alert requiring immediate review."}
+Answer: {"category": "Priority", "priority": "High", "is_noise": false, "confidence": 0.92, "reasoning": "Security alert requiring immediate review.", "language": "English"}
 
 Example 2:
 Sender: newsletter@techcrunch.com
 Subject: This Week in AI — Feb 2026
 Snippet: Welcome to our weekly roundup of the latest in...
-Answer: {"category": "FYI", "priority": "Low", "is_noise": true, "confidence": 0.97, "reasoning": "Marketing newsletter."}
+Answer: {"category": "FYI", "priority": "Low", "is_noise": true, "confidence": 0.97, "reasoning": "Marketing newsletter.", "language": "English"}
 
 Example 3:
 Sender: jane@company.com
 Subject: Re: Q3 Board Deck — feedback
 Snippet: Hi, I reviewed the latest draft and have a few comments. Can we discuss?...
-Answer: {"category": "Needs Reply", "priority": "Medium", "is_noise": false, "confidence": 0.85, "reasoning": "Actionable feedback requires a response."}
+Answer: {"category": "Needs Reply", "priority": "Medium", "is_noise": false, "confidence": 0.85, "reasoning": "Actionable feedback requires a response.", "language": "English"}
 
 Example 4:
 Sender: vendor@service.com
 Subject: Proposal for new software
 Snippet: Hey, we'd like to offer you a 20% discount on our annual plan...
-Answer: {"category": "Approvals", "priority": "Medium", "is_noise": false, "confidence": 0.70, "reasoning": "Vendor proposal requiring user decision."}
+Answer: {"category": "Approvals", "priority": "Medium", "is_noise": false, "confidence": 0.70, "reasoning": "Vendor proposal requiring user decision.", "language": "English"}
 
 Example 5:
 Sender: ceo@company.com
 Subject: URGENT: Board meeting moved to tomorrow
 Snippet: We need to finalize the presentation by tonight. Please prioritize...
-Answer: {"category": "Priority", "priority": "High", "is_noise": false, "confidence": 0.98, "reasoning": "Executive escalation with time-critical deadline."}
+Answer: {"category": "Priority", "priority": "High", "is_noise": false, "confidence": 0.98, "reasoning": "Executive escalation with time-critical deadline.", "language": "English"}
+
+Example 6:
+Sender: partner@foreign.com
+Subject: Confirmación del contrato
+Snippet: Hola, adjunto el contrato firmado. Por favor, revíselo.
+Answer: {"category": "Approvals", "priority": "Medium", "is_noise": false, "confidence": 0.90, "reasoning": "Signed contract received requiring review/approval.", "language": "Spanish"}
 """
 
-@dataclass(frozen=True)
-class TriageResult:
-    category: str
-    priority: str
-    is_noise: bool
-    confidence: float
-    reasoning: str
-    needs_clarity: bool = False
-    can_draft: bool = False
+class TriageResult(BaseModel):
+    category: str = Field(..., description="Classification category (e.g. Priority, Newsletter)")
+    priority: str = Field(..., description="High, Medium, or Low")
+    is_noise: bool = Field(False, description="True if email is automated/ads/spam")
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    reasoning: str = Field(..., description="Concise explanation for this classification")
+    needs_clarity: bool = Field(False, description="True if AI needs user opinion before drafting")
+    can_draft: bool = Field(False, description="True if AI has enough context to draft a reply")
+    clarification_questions: list[str] = Field(default_factory=list, description="Specific questions AI needs answered before drafting (only when needs_clarity=true)")
+    context_type: str = Field(default="business", description="'business' or 'personal' based on sender domain")
+    language: str = Field(default="English", description="Detected language of the email (e.g., English, Spanish, French, Hindi)")
+    is_vip: bool = Field(False, description="True if sender is a high-value contact (CEO, Director, Founder, or long-term partner)")
 
 def _parse_float(value: object, default: float = 0.5) -> float:
     try:
@@ -83,18 +95,31 @@ class SmartTriageClassifier:
         sender = message.metadata.sender or ""
         snippet = message.content or ""
 
-        # UPGRADE: Added instructions for identifying clarity and drafting needs.
+        # Detect context type for this email
+        from app.agents.aaliyah.core.ingestion.sanitizer import detect_context_type
+        ctx_type = detect_context_type(sender)
+
+        # UPGRADE: Enterprise-grade clarification with specific questions.
         system_prompt = (
             "You are an elite, high-speed email classifier for Aaliyah, a Super Intelligent Executive Assistant. "
-            "Return strict JSON only with keys: category, priority, is_noise, confidence, reasoning, needs_clarity, can_draft. "
+            "Return strict JSON only with keys: category, priority, is_noise, confidence, reasoning, needs_clarity, can_draft, clarification_questions, context_type, language, is_vip. "
             "category must be one of [Priority, Needs Reply, Approvals, Follow-ups, Newsletter, Notifications]. "
             "priority must be one of [High, Medium, Low]. "
             "is_noise=true means the email can be safely auto-archived (ads, digests, automated alerts). "
             "confidence should reflect how certain you are (0.0-1.0). "
             "reasoning should be a single concise sentence explaining the classification. "
-            "NEW RULES: "
-            "needs_clarity (bool): Set to true if the email asks a complex question where the AI needs the user's opinion before drafting a reply (e.g., 'Do you approve this $5k expense?'). "
-            "can_draft (bool): Set to true if the AI has enough context from the email alone to draft a standard response."
+            "language should be the detected language of the email (e.g., English, Spanish, French, Hindi). "
+            "is_vip (bool): Identify if the sender is an executive, high-value partner, or priority stakeholder. Check for titles like CEO, Founder, Director, Partner, or keywords indicating high relational value. "
+            f"context_type: Set to '{ctx_type}' (detected from sender domain). "
+            "INTERACTIVE CLARIFICATION RULES: "
+            "needs_clarity (bool): Set to true if the email requires the user's specific input before a reply can be drafted. "
+            "Examples: approval requests, budget decisions, meeting preferences with specific people, or any question where the answer depends on the user's personal judgment. "
+            "clarification_questions (list[str]): When needs_clarity=true, generate ALL specific questions the AI needs answered. "
+            "Each question must be direct and actionable. Examples: "
+            "['Do you approve the $5,000 expense for the marketing campaign?', 'Should I suggest morning or afternoon slots for the meeting?'] "
+            "Generate between 1-4 questions maximum. Cover ALL doubts in one pass so the user isn't asked repeatedly. "
+            "can_draft (bool): Set to true ONLY if the AI has enough context to draft WITHOUT any user input. "
+            "Standard acknowledgments, thank-you replies, and information-only forwards can be auto-drafted."
         )
         prompt = (
             f"{_FEW_SHOT}\n"
@@ -106,65 +131,61 @@ class SmartTriageClassifier:
         )
 
         try:
-            response = await self.brain.think(
+            # Stage 1: Tier-1 Fast Primary (e.g. Gemini Flash)
+            result = await self.brain.think_json(
                 prompt=prompt,
+                response_model=TriageResult,
                 system_prompt=system_prompt,
-                model_override=ModelType.FAST.value,
+                model_override=settings.BRAIN_MODEL,
                 temperature_override=0.0,
             )
-            parsed = self._parse_response(response.content)
-            if parsed:
-                return parsed
-        except Exception:
-            pass
+            
+            # [v2.1 Scale Hardening] - Multi-Model Fallback
+            # If confidence is low or categorizations are ambiguous, escalate to Tier-2 High-Capacity.
+            if result.confidence < 0.7 or result.category == "Notifications": # Low confidence or noisy cat
+                 logger.info(f"Triage: Confidence ({result.confidence}) below threshold. Escalating to Tier-2 High-Capacity.")
+                 result = await self.brain.think_json(
+                    prompt=prompt,
+                    response_model=TriageResult,
+                    system_prompt=system_prompt,
+                    model_override="openai/gpt-4o", # Tier-2 Sovereign Model
+                    temperature_override=0.0,
+                )
+
+            # Normalize category and priority
+            result = self._normalize_result(result)
+            return result
+        except Exception as e:
+            logger.warning("Primary triage failed, attempting critical recovery fallback: %s", e)
+            try:
+                # Emergency recovery using highest-capacity model
+                result = await self.brain.think_json(
+                    prompt=prompt,
+                    response_model=TriageResult,
+                    system_prompt=system_prompt,
+                    model_override="openai/gpt-4o",
+                    temperature_override=0.0,
+                )
+                return self._normalize_result(result)
+            except Exception:
+                pass
 
         return heuristic
 
-    def _parse_response(self, content: str) -> TriageResult | None:
-        text = content.strip()
-        if "```json" in text:
-            text = text.split("```json", 1)[1].split("```", 1)[0].strip()
-        elif "```" in text:
-            text = text.split("```", 1)[1].split("```", 1)[0].strip()
-
-        if not text.startswith("{"):
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
-            if match:
-                text = match.group(1)
-
-        try:
-            obj = json.loads(text)
-        except Exception:
-            return None
-        if not isinstance(obj, dict):
-            return None
-
-        raw_category = str(obj.get("category") or "").strip()
-        best_category = "Notifications"
+    def _normalize_result(self, result: TriageResult) -> TriageResult:
+        """Ensure category and priority are from valid sets."""
+        raw_cat = result.category.strip()
+        best_cat = "Notifications"
         for valid in VALID_CATEGORIES:
-            if valid.lower() == raw_category.lower() or valid.lower().replace("-","") == raw_category.lower().replace("-",""):
-                best_category = valid
+            if valid.lower() == raw_cat.lower().replace("-"," ").replace("_"," "):
+                best_cat = valid
                 break
-
-        priority = str(obj.get("priority") or "").strip().title()
-        is_noise = bool(obj.get("is_noise", False))
-        confidence = _parse_float(obj.get("confidence"), default=0.5)
-        reasoning = str(obj.get("reasoning") or "").strip()[:500]
-        needs_clarity = bool(obj.get("needs_clarity", False))
-        can_draft = bool(obj.get("can_draft", False))
-
+        
+        priority = result.priority.strip().title()
         if priority not in VALID_PRIORITIES:
             priority = "Low"
             
-        return TriageResult(
-            category=best_category,
-            priority=priority,
-            is_noise=is_noise,
-            confidence=confidence,
-            reasoning=reasoning or "Classified by fast model.",
-            needs_clarity=needs_clarity,
-            can_draft=can_draft
-        )
+        return result.model_copy(update={"category": best_cat, "priority": priority})
 
     def _fallback_heuristic(self, message: NormalizedEmailMessage) -> TriageResult:
         text = f"{message.metadata.subject or ''} {message.content or ''}".lower()
@@ -183,6 +204,7 @@ class SmartTriageClassifier:
                 is_noise=True,
                 confidence=0.82,
                 reasoning="Contains common newsletter/promotional markers.",
+                language="English"
             )
 
         # Automated notifications (noise)
@@ -195,6 +217,7 @@ class SmartTriageClassifier:
                     is_noise=True,
                     confidence=0.78,
                     reasoning="Automated notification from no-reply sender.",
+                    language="English"
                 )
 
         # Urgency keywords
@@ -210,6 +233,7 @@ class SmartTriageClassifier:
                 is_noise=False,
                 confidence=0.85,
                 reasoning="Contains urgency and time-critical language.",
+                language="English"
             )
 
         # Needs Reply markers
@@ -224,6 +248,7 @@ class SmartTriageClassifier:
                 is_noise=False,
                 confidence=0.70,
                 reasoning="Contains questions or action-oriented phrases requiring reply.",
+                language="English"
             )
 
         return TriageResult(
@@ -232,4 +257,5 @@ class SmartTriageClassifier:
             is_noise=False,
             confidence=0.65,
             reasoning="No urgency or reply markers found; classified as general information.",
+            language="English"
         )

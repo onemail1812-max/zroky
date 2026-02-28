@@ -124,9 +124,30 @@ async def process_sync_provider(payload: Dict[str, Any]):
 
     except Exception as e:
         logger.error(f"Discovery failed: {e}")
+        # Proactive Alert to User
+        try:
+            orc = AaliyahOrchestrator(workspace_id)
+            await orc.emit_status(
+                "sync_failed",
+                f"Sync failed for workspace {workspace_id}. Please check your connection.",
+                {"error": str(e), "workspace_id": workspace_id}
+            )
+        except Exception:
+            pass
         raise e
     finally:
         db.close()
+
+async def process_heartbeat(payload: Dict[str, Any]):
+    """
+    Periodic heartbeat to flush stale communication queues.
+    """
+    workspace_id = payload.get("workspace_id")
+    if not workspace_id: return
+    
+    logger.info(f"Heartbeat: Flushing communication for workspace={workspace_id}")
+    orc = AaliyahOrchestrator(workspace_id)
+    await orc.flush_communication()
 
 async def process_ai_triage(payload: Dict[str, Any]):
     """
@@ -157,6 +178,36 @@ async def process_ai_triage(payload: Dict[str, Any]):
         entry.confidence = triage.confidence
         entry.reasoning = triage.reasoning
         entry.can_draft = triage.can_draft
+        
+        # Checkpoint 6: VIP Escalation
+        if getattr(triage, "is_vip", False):
+            entry.priority = "Urgent"
+            if entry.metadata_json is None: entry.metadata_json = {}
+            entry.metadata_json["is_vip"] = True
+            entry.metadata_json["labels"] = list(set((entry.metadata_json.get("labels") or []) + ["VIP Priority"]))
+
+        # Checkpoint 6: Exec Analytics (Time Saved)
+        # Heuristic: 5 mins for reply drafted, 2 mins for noise archived
+        time_saved = 0
+        if triage.can_draft:
+            time_saved += 5
+        elif triage.is_noise:
+            time_saved += 2
+            
+        if time_saved > 0:
+            workspace = db.query(Workspace).get(entry.workspace_id)
+            if workspace:
+                settings = workspace.settings_json or {}
+                analytics = settings.get("analytics", {})
+                analytics["time_saved_minutes"] = analytics.get("time_saved_minutes", 0) + time_saved
+                settings["analytics"] = analytics
+                workspace.settings_json = settings
+                db.add(workspace)
+        
+        meta = entry.metadata_json or {}
+        meta["language"] = triage.language
+        entry.metadata_json = meta
+        
         db.commit()
 
         # STAGE 2.3: Relationship Intelligence (Knowledge Graph)
@@ -203,16 +254,104 @@ async def process_ai_triage(payload: Dict[str, Any]):
 
         db.commit()
 
+        # STAGE 2.7: Noise Auto-Archive (Enterprise Feature)
+        # If email is classified as noise, auto-archive on provider
+        if triage.is_noise and entry.external_message_id:
+            try:
+                from app.agents.aaliyah.core.action_executor import ActionExecutor
+                from app.models.workspace import Workspace
+                ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+                if ws and ws.owner_id:
+                    executor = ActionExecutor(db)
+                    await executor.archive(
+                        user_id=ws.owner_id,
+                        workspace_id=workspace_id,
+                        provider=entry.provider or msg.provider,
+                        message_id=entry.external_message_id,
+                        explain_one_liner=f"Auto-archived noise: {entry.subject[:50]}"
+                    )
+                    logger.info(f"Noise auto-archived: {entry.subject[:50]} (provider={entry.provider})")
+            except Exception as archive_err:
+                # Non-critical — log and continue
+                logger.warning(f"Noise auto-archive failed (non-critical): {archive_err}")
+
         # Emit progress via Orchestrator (Conversation-triggering)
         orc = AaliyahOrchestrator(workspace_id)
         await orc.emit_status(
             "thread_updated",
             f"AI classified as {triage.category}",
-            {"id": triaged_id, "category": triage.category}
+            {
+                "id": triaged_id,
+                "thread_id": msg.metadata.thread_id,
+                "category": triage.category,
+                "subject": msg.metadata.subject,
+                "sender": msg.metadata.sender,
+                "priority": triage.priority,
+            }
         )
 
         # Enqueue STAGE 3 if applicable
-        if triage.can_draft:
+        if triage.needs_clarity and triage.clarification_questions:
+            # Store full clarification state for the conversational loop
+            meta = entry.metadata_json or {}
+            meta["needs_clarity"] = True
+            meta["clarification_questions"] = triage.clarification_questions
+            meta["clarification_answers"] = []
+            meta["clarification_current_index"] = 0
+            meta["clarification_complete"] = False
+            meta["context_type"] = triage.context_type
+            entry.metadata_json = dict(meta)
+            db.commit()
+
+            # Build a natural conversational message with the FIRST question
+            subject_preview = msg.metadata.subject[:40] + "..." if len(msg.metadata.subject or "") > 40 else (msg.metadata.subject or "No Subject")
+            sender_name = msg.metadata.sender.split("<")[0].strip() if "<" in (msg.metadata.sender or "") else (msg.metadata.sender or "Unknown")
+            
+            # Fetch user name from Workspace owner settings
+            from app.models.workspace import Workspace
+            ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            user_name = "there"
+            if ws:
+                prefs = (getattr(ws, "settings_json", {}) or {}).get("aaliyah", {})
+                user_name = prefs.get("user_name") or prefs.get("first_name") or "there"
+            
+            first_q = triage.clarification_questions[0]
+            clarification_msg = (
+                f"{user_name}, there are a few things unclear in this email. Could you provide some context?\n\n"
+                f"📩 From **{sender_name}**: *{subject_preview}*\n\n"
+                f"**1. {first_q}**"
+            )
+            
+            await orc.emit_status(
+                "assistant_message",
+                clarification_msg,
+                {
+                    "text": clarification_msg,
+                    "role": "assistant",
+                    "thread_id": msg.metadata.thread_id,
+                    "triaged_id": triaged_id,
+                    "clarification_pending": True,
+                }
+            )
+            logger.info(f"Workflow [2/3] Triage finished. Asked {len(triage.clarification_questions)} clarification question(s) for {triaged_id}.")
+        
+        elif triage.needs_clarity:
+            # Fallback: needs_clarity but no specific questions generated
+            meta = entry.metadata_json or {}
+            meta["needs_clarity"] = True
+            meta["context_type"] = triage.context_type
+            entry.metadata_json = dict(meta)
+            db.commit()
+
+            subject_preview = msg.metadata.subject[:30] + "..." if len(msg.metadata.subject or "") > 30 else (msg.metadata.subject or "No Subject")
+            question = f"Regarding the email '{subject_preview}', {triage.reasoning} How would you like me to handle this?"
+            await orc.emit_status(
+                "assistant_message",
+                question,
+                {"text": question, "role": "assistant", "thread_id": msg.metadata.thread_id}
+            )
+            logger.info(f"Workflow [2/3] Triage finished. Asked user for clarity on {triaged_id}.")
+        elif triage.can_draft:
             await queue.enqueue(
                 job_type=JobType.PROCESS_DRAFT.value,
                 payload={
@@ -247,7 +386,6 @@ async def process_drafting(payload: Dict[str, Any]):
     db = SessionLocal()
     try:
         from app.agents.aaliyah.core.drafting import DraftingAgent
-        from app.agents.aaliyah.core.humanizer import EmailHumanizer
         
         entry = db.query(TriagedEmail).get(triaged_id)
         if not entry: return
@@ -256,20 +394,14 @@ async def process_drafting(payload: Dict[str, Any]):
         draft = await agent.generate_draft(entry)
         
         if draft:
-            humanizer = EmailHumanizer(workspace_id, db, Brain())
-            polished_body = await humanizer.inject_soul(
-                draft_body=draft.body,
-                incoming_email=entry.snippet,
-                recipient_name=entry.sender or "there"
-            )
-            
             meta = entry.metadata_json or {}
             meta["draft"] = {
                 "subject": draft.subject,
-                "body": polished_body,
+                "body": draft.body,
                 "rationale": draft.rationale,
                 "confidence": 0.95,
-                "reasoning": "Standard humanized response"
+                "reasoning": "Consolidated humanized response",
+                "tone_tags": draft.tone_tags
             }
             entry.metadata_json = meta
             db.commit()
@@ -279,7 +411,14 @@ async def process_drafting(payload: Dict[str, Any]):
             await orc.emit_status(
                 "draft_ready",
                 f"Aaliyah drafted a reply for: {entry.subject[:30]}...",
-                {"id": triaged_id, "draft": True}
+                {
+                    "id": triaged_id,
+                    "thread_id": entry.thread_id,
+                    "subject": entry.subject,
+                    "sender": entry.sender,
+                    "snippet": entry.snippet,
+                    "draft": meta["draft"]
+                }
             )
 
             # INSTANT COUNTS: Broadcast updated counts after drafting

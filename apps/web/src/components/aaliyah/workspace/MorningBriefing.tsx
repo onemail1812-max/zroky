@@ -23,6 +23,7 @@ interface GreetingState {
 interface BriefingData {
   content: string
   date: string
+  status?: "ready" | "generating"
 }
 
 export function MorningBriefing() {
@@ -48,7 +49,11 @@ export function MorningBriefing() {
         if (gData.state === "healthy") {
           try {
             const briefingRes = await aaliyahApi.get("/briefing")
-            if (alive) setBriefing(briefingRes.data as BriefingData)
+            if (alive) {
+              const data = briefingRes.data as BriefingData
+              // If it's the fallback placeholder text, we can show a "Generate Briefing" button later
+              setBriefing(data)
+            }
           } catch (e) {
             // Briefing might not be ready, ignore
           }
@@ -61,7 +66,24 @@ export function MorningBriefing() {
     }
 
     void fetchData()
-    return () => { alive = false }
+
+    // Listen for SSE briefing_ready event
+    const handleBriefingReady = (event: CustomEvent) => {
+      if (event.detail && event.detail.content) {
+        setBriefing({
+          content: event.detail.content,
+          date: event.detail.date || new Date().toISOString(),
+          status: "ready"
+        })
+        setSyncing(false)
+      }
+    }
+    window.addEventListener("aaliyah:briefing_ready", handleBriefingReady as EventListener)
+
+    return () => {
+      alive = false
+      window.removeEventListener("aaliyah:briefing_ready", handleBriefingReady as EventListener)
+    }
   }, [])
 
   const handleAction = async () => {
@@ -168,10 +190,40 @@ export function MorningBriefing() {
 
       {/* Briefing Content (Only if Healthy & Available) */}
       {greeting.state === "healthy" && briefing && (
-        <article className="group rounded-xl border border-borderSubtle bg-surface p-6 transition-all hover:border-borderStrong">
-          <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-widest mb-4">Daily Briefing • {format(new Date(), "MMM do")}</h3>
+        <article className="group rounded-xl border border-borderSubtle bg-surface p-6 transition-all hover:border-borderStrong relative overflow-hidden">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-[11px] font-bold text-textMuted uppercase tracking-widest">Daily Briefing • {format(new Date(), "MMM do")}</h3>
+
+            {/* Show Generate button if it's the fallback generic text or explicitly generating */}
+            {(briefing.status === "generating" || briefing.content.includes("Check back in a moment")) && (
+              <button
+                disabled={true}
+                className="inline-flex items-center gap-2 px-3 py-1 bg-zinc-100 text-zinc-600 rounded-md text-[11px] font-bold uppercase tracking-wider"
+              >
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Generating...
+              </button>
+            )}
+
+            {briefing.status !== "generating" && !briefing.content.includes("Check back in a moment") && (
+              <button
+                onClick={async () => {
+                  setBriefing({ ...briefing, status: "generating" })
+                  await aaliyahApi.get("/briefing?generate=true")
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-textMuted hover:text-textPrimary hover:bg-zinc-50 rounded text-[11px] font-bold uppercase tracking-wider transition-colors"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </button>
+            )}
+          </div>
+
           <div className="prose prose-sm max-w-none">
-            <p className="text-[14px] text-textSecondary leading-7 whitespace-pre-wrap">
+            <p className={cn(
+              "text-[14px] leading-7 whitespace-pre-wrap transition-opacity duration-500",
+              briefing.status === "generating" ? "text-textMuted opacity-50" : "text-textSecondary"
+            )}>
               {briefing.content}
             </p>
           </div>

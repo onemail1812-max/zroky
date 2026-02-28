@@ -92,6 +92,57 @@ class GmailClient:
             resp.raise_for_status()
             return True
 
+    async def send_message(self, to: str, subject: str, text: str, cc: Optional[str] = None, bcc: Optional[str] = None, thread_id: Optional[str] = None, attachments: Optional[list] = None) -> dict:
+        """Sends an email using the Gmail API, with optional attachments."""
+        from email.message import EmailMessage
+        import base64
+        import mimetypes
+
+        message = EmailMessage()
+        message.set_content(text)
+        message["To"] = to
+        if cc:
+             message["Cc"] = cc
+        if bcc:
+             message["Bcc"] = bcc
+        message["Subject"] = subject
+        
+        # Add attachments if any
+        if attachments:
+            for attach in attachments:
+                filename = attach.get("filename")
+                content_b64 = attach.get("content")  # expected base64
+                if not filename or not content_b64:
+                    continue
+                
+                # Guess mime type
+                mtype, _ = mimetypes.guess_type(filename)
+                if not mtype:
+                    mtype = "application/octet-stream"
+                maintype, subtype = mtype.split("/", 1)
+                
+                try:
+                    file_data = base64.b64decode(content_b64)
+                    message.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=filename)
+                except Exception as e:
+                    logger.error(f"Failed to attach file {filename}: {e}")
+
+        # In a real app we'd construct the References and In-Reply-To headers if thread_id is used.
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+        payload = {"raw": encoded_message}
+        if thread_id:
+            payload["threadId"] = thread_id
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{GMAIL_API}/users/me/messages/send",
+                headers=self._headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def fetch_inbox(self, max_results: int = 50) -> list[dict]:
         """High-level: fetch inbox threads with parsed metadata.
         

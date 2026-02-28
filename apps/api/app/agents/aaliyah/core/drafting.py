@@ -22,6 +22,9 @@ from app.config import settings
 from datetime import datetime, timezone
 
 from app.agents.aaliyah.core.ingestion.email_ingestor import EmailIngestor
+from app.agents.aaliyah.core.ingestion.sanitizer import sanitize_email_body, extract_latest_reply
+from app.agents.aaliyah.core.critic_agent import CriticAgent, CriticStatus
+from app.agents.aaliyah.core.humanizer import HumanizerFilter
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +36,7 @@ class DraftResponse(BaseModel):
     intent: str
     risk_labels: list[str]
     missing_info: Optional[str] = None
+    tone_tags: list[str] = []
     status: str = "drafted"
     sources_used: list[str] = []
 
@@ -117,11 +121,11 @@ class DraftingAgent:
             # If it exists but not sent, we might want to re-draft? For now, skip.
             return None
 
-        # 1. Extract Latest Reply Only
-        from app.services.email.parsing.reply_parser import parse_email_body
-        latest_content = parse_email_body(email.snippet or "")
+        # 1. Extract and Sanitize Latest Reply Only
+        clean_full_body = sanitize_email_body(email.snippet or "")
+        latest_content = extract_latest_reply(clean_full_body)
         if not latest_content:
-             latest_content = email.snippet or ""
+             latest_content = clean_full_body or ""
 
         # 2. Gather Context
         history = self.label_engine.list_recent_thread_history(
@@ -152,9 +156,35 @@ class DraftingAgent:
             for v in vision_data:
                 vision_context += f"- File: {v.get('filename')}\n  Analysis: {json.dumps(v.get('analysis'))}\n"
 
+        from app.models.user import User
         workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        owner = self.db.query(User).filter(User.id == workspace.owner_id).first() if workspace else None
+        
         aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
         tone = aaliyah_settings.get("draft_tone", "professional")
+        
+        user_domain = ""
+        if owner and owner.email and "@" in owner.email:
+            user_domain = owner.email.split("@")[-1].lower()
+            
+        sender_domain = ""
+        if email.sender and "@" in email.sender:
+            import re
+            match = re.search(r"@([\w.-]+)", email.sender)
+            if match:
+                sender_domain = match.group(1).lower().strip('>')
+                
+        # Smart Tone Switching
+        if user_domain and sender_domain:
+            if user_domain == sender_domain:
+                tone = "Internal (direct, highly concise, action-oriented, professional)"
+            else:
+                tone = "External (warm, welcoming, detailed but professional)"
+
+        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+        
+        # New: Retrieve language from triage
+        sender_language = (email.metadata_json or {}).get("language", "English")
         
         style_context = await self._get_style_context()
 
@@ -183,20 +213,45 @@ class DraftingAgent:
                 availability_context += f"\nNote: All times are in {user_tz_label}."
                 availability_context += "\nIf the recipient's timezone is unknown, ASK exactly one question about their location or preferred timezone."
 
+        followup_hint = "\nNote: This is a proactive follow-up because they didn't reply." if is_followup else ""
+
         system_prompt = (
-            "You are Aaliyah, an elite Executive Assistant. "
-            "Your goal is to draft a grounded, professional, and CONCISE reply that sounds like your principal. "
-            "**STRICT HUMANIZATION PROTOCOL (Anti-AI Writing):**\n"
+            f"You are Aaliyah, an elite Executive Assistant for {user_name}. "
+            f"Your goal is to draft a grounded, professional, and CONCISE reply that sounds like your principal, {user_name}. "
+            "**STRICT HUMANIZATION PROTOCOL (Blader/Humanizer Principles):**\n"
             "1. NO AI FILLER: Do not use 'delve', 'tapestry', 'testament', 'underscores', 'pivotal', 'crucial', or 'vibrant'.\n"
             "2. NO COPULA AVOIDANCE: Use simple 'is' or 'are'. Avoid 'serves as', 'represents a shift', or 'boasts'.\n"
             "3. VARY THE RHYTHM: Use a mix of short, punchy sentences and longer, thoughtful ones. Avoid same-length sentence monotony.\n"
-            "4. NO AI GREETINGS: Avoid 'I hope this finds you well' or 'Best regards'. Match the principal's signature.\n"
-            "5. BE OPINIONATED: Reflect the executive's decisiveness. Do not be neutrally objective.\n"
+            "4. NO AI GREETINGS/SIGNATURES: Avoid 'I hope this finds you well' or 'Best regards'. Match the principal's signature precisely.\n"
+            "5. NO AI POLISH: Remove 'moreover', 'nonetheless', or sterile tone. Use active voice and be decisive.\n"
+            "6. ADD MESSY EDGES: Use occasional asides or informal closures where appropriate for the relationship.\n"
+            "7. ADAPT TO RECIPIENT: If they are brief, you be brief. If they are stressed, be helpful and empathetic.\n"
             f"Tone: {tone}.\n"
             f"\n{style_context}\n"
             "STRICT NO HALLUCINATION POLICY:\n"
             "- NEVER invent pricing, timelines, or contract terms. If missing, ASK one clarifying question.\n"
+            "\n"
+            "LANGUAGE ENFORCEMENT:\n"
+            f"The sender's language was detected as {sender_language}.\n"
+            "- If the sender language is an INTERNATIONAL business language (e.g., Spanish, French, German), you MUST draft the reply in that exact language.\n"
+            "- If the sender language is a REGIONAL language (e.g., Hindi, Bengali, Tamil) or you are unsure, you MUST draft the final professional reply in ENGLISH.\n"
+            "- Regardless of language, match the established tone and style.\n"
+            "\n"
+            "Each draft MUST follow this strict JSON schema:\n"
+            "{\n"
+            '  "action": "reply | ignore",\n'
+            '  "subject": "Email subject",\n'
+            '  "body": "The reply body (Clean text, no placeholders)",\n'
+            '  "rationale": "Why this specific response?",\n'
+            '  "intent": "What the email achieves",\n'
+            '  "risk_labels": ["security", "financial", "legal"],\n'
+            '  "tone_tags": ["professional", "punchy", "brief", "warm"],\n'
+            '  "missing_info": "Optional string if AI needs more data"\n'
+            "}\n"
         )
+
+        clarity_instruction = (email.metadata_json or {}).get("clarity_instruction", "")
+        clarity_prompt = f"\n**CRITICAL USER INSTRUCTION**: The user provided explicit instructions for this draft: \"{clarity_instruction}\". You MUST follow these instructions when drafting the reply." if clarity_instruction else ""
 
         user_prompt = f"""
 Analyze the latest message and draft a reply.
@@ -210,6 +265,7 @@ Analyze the latest message and draft a reply.
 
 **Vision Analysis:**
 {vision_context}
+{clarity_prompt}
 
 **Latest Message:**
 From: {email.sender}
@@ -225,41 +281,43 @@ Content: {latest_content}
 """
 
         try:
-            # Phase 1: Thought (DeepSeek-R1)
+            # Consolidate into a single high-quality pass (Llama-3.3-70B)
+            # This handles both content generation and stylistic humanization
             response = await self.brain.think(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                model_override="deepseek/deepseek-r1",
-                temperature_override=0.2
+                model_override=settings.AALIYAH_DRAFT_MODEL,
+                temperature_override=0.4 # Higher temp for "soul" and variety
             )
             
             draft_data = self._parse_llm_json(response.content)
             
-            # Phase 2: Critic (Fast Model)
-            critic_prompt = f"""
-            Critique this draft for 'AI patterns' and 'Human soul'.
-            Draft: {draft_data.get('body')}
-            
-            RULES:
-            - Is it too robotic?
-            - Does it use forbidden words (delve, testament, etc.)?
-            - Is it grounded in the knowledge provided?
-            
-            Return JSON: {{"must_refine": bool, "issues": list[str]}}
-            """
-            critic_resp = await self.brain.think(prompt=critic_prompt, system_prompt="You are a strict editorial critic.", temperature_override=0.0)
-            critic_data = self._parse_llm_json(critic_resp.content)
-            
-            if critic_data.get("must_refine"):
-                refine_prompt = f"Refine this draft to fix these issues: {critic_data.get('issues')}\nDraft: {draft_data.get('body')}"
-                refined_resp = await self.brain.think(prompt=refine_prompt, system_prompt=system_prompt, model_override="deepseek/deepseek-r1")
-                refined_data = self._parse_llm_json(refined_resp.content)
-                draft_data.update(refined_data)
-
             if draft_data.get("action") == "ignore":
                 return None
                 
             draft_body = draft_data.get("body", "")
+
+            # ---------------------------------------------------------
+            # THE DOUBLE LLM CHECK (CRITIC AGENT)
+            # ---------------------------------------------------------
+            critic = CriticAgent()
+            critic_response = await critic.review_draft(
+                original_email_content=latest_content,
+                drafted_body=draft_body,
+                context=kg_context + "\n" + vision_context
+            )
+            
+            if critic_response.status in [CriticStatus.MODIFIED, CriticStatus.REJECTED] and critic_response.rewritten_body:
+                logger.info(f"Critic intervened. Feedback: {critic_response.feedback}")
+                draft_body = critic_response.rewritten_body
+                if "Critic Review" not in draft_data.get("sources_used", []):
+                    # We will append logic below
+                    pass
+
+            # ---------------------------------------------------------
+            # THE ZERO FLUFF FILTER (HUMANIZER)
+            # ---------------------------------------------------------
+            draft_body = HumanizerFilter.apply(draft_body)
             
             if "[BOOKING_LINK]" in draft_body and is_scheduling_intent:
                 bm = BookingManager(self.db, self.workspace_id)
@@ -278,6 +336,9 @@ Content: {latest_content}
                  sources_used.append("Visual Analysis")
             if rel_summary:
                  sources_used.append("Interaction Insights")
+            if 'critic_response' in locals() and critic_response.status != CriticStatus.APPROVED:
+                 sources_used.append("Critic Intervention")
+            sources_used.append("Zero Fluff Humanizer")
 
             return DraftResponse(
                 subject=draft_data.get("subject", f"Re: {email.subject}"),

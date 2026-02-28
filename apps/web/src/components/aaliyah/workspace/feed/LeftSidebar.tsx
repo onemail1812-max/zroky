@@ -10,27 +10,44 @@ import {
     AlertCircle,
     LayoutDashboard,
     Settings,
-    BookOpen
+    BookOpen,
+    Archive,
+    PenSquare
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useSystemStore } from "@/lib/aaliyah/store"
 
 export function LeftSidebar({
-    currentSection,
-    onNavigate,
     onOpenGuidelines,
     onOpenSettings,
-    counts,
-    hasUnread,
-    disabled
+    onNavigate,
+    disabled,
+    isConnected = true
 }: {
-    currentSection?: string;
-    onNavigate?: (section: string) => void;
     onOpenGuidelines?: () => void;
     onOpenSettings?: () => void;
-    counts?: any;
-    hasUnread?: (section: string) => boolean;
+    onNavigate?: (section: string) => void;
     disabled?: boolean;
+    isConnected?: boolean;
 }) {
+    const {
+        activeTriageQueue,
+        setActiveTriageQueue,
+        triagedCount,
+        priorityCount,
+        queuedCount,
+        pendingApprovals,
+        escalations,
+        unreadQueues
+    } = useSystemStore()
+
+    const counts = {
+        priority: priorityCount,
+        needs_reply: queuedCount,
+        approvals: pendingApprovals,
+        follow_ups: escalations,
+        cleaned: 0 // TODO: Add to store if needed
+    }
     return (
         <aside className={cn(
             "flex flex-col w-full h-full bg-[#fcfcfc] border-r border-zinc-200/50 shadow-[2px_0_24px_rgba(0,0,0,0.02)] transition-opacity duration-300 relative"
@@ -50,13 +67,14 @@ export function LeftSidebar({
                             className="w-full h-full object-cover"
                         />
                     </div>
-                    <div className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 bg-emerald-500 rounded-full ring-2 ring-white shadow-sm" />
+                    <div className={cn(
+                        "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white shadow-sm",
+                        isConnected ? "bg-emerald-500" : "bg-red-500 animate-pulse"
+                    )} />
                 </div>
-                <div className="flex flex-col ml-0.5">
-                    <span className="text-[15px] font-bold text-zinc-900 tracking-tight leading-tight">Aaliyah</span>
-                    <span className="text-[11px] text-zinc-500 font-medium leading-tight mt-0.5">
-                        Executive Assistant
-                    </span>
+                <div className="flex flex-col">
+                    <span className="text-sm font-black tracking-tight text-zinc-900 leading-none">Aaliyah</span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Executive Assistant</span>
                 </div>
             </div>
 
@@ -69,10 +87,15 @@ export function LeftSidebar({
                     <h4 className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Focus</h4>
                 </div>
 
-                <NavItem icon={Flame} label="Priority" active={currentSection === "priority"} count={counts?.priority} unread={hasUnread?.("priority")} onClick={() => onNavigate?.("priority")} colorClass="text-rose-500" />
-                <NavItem icon={MessageSquare} label="Needs Reply" active={currentSection === "needs_reply"} count={counts?.needs_reply} unread={hasUnread?.("needs_reply")} onClick={() => onNavigate?.("needs_reply")} colorClass="text-amber-500" />
-                <NavItem icon={Clock} label="Approvals" active={currentSection === "approvals"} count={counts?.approvals} unread={hasUnread?.("approvals")} onClick={() => onNavigate?.("approvals")} colorClass="text-indigo-500" />
-                <NavItem icon={AlertCircle} label="Follow-ups" active={currentSection === "follow_ups"} count={counts?.follow_ups} unread={hasUnread?.("follow_ups")} onClick={() => onNavigate?.("follow_ups")} colorClass="text-violet-500" />
+                <NavItem icon={Flame} label="Priority" active={activeTriageQueue === "priority"} count={counts.priority} unread={unreadQueues.includes("priority")} onClick={() => onNavigate?.("priority")} colorClass="text-rose-500" />
+                <NavItem icon={MessageSquare} label="Needs Reply" active={activeTriageQueue === "needs_reply"} count={counts.needs_reply} unread={unreadQueues.includes("needs_reply")} onClick={() => onNavigate?.("needs_reply")} colorClass="text-amber-500" />
+                <NavItem icon={Clock} label="Approvals" active={activeTriageQueue === "approvals"} count={counts.approvals} unread={unreadQueues.includes("approvals")} onClick={() => onNavigate?.("approvals")} colorClass="text-indigo-500" />
+                <NavItem icon={AlertCircle} label="Follow-ups" active={activeTriageQueue === "follow_ups"} count={counts.follow_ups} unread={unreadQueues.includes("follow_ups")} onClick={() => onNavigate?.("follow_ups")} colorClass="text-violet-500" />
+
+                <div className="px-3 mb-2 mt-6">
+                    <h4 className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Archive</h4>
+                </div>
+                <NavItem icon={Archive} label="Cleaned" active={activeTriageQueue === "cleaned"} count={counts.cleaned} unread={unreadQueues.includes("cleaned")} onClick={() => onNavigate?.("cleaned")} colorClass="text-zinc-400" />
             </nav>
 
             {/* Sidebar Footer: Settings & Guidelines */}

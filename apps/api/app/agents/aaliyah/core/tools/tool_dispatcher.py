@@ -26,22 +26,26 @@ class ToolDispatcher:
         self.research_agent = ResearchAgent(db, workspace_id, self.brain)
         self.conflict_agent = ConflictAgent(db, workspace_id, self.brain)
 
-    async def dispatch(self, intent: str, message: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    async def dispatch(self, db: Session, intent: str, message: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Routes the intent to the correct specialized agent.
         """
         intent = intent.upper()
         logger.info(f"ToolDispatcher: Dispatching intent {intent}")
 
+        # Ensure sub-agents use the current session
+        self.research_agent.db = db
+        self.conflict_agent.db = db
+
         if intent == "RESEARCH" or (intent == "SEARCH" and "summarize" in message.lower()):
-            return await self.research_agent.summarize_topic(message)
+            return await self.research_agent.summarize_topic(db, message)
 
         if intent == "MEETING_PREP" or intent == "CONFLICT":
             # ConflictAgent handles resolving existing overlaps
             # ResearchAgent can also be used for meeting briefs
-            return await self.research_agent.summarize_topic(f"Upcoming meeting: {message}")
+            return await self.research_agent.summarize_topic(db, f"Upcoming meeting: {message}")
 
         # Default fallback to search if no specific specialization matches
         from app.agents.aaliyah.core.search_agent import SearchAgent
-        search_agent = SearchAgent(self.db, self.workspace_id, self.brain)
+        search_agent = SearchAgent(db, self.workspace_id, self.brain)
         return await search_agent.execute_search(message)

@@ -7,13 +7,14 @@ import Link from "next/link"
 import { LeftSidebar } from "./LeftSidebar"
 import { ThreadList } from "./ThreadList"
 import { ThreadReader } from "./ThreadReader"
+import { ThreadConversation } from "./ThreadConversation"
 import { Search, Settings, Paperclip, SendHorizontal, BookOpen, X, ArrowRight, CornerUpLeft } from "lucide-react"
 import { inboxService, EmailMessage } from "@/services/inbox.service"
 import GuidelinesForm from "@/components/aaliyah/forms/GuidelinesForm"
 import SettingsForm from "@/components/aaliyah/forms/SettingsForm"
 import OnboardingWizard from "@/components/aaliyah/forms/OnboardingWizard"
 import { CardFeed, type FeedItem, type Evidence, type CardAction } from "../main/CardFeed"
-import { getThreadDetails, getOnboardingStatus, runPreflight, getBriefing, aaliyahApi, sendDraft, updateDraft, readLocalStorage, WORKSPACE_KEYS } from "@/lib/aaliyah/api"
+import { getThreadDetails, getOnboardingStatus, runPreflight, aaliyahApi, sendDraft, updateDraft, readLocalStorage, WORKSPACE_KEYS, triggerHistoricalSync } from "@/lib/aaliyah/api"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { BrainCircuit, Loader2, WifiOff, ShieldAlert, AlertTriangle } from "lucide-react"
 import { getConnectionMessage } from "@/lib/aaliyah/connection-messages"
@@ -49,6 +50,7 @@ function mkWelcomeBackItem(
     firstName: string | null,
     health: any,
     triagedCount: number,
+    priorityCount: number, // Added priorityCount
     onSync: () => void,
     onboardingDone: boolean,
     onStartOnboarding?: () => void
@@ -71,20 +73,25 @@ function mkWelcomeBackItem(
     const hour = new Date().getHours()
     const timeGreeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
 
-    // Email NOT connected → show connect CTA (only for already-onboarded users)
+    // Email NOT connected → show limited mode greeting (only for already-onboarded users)
     if (!isOk) {
         return {
             id: `welcome_health_${Date.now()}`,
             type: "response",
             title: "Aaliyah",
-            text: `${timeGreeting}, ${name}. I'm active and ready.\n\nOne thing — your email isn't connected yet, so I can't see your inbox. Head to **Settings → Connect Email** and I'll take it from there.`,
+            text: `${timeGreeting}, ${name}. I'm active but in **limited mode** right now.\n\nI can't access your inbox, calendar, or send messages because no email account is connected. Head to **Settings** to connect your Gmail or Outlook.\n\nIn the meantime, feel free to ask me anything — how I work, what I can do for you, or help planning your workflow.`,
             tone: "normal" as any,
         }
     }
 
-    const message = triagedCount === 0
-        ? `${timeGreeting}, ${name}. Your workspace is ready — ask me anything or connect your email in Settings to unlock inbox intelligence.`
-        : `${timeGreeting}, ${name}. You have ${triagedCount} item${triagedCount === 1 ? "" : "s"} triaged in your inbox. Want a briefing?`
+    let message = ""
+    if (priorityCount > 0) {
+        message = `${timeGreeting}, ${name}. You have **${priorityCount}** high-priority item${priorityCount === 1 ? "" : "s"} waiting. I've also triaged ${triagedCount} other messages today. Want a briefing?`
+    } else if (triagedCount > 0) {
+        message = `${timeGreeting}, ${name}. No urgent items, but I've triaged ${triagedCount} message${triagedCount === 1 ? "" : "s"} recently. Your inbox is healthy.`
+    } else {
+        message = `${timeGreeting}, ${name}. Your workspace is ready and your inbox is clear. Ask me anything.`
+    }
 
     return {
         id: `welcome_${Date.now()}`,
@@ -257,15 +264,10 @@ function WorkspaceLayoutInner() {
     const [settingsOpen, setSettingsOpen] = React.useState(false)
     const [guidelinesOpen, setGuidelinesOpen] = React.useState(false)
     const [onboardingOpen, setOnboardingOpen] = React.useState(false)
-    const [selectedThread, setSelectedThread] = React.useState<EmailMessage | null>(null)
+    const [composeOpen, setComposeOpen] = React.useState(false) // Added composeOpen state
     const [activeAttachment, setActiveAttachment] = React.useState<any | null>(null)
-    const [currentSection, setCurrentSection] = React.useState<string>("")
+    const [activeEmailId, setActiveEmailId] = React.useState<string | null>(null)
     const [queueOpen, setQueueOpen] = React.useState(false)
-    const [counts, setCounts] = React.useState<Record<string, number>>({
-        priority: 0,
-        fyi: 0,
-        needs_reply: 0
-    })
     const [providerStatus, setProviderStatus] = React.useState<Record<string, string>>({})
     const [refreshTrigger, setRefreshTrigger] = React.useState(0)
     const [toasts, setToasts] = React.useState<{ id: string, message: string, type: 'info' | 'success' }[]>([])
@@ -276,19 +278,29 @@ function WorkspaceLayoutInner() {
     // Custom Aaliyah Chat hook (clean SSE, no external deps)
     const { messages, input, setInput, isLoading, sendMessage, setMessages } = useAaliyahChat({
         api: "/assist/chat",
+        threadId: useSystemStore(state => state.threadSelection?.id),
+        emailId: activeEmailId,
     })
 
     const {
         connectionHealth,
         fetchHealth,
         isBackendConnected,
+        threadSelection,
+        setThreadSelection,
+        activeTriageQueue,
+        setActiveTriageQueue,
         triggerSync,
         triggerInitialSync,
         syncProgress,
         triagedCount,
+        priorityCount,
+        fetchStatus,
         syncError,
         isSyncing,
-        resetSyncError
+        resetSyncError,
+        activeView,
+        setActiveView
     } = useSystemStore()
 
     const [showSyncWidget, setShowSyncWidget] = React.useState(false)
@@ -300,45 +312,18 @@ function WorkspaceLayoutInner() {
         setIsMounted(true)
     }, [])
 
-    // ── Daily Preflight Gate (3-step visible progress) ───────────────
-    const runMorningProtocols = React.useCallback(async () => {
+    // ── Preflight Gate ───────────────
+    const runPreflightProtocol = React.useCallback(async () => {
         if (isPreflightRunning) return
         setIsPreflightRunning(true)
-
-        const STEPS = [
-            "Step 1 of 3 — Checking connections...",
-            "Step 2 of 3 — Syncing inbox & calendar...",
-            "Step 3 of 3 — Preparing your briefing...",
-        ]
-
-        setWorkingStatus(STEPS[0])
+        setWorkingStatus("Checking system status...")
 
         try {
-            // Step 1 – health + preflight handled inside triggerSync
             await triggerSync()
-
-            // Step 2 – Sync visible confirmation
-            setWorkingStatus(STEPS[1])
-            await new Promise(r => setTimeout(r, 400)) // allow UI to render
-
-            // Step 3 – Briefing
-            setWorkingStatus(STEPS[2])
-            const briefing = await getBriefing()
-
-            if (briefing?.content) {
-                setMessages(prev => [
-                    ...prev,
-                    {
-                        id: `briefing_${Date.now()}`,
-                        role: "assistant",
-                        content: briefing.content,
-                    }
-                ])
-            }
             setWorkingStatus(null)
         } catch (err) {
-            if (process.env.NODE_ENV !== 'production') console.error("Protocols failed", err)
-            setWorkingStatus("⚠ Protocol check failed — tap retry or check Settings.")
+            if (process.env.NODE_ENV !== 'production') console.error("Preflight failed", err)
+            setWorkingStatus("⚠ Status check failed.")
             setTimeout(() => setWorkingStatus(null), 5000)
         } finally {
             setIsPreflightRunning(false)
@@ -417,12 +402,19 @@ function WorkspaceLayoutInner() {
 
                             // Handle proactive assistant messages (Conversational Voice)
                             if (data.type === "assistant_message") {
-                                const assistantMsg = {
-                                    id: `proactive_${Date.now()}`,
-                                    role: "assistant" as const,
-                                    content: data.message || data.payload?.text || "",
+                                const msgThreadId = data.payload?.thread_id;
+                                const activeThreadId = useSystemStore.getState().threadSelection?.id;
+
+                                // Render if it matches the active thread, OR if the user is in the Global Inbox (Master Console)
+                                if (!activeThreadId || msgThreadId === activeThreadId) {
+                                    const assistantMsg = {
+                                        id: `proactive_${Date.now()}`,
+                                        role: "assistant" as const,
+                                        content: data.message || data.payload?.text || "",
+                                        threadId: msgThreadId
+                                    }
+                                    setMessages(prev => [...prev, assistantMsg])
                                 }
-                                setMessages(prev => [...prev, assistantMsg])
                             }
 
                             // Handle update events
@@ -451,11 +443,15 @@ function WorkspaceLayoutInner() {
                             if (data.type === "new_email_arrival") {
                                 const arrivalItem = {
                                     id: `arrival_${data.payload.id}_${Date.now()}`,
-                                    type: "new-email-arrival",
-                                    sender: data.payload.sender_name || data.payload.sender,
-                                    subject: data.payload.subject,
-                                    snippet: data.payload.snippet,
-                                    timestamp: "Just now"
+                                    role: "assistant" as const,
+                                    type: "email_action",
+                                    payload: {
+                                        sender: data.payload.sender_name || data.payload.sender,
+                                        subject: data.payload.subject,
+                                        snippet: data.payload.snippet,
+                                        priority: "New",
+                                        actions: data.payload.actions,
+                                    },
                                 }
                                 setMessages(prev => [...prev, arrivalItem])
                             }
@@ -471,6 +467,24 @@ function WorkspaceLayoutInner() {
                                     timestamp: "Just now"
                                 }
                                 setMessages(prev => [...prev, nudgeItem])
+                            }
+
+                            // Handle draft ready (instant injection)
+                            if (data.type === "draft_ready") {
+                                const draftItem = {
+                                    id: `draft_${data.payload?.email_id || Date.now()}_${Date.now()}`,
+                                    role: "assistant" as const,
+                                    type: "email_action",
+                                    payload: {
+                                        action: "draft_ready",
+                                        email_id: data.payload?.email_id,
+                                        subject: data.payload?.subject,
+                                        draft: data.payload?.draft,
+                                        sender: data.payload?.sender,
+                                    },
+                                    threadId: data.payload?.thread_id,
+                                }
+                                setMessages(prev => [...prev, draftItem])
                             }
 
                             // Add to action logs if message exists
@@ -537,9 +551,17 @@ function WorkspaceLayoutInner() {
         return () => clearTimeout(timer)
     }, [])
 
-    // Show welcome message once onboarding check is done
+    // Show welcome message once onboarding check is done AND health is known
     React.useEffect(() => {
-        if (onboardingChecked && messages.length === 0) {
+        // If we haven't checked health yet, wait (unless onboarding is not done)
+        if (!onboardingChecked) return
+        if (onboardingComplete && connectionHealth === null) return
+
+        // ✅ Always ensure the first message is the LATEST greeting (overwrites stale cached versions)
+        const firstMessageId = messages.length > 0 ? String(messages[0].id) : ""
+        const isFirstMessageGreeting = firstMessageId.startsWith("welcome_")
+
+        if (messages.length === 0 || isFirstMessageGreeting) {
             const syncHandler = () => {
                 setShowSyncWidget(true)
                 triggerInitialSync().catch((err: any) => {
@@ -547,22 +569,68 @@ function WorkspaceLayoutInner() {
                 })
             }
 
-            // If health not yet loaded, show onboarding/greeting without email status
+            // At this point health is either known or we are in onboarding (where health doesn't gate the greeting)
             const effectiveHealth = connectionHealth ?? { email_accessible: false, email_health: 'unknown', calendar_accessible: false }
-            const welcome = mkWelcomeBackItem(firstName, effectiveHealth, triagedCount, syncHandler, onboardingComplete, () => setOnboardingOpen(true))
-            setMessages([{
-                id: welcome.id,
-                role: "assistant",
-                content: (welcome as any).text || "",
-            }])
+            const welcome = mkWelcomeBackItem(firstName, effectiveHealth, triagedCount, priorityCount, syncHandler, onboardingComplete, () => setOnboardingOpen(true))
 
-            // Truth Gating: Only run morning protocols if email is healthy AND data exists
+            const newGreeting = {
+                id: welcome.id,
+                role: "assistant" as const,
+                content: (welcome as any).text || "",
+            }
+
+            if (isFirstMessageGreeting) {
+                // Replace ONLY the first message if it's a greeting, preserve rest of history
+                setMessages(prev => [newGreeting, ...prev.slice(1)])
+            } else {
+                setMessages([newGreeting])
+            }
+
+            // Truth Gating: Only run preflight if email is healthy AND data exists
             if (effectiveHealth?.email_accessible && triagedCount > 0) {
-                runMorningProtocols()
+                runPreflightProtocol()
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [onboardingChecked])
+    }, [onboardingChecked, connectionHealth, onboardingComplete])
+
+    // Detect when a user newly connects an account, so Aaliyah can announce it
+    const prevHealthRef = React.useRef<any>(null)
+    React.useEffect(() => {
+        if (!connectionHealth) return;
+
+        const isFreshConnect = typeof window !== 'undefined' && window.localStorage.getItem('oauth_result') === 'success';
+
+        if (isFreshConnect && connectionHealth.email_accessible) {
+            window.localStorage.removeItem('oauth_result');
+            setMessages(msgs => [
+                ...msgs,
+                {
+                    id: crypto.randomUUID(),
+                    role: "assistant",
+                    content: "Connection successful! \n\nI have securely synced with your workspace. My full suite of capabilities—including inbox management, drafting, and calendar orchestration—is now fully unlocked and ready to use."
+                }
+            ]);
+        } else {
+            const prev = prevHealthRef.current;
+            const wasDisconnected = prev && !prev.email_accessible;
+            const isNowConnected = connectionHealth.email_accessible;
+
+            // If we transitioned from known-disconnected to connected without reload (e.g popup flow)
+            if (wasDisconnected && isNowConnected) {
+                setMessages(msgs => [
+                    ...msgs,
+                    {
+                        id: crypto.randomUUID(),
+                        role: "assistant",
+                        content: "Connection successful! \n\nI have securely synced with your workspace. My full suite of capabilities—including inbox management, drafting, and calendar orchestration—is now fully unlocked and ready to use."
+                    }
+                ]);
+            }
+        }
+
+        prevHealthRef.current = connectionHealth;
+    }, [connectionHealth]);
 
     // ── STATELESS REFRESH: just re-fetch thread list periodically ──────
     const REFRESH_INTERVAL_MS = 30 * 1000 // 30 seconds
@@ -579,6 +647,27 @@ function WorkspaceLayoutInner() {
         const t = setInterval(() => setSyncTick(n => n + 1), 60_000)
         return () => clearInterval(t)
     }, [])
+
+    // ── Proactive Recovery: Heartbeat Monitor (Poll health every 60s) ──────
+    React.useEffect(() => {
+        const checkHealth = async () => {
+            const prevHeaderOk = connectionHealth?.email_accessible ?? true
+            const newHealth = await fetchHealth()
+
+            // If health just dropped from OK to FALSE during session
+            if (prevHeaderOk && newHealth && !newHealth.email_accessible) {
+                setMessages(prev => [...prev, {
+                    id: `service_interrupt_${Date.now()}`,
+                    role: "assistant",
+                    content: "### ⚠️ Service Interrupt\nI've lost my connection to your workspace data. I cannot handle your inbox or meetings until this is resolved.\n\nPlease head to **Settings** to reconnect your account.",
+                }])
+                setToasts(prev => [...prev, { id: Date.now().toString(), message: "Aaliyah: Connection lost.", type: 'info' }])
+            }
+        }
+
+        const h = setInterval(checkHealth, 60_000)
+        return () => clearInterval(h)
+    }, [fetchHealth, connectionHealth?.email_accessible, setMessages])
 
     // ══════════════════════════════════════════════════════════════════
     //  FULL WORKSPACE (only accessible after onboarding)
@@ -605,7 +694,7 @@ function WorkspaceLayoutInner() {
                         isPrimaryAccount: true,
                         labels: [],
                     }
-                    setSelectedThread(adapted)
+                    setThreadSelection(adapted)
                 }
             } catch (error) {
                 console.error("Deep read failed", error)
@@ -652,13 +741,11 @@ function WorkspaceLayoutInner() {
         }
     }
 
-    // Initial Load & Polling (stateless: always try to load)
+    // Initial Load (stateless: always try to load)
     const loadCounts = React.useCallback(() => {
-        inboxService.getCounts().then(res => {
-            setCounts(res)
-        }).catch((err) => { if (process.env.NODE_ENV !== 'production') console.error(err) })
+        fetchStatus()
         fetchHealth().catch((err) => { if (process.env.NODE_ENV !== 'production') console.error(err) })
-    }, [refreshTrigger, fetchHealth])
+    }, [fetchStatus, fetchHealth])
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => {
@@ -669,31 +756,29 @@ function WorkspaceLayoutInner() {
     // Smart Queue Selection on Mount - Disabled per user request
     React.useEffect(() => {
         // We no longer auto-select a queue. It stays empty until clicked.
-        if (!currentSection && counts.priority === -1) {
-            // This condition is artificially false to prevent auto-selection but keep the logic structure if needed later
-            setCurrentSection("priority")
+        if (activeTriageQueue === "all" && triagedCount === -1) {
+            // Keeping logic structure
+            setActiveTriageQueue("priority")
         }
-    }, [counts, currentSection])
+    }, [triagedCount, activeTriageQueue, setActiveTriageQueue])
 
-    const handleNavigate = (section: string) => {
-        if (queueOpen && currentSection === section) {
+    const handleNavigate = React.useCallback((section: any) => {
+        if (queueOpen && activeTriageQueue === section) {
             setQueueOpen(false)
-            setCurrentSection("")
         } else {
-            setCurrentSection(section)
+            setActiveTriageQueue(section)
             setQueueOpen(true)
         }
-    }
+    }, [queueOpen, activeTriageQueue, setActiveTriageQueue])
 
-    const handleMainClick = () => {
+    const handleMainClick = React.useCallback(() => {
         if (queueOpen) {
             setQueueOpen(false)
-            setCurrentSection("")
         }
-    }
+    }, [queueOpen])
 
-    const handleThreadSelect = (thread: EmailMessage) => {
-        setSelectedThread(thread)
+    const handleThreadSelect = React.useCallback((thread: EmailMessage) => {
+        setThreadSelection(thread)
         setActiveAttachment(null) // Reset attachment when thread changes
         setQueueOpen(false)
         if (thread.id.startsWith('demo-')) {
@@ -703,32 +788,37 @@ function WorkspaceLayoutInner() {
                 return next
             })
         }
-    }
+    }, [setThreadSelection])
 
     // Auto-close thread if it gets deleted remotely
     React.useEffect(() => {
         const handleRemoteDelete = ((e: CustomEvent) => {
-            if (selectedThread && selectedThread.id === e.detail?.id) {
+            if (threadSelection && threadSelection.id === e.detail?.id) {
                 // Thread closed due to remote deletion
-                setSelectedThread(null)
+                setThreadSelection(null)
                 useSystemStore.getState().addLog("thread_deleted", "Thread was deleted from the remote inbox")
             }
         }) as EventListener
 
         window.addEventListener('aaliyah_message_deleted', handleRemoteDelete)
         return () => window.removeEventListener('aaliyah_message_deleted', handleRemoteDelete)
-    }, [selectedThread])
+    }, [threadSelection, setThreadSelection])
 
-    const uiCounts = counts
-
-    const hasUnread = (section: string) => {
-        const count = uiCounts[section] || 0
-        return count > 0
+    const uiCounts: Record<string, number> = {
+        priority: priorityCount,
+        needs_reply: useSystemStore(state => state.queuedCount),
+        approvals: useSystemStore(state => state.pendingApprovals),
+        follow_ups: useSystemStore(state => state.escalations),
     }
 
+    const hasUnread = React.useCallback((section: string) => {
+        const count = uiCounts[section] || 0
+        return count > 0
+    }, [uiCounts])
 
 
-    const providerLabel = selectedThread?.provider === 'google' ? 'Gmail' : 'Outlook'
+
+    const providerLabel = threadSelection?.provider === 'google' ? 'Gmail' : 'Outlook'
 
     const feedScrollRef = React.useRef<HTMLDivElement>(null)
     React.useEffect(() => {
@@ -817,13 +907,11 @@ function WorkspaceLayoutInner() {
             {/* 1. Left Panel: Queue List */}
             <div className="w-56 shrink-0 flex flex-col">
                 <LeftSidebar
-                    currentSection={currentSection}
-                    onNavigate={handleNavigate}
                     onOpenGuidelines={() => setGuidelinesOpen(true)}
                     onOpenSettings={() => setSettingsOpen(true)}
-                    counts={uiCounts}
-                    hasUnread={hasUnread}
+                    onNavigate={handleNavigate}
                     disabled={!connectionHealth?.email_accessible}
+                    isConnected={connectionHealth?.email_accessible ?? false}
                 />
             </div>
 
@@ -839,16 +927,18 @@ function WorkspaceLayoutInner() {
                     >
                         <div className="h-20 border-b border-zinc-100 flex items-center px-4 shrink-0">
                             <h2 className="text-sm font-bold text-zinc-900 capitalize">
-                                {currentSection.replace('_', ' ')}
+                                {(activeTriageQueue || '').replace('_', ' ')}
                             </h2>
                         </div>
                         <div className="flex-1 overflow-hidden">
                             <ThreadList
+                                filter={activeTriageQueue}
+                                selectedId={threadSelection?.id}
                                 onSelect={handleThreadSelect}
-                                selectedId={selectedThread?.id}
-                                filter={currentSection}
                                 refreshTrigger={refreshTrigger}
                                 seenIds={seenDemoIds}
+                                isConnected={connectionHealth?.email_accessible ?? false}
+                                onConnect={() => setSettingsOpen(true)}
                             />
                         </div>
                     </motion.div>
@@ -856,16 +946,16 @@ function WorkspaceLayoutInner() {
             </AnimatePresence>
 
             {/* 3. Main Panel: Conversation Workspace */}
-            <main className="flex-1 flex flex-col bg-white" onClick={handleMainClick}>
+            <main className="flex-1 h-full min-w-0 flex flex-col bg-white overflow-hidden relative" onClick={handleMainClick}>
                 {/* Header */}
                 <header className="h-16 border-b border-borderSubtle bg-white/80 backdrop-blur-xl flex items-center justify-between px-6 shrink-0 z-10 sticky top-0 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
                     <div className="flex items-center gap-3 text-sm min-w-0 flex-1 overflow-hidden">
-                        {selectedThread && (
+                        {threadSelection && (
                             <div className="flex items-center gap-3">
                                 <button
                                     className="p-1.5 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg transition-colors border border-zinc-100"
                                     onClick={() => {
-                                        setSelectedThread(null)
+                                        setThreadSelection(null)
                                         setActiveAttachment(null)
                                     }}
                                 >
@@ -881,183 +971,250 @@ function WorkspaceLayoutInner() {
                     </div>
                 </header>
 
-                {/* Content */}
+                {/* Health Ribbon — Persistent disconnected banner */}
+                <AnimatePresence>
+                    {connectionHealth !== null && !connectionHealth?.email_accessible && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="overflow-hidden shrink-0 z-10"
+                        >
+                            <div className="flex items-center justify-between px-6 py-2.5 bg-amber-50 border-b border-amber-100">
+                                <div className="flex items-center gap-2.5">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                                    <span className="text-xs font-semibold text-amber-800">
+                                        Limited mode — connect your email for full functionality
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => setSettingsOpen(true)}
+                                    className="px-3 py-1 bg-amber-600 text-white text-[11px] font-bold rounded-lg hover:bg-amber-700 transition-all active:scale-95"
+                                >
+                                    Settings
+                                </button>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* Content */}
-                {selectedThread ? (
-                    <div className="flex-1 overflow-y-auto w-full relative" onClick={(e) => e.stopPropagation()}>
-                        {/* Floating Back Button */}
-                        <div className="absolute top-6 left-6 z-50">
-                            <button
-                                className="flex items-center gap-2 px-3 py-2 bg-white/90 backdrop-blur border border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-xl transition-all"
-                                onClick={() => {
-                                    setSelectedThread(null)
-                                    setActiveAttachment(null)
-                                }}
-                            >
-                                <CornerUpLeft className="h-4 w-4" /> <span className="text-[12px] font-bold tracking-tight">Back</span>
-                            </button>
-                        </div>
-                        <ThreadReader
-                            thread={selectedThread}
+                {threadSelection ? (
+                    <div className="flex-1 w-full relative flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <ThreadConversation
+                            thread={threadSelection}
+                            messages={messages}
+                            isLoading={isLoading}
+                            emailId={activeEmailId}
                             onAttachmentClick={(att) => setActiveAttachment(att)}
                             onAction={(action) => {
-                                // Close the thread view
-                                setSelectedThread(null)
+                                setThreadSelection(null)
                                 setActiveAttachment(null)
-                                // Trigger an immediate feed refresh from DB
+                                setActiveEmailId(null)
                                 setRefreshTrigger(t => t + 1)
                             }}
+                            onEmailChat={(id) => setActiveEmailId(id)}
                         />
                     </div>
                 ) : (
-                    <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 py-8 md:px-8 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
-                        <div className="max-w-5xl mx-auto space-y-4 relative">
-                            <AnimatePresence>
-                                {showSyncWidget && syncProgress.phase !== "idle" && (
-                                    <SyncStatusWidget
-                                        onDismiss={() => {
-                                            setShowSyncWidget(false)
-                                        }}
-                                    />
-                                )}
-                            </AnimatePresence>
+                    <div className="flex-1 h-full w-full relative flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
 
-                            <div className="flex flex-col">
-                                <CardFeed
-                                    items={messages.map(m => {
-                                        if (m.type === "new-email-arrival") return m as any;
-                                        return {
-                                            id: m.id,
-                                            type: m.role === "user" ? "user-command" : "response",
-                                            text: m.content || "",
-                                            title: m.role === "assistant" ? "Aaliyah" : undefined,
-                                            timestamp: "Just now"
-                                        } as any;
-                                    })}
-                                    onUpdateDraft={(id, draft) => {
-                                        updateDraft(id, draft).catch((err: any) => console.error("Draft update failed", err))
-                                    }}
-                                    onApprovalAction={(action, id) => {
-                                        if (action === "approve") {
-                                            sendDraft(readLocalStorage(WORKSPACE_KEYS) || "", id)
-                                                .then(() => setMessages(prev => [...prev, { id: `send_${Date.now()}`, role: "assistant", content: "Email sent successfully." }]))
-                                                .catch((err: any) => console.error("Send failed", err))
-                                        }
-                                    }}
-                                    onCardAction={handleCardAction}
-                                    onOpenIntelligence={(tab) => {
-                                        setCurrentSection(tab)
-                                        setQueueOpen(true)
-                                    }}
-                                    onSourceClick={async (ev) => {
-                                        if (ev.type === 'thread') {
-                                            try {
-                                                const thread = await getThreadDetails(ev.id, ev.provider)
-                                                if (thread) setSelectedThread(thread)
-                                            } catch (err) {
-                                                console.error("Failed to load thread source", err)
-                                            }
-                                        }
-                                    }}
-                                />
-                                {!onboardingComplete && messages.length > 0 && (
-                                    <div className="flex w-full gap-3 mb-6 pl-11">
-                                        <button
-                                            onClick={() => setOnboardingOpen(true)}
-                                            className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
-                                        >
-                                            Begin Setup
-                                            <ArrowRight className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                )}
-                                {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
-                                    <ChatMessage
-                                        role="assistant"
-                                        content="..."
-                                    />
-                                )}
-                            </div>
-
-                            {messages.length === 0 && syncProgress.phase === "idle" && (
-                                <div className="h-full flex flex-col items-center justify-center pt-20 text-center px-6">
-                                    <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6">
-                                        <BrainCircuit className="h-8 w-8 text-zinc-300" />
-                                    </div>
-
-                                    {!connectionHealth?.email_accessible ? (
-                                        <>
-                                            <h2 className="text-2xl font-black text-zinc-900 mb-3 tracking-tight">Connect Your Email</h2>
-                                            <p className="text-base text-zinc-500 max-w-sm leading-relaxed mb-8">
-                                                Connect your Gmail or Outlook in Settings to unlock inbox management, smart triage, and calendar intelligence.
-                                            </p>
+                        {/* Native Scrollable Feed */}
+                        <div
+                            ref={feedScrollRef}
+                            className="flex-1 w-full overflow-y-auto custom-scrollbar relative z-10"
+                            style={{ overscrollBehavior: 'contain' }}
+                        >
+                            <div className="min-h-full flex flex-col justify-end">
+                                {/* Header content (Sync Widget & Onboarding) */}
+                                <div className="max-w-5xl mx-auto pt-8 px-4 md:px-8 space-y-4 w-full shrink-0">
+                                    <AnimatePresence>
+                                        {showSyncWidget && syncProgress.phase !== "idle" && (
+                                            <SyncStatusWidget
+                                                onDismiss={() => {
+                                                    setShowSyncWidget(false)
+                                                }}
+                                            />
+                                        )}
+                                    </AnimatePresence>
+                                    {!onboardingComplete && (
+                                        <div className="flex w-full gap-3 mb-6 pl-11">
                                             <button
-                                                onClick={() => setSettingsOpen(true)}
-                                                className="inline-flex items-center gap-2 px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-black transition-all shadow-lg hover:shadow-zinc-900/10 active:scale-95"
+                                                onClick={() => setOnboardingOpen(true)}
+                                                className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
                                             >
-                                                Open Settings
-                                                <ArrowRight className="h-4 w-4" />
+                                                Begin Setup
+                                                <ArrowRight className="w-4 h-4" />
                                             </button>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
-                                            <p className="text-sm text-zinc-400 max-w-sm">
-                                                Ask me to search your emails, check your calendar, or manage your commitments.
-                                            </p>
-                                        </>
+                                        </div>
                                     )}
                                 </div>
-                            )}
+
+                                {/* Message List */}
+                                <div className="flex-1 flex flex-col">
+                                    {messages.map((m) => (
+                                        <div key={m.id} className="max-w-5xl mx-auto px-4 md:px-8 w-full shrink-0">
+                                            <ChatMessage
+                                                role={m.role as any}
+                                                content={m.content}
+                                                type={m.type}
+                                                payload={m.payload}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Footer (Typing Indicator) */}
+                                <div className="pb-32 px-4 md:px-8 max-w-5xl mx-auto w-full shrink-0 mt-auto">
+                                    {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+                                        <ChatMessage
+                                            role="assistant"
+                                            content="..."
+                                        />
+                                    )}
+                                </div>
+                            </div>
                         </div>
+
+                        {/* Empty State / Disconnected Guide */}
+                        {messages.length === 0 && syncProgress.phase === "idle" && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 z-0">
+                                {connectionHealth !== null && !connectionHealth?.email_accessible ? (
+                                    /* ── Enterprise Disconnected Guide ─────────────────── */
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 16 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.6, ease: "easeOut" }}
+                                        className="max-w-lg w-full pointer-events-auto"
+                                    >
+                                        {/* Shield Icon */}
+                                        <div className="mx-auto h-16 w-16 rounded-2xl bg-zinc-100 border border-zinc-200 flex items-center justify-center mb-6">
+                                            <ShieldAlert className="h-8 w-8 text-zinc-400" />
+                                        </div>
+
+                                        <h2 className="text-2xl font-black text-zinc-900 tracking-tight mb-2">
+                                            I need access to your workspace
+                                        </h2>
+                                        <p className="text-sm text-zinc-500 max-w-md mx-auto leading-relaxed mb-8">
+                                            Connect your email so I can manage your inbox, triage priority threads,
+                                            draft replies in your voice, and keep your calendar organized.
+                                        </p>
+
+                                        {/* Provider Cards */}
+                                        <div className="grid grid-cols-2 gap-3 mb-8 max-w-sm mx-auto">
+                                            {/* Gmail Card */}
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const { connectorService } = await import("@/services/connector.service");
+                                                        const { authUrl } = await connectorService.getAuthUrl({ provider: "google", serviceType: "both" });
+                                                        window.location.href = authUrl;
+                                                    } catch (err) {
+                                                        setSettingsOpen(true);
+                                                    }
+                                                }}
+                                                className="group flex flex-col items-center gap-3 p-5 bg-white border border-zinc-200 rounded-2xl hover:border-zinc-400 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 active:scale-95"
+                                            >
+                                                <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center">
+                                                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                                                        <path d="M22 6L12 13L2 6" stroke="#DC2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                        <rect x="2" y="4" width="20" height="16" rx="3" stroke="#DC2626" strokeWidth="2" />
+                                                    </svg>
+                                                </div>
+                                                <div>
+                                                    <span className="text-sm font-bold text-zinc-900 block">Gmail</span>
+                                                    <span className="text-[10px] text-zinc-400 font-medium">Google Workspace</span>
+                                                </div>
+                                            </button>
+
+                                            {/* Outlook Card */}
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const { connectorService } = await import("@/services/connector.service");
+                                                        const { authUrl } = await connectorService.getAuthUrl({ provider: "microsoft", serviceType: "both" });
+                                                        window.location.href = authUrl;
+                                                    } catch (err) {
+                                                        setSettingsOpen(true);
+                                                    }
+                                                }}
+                                                className="group flex flex-col items-center gap-3 p-5 bg-white border border-zinc-200 rounded-2xl hover:border-zinc-400 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 active:scale-95"
+                                            >
+                                                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                                                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                                                        <path d="M22 6L12 13L2 6" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                        <rect x="2" y="4" width="20" height="16" rx="3" stroke="#2563EB" strokeWidth="2" />
+                                                    </svg>
+                                                </div>
+                                                <div>
+                                                    <span className="text-sm font-bold text-zinc-900 block">Outlook</span>
+                                                    <span className="text-[10px] text-zinc-400 font-medium">Microsoft 365</span>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* Trust Line */}
+                                        <p className="text-[11px] text-zinc-400 font-medium flex items-center justify-center gap-1.5">
+                                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                            </svg>
+                                            Your data stays encrypted. I only access what you authorize.
+                                        </p>
+                                    </motion.div>
+                                ) : (
+                                    <div className="pointer-events-auto">
+                                        <div className="h-16 w-16 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-6 mx-auto">
+                                            <BrainCircuit className="h-8 w-8 text-zinc-300" />
+                                        </div>
+                                        <h2 className="text-lg font-bold text-zinc-900 mb-2">Aaliyah Intelligence</h2>
+                                        <p className="text-sm text-zinc-400 max-w-sm mx-auto">
+                                            Ask me to search your emails, check your calendar, or manage your commitments.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Chat Input Bar */}
-                <div className="shrink-0 border-t border-zinc-100 px-6 py-4 bg-white">
+                {/* Chat Input Bar - Always rendered at the bottom of the main panel */}
+                <div className="shrink-0 border-t border-zinc-100 px-6 py-4 bg-white relative z-20">
                     <div className="max-w-3xl mx-auto w-full">
                         <ChatInput
                             value={input}
                             onChange={(val) => setInput(val)}
-                            onSubmit={() => sendMessage()}
+                            onSubmit={(e, attachments) => sendMessage(undefined, attachments)}
                             isLoading={isLoading}
-                            placeholder={isSyncing ? "Syncing..." : "Ask Aaliyah anything..."}
+                            placeholder={
+                                syncProgress.phase !== "idle"
+                                    ? "Syncing..."
+                                    : connectionHealth !== null && !connectionHealth?.email_accessible
+                                        ? "Limited mode — ask me anything general..."
+                                        : "Ask Aaliyah anything..."
+                            }
                         />
-
-                        <AnimatePresence>
-                            {workingStatus && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: 10 }}
-                                    className="flex justify-center mt-3"
-                                >
-                                    <div className="flex items-center gap-2 px-3 py-1 bg-zinc-50 text-zinc-400 border border-zinc-100 rounded-full text-[10px] font-black tracking-widest uppercase">
-                                        <span className="h-1 w-1 rounded-full bg-zinc-400 animate-pulse" />
-                                        {workingStatus}
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
                     </div>
                 </div>
             </main>
 
             {/* 4. Full-Screen Attachment Viewer Overlay (Gmail-style) */}
             <AnimatePresence>
-                {activeAttachment && (
-                    <AttachmentViewer
-                        attachment={activeAttachment}
-                        allAttachments={selectedThread?.attachments || []}
-                        onClose={() => setActiveAttachment(null)}
-                        onNavigate={(att) => setActiveAttachment(att)}
-                    />
-                )}
-            </AnimatePresence>
+                {
+                    activeAttachment && (
+                        <AttachmentViewer
+                            attachment={activeAttachment}
+                            allAttachments={threadSelection?.attachments || []}
+                            onClose={() => setActiveAttachment(null)}
+                            onNavigate={(att) => setActiveAttachment(att)}
+                        />
+                    )
+                }
+            </AnimatePresence >
 
             {/* Toasts */}
-            <div className="fixed bottom-24 right-8 flex flex-col gap-2 z-50 pointer-events-none">
+            < div className="fixed bottom-24 right-8 flex flex-col gap-2 z-50 pointer-events-none" >
                 <AnimatePresence>
                     {toasts.map(toast => (
                         <motion.div
@@ -1072,96 +1229,103 @@ function WorkspaceLayoutInner() {
                         </motion.div>
                     ))}
                 </AnimatePresence>
-            </div>
+            </div >
 
             {/* Overlays */}
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {guidelinesOpen && (
-                        <motion.div
-                            key="guidelines-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setGuidelinesOpen(false)}
-                        >
+            {
+                isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {guidelinesOpen && (
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
+                                key="guidelines-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setGuidelinesOpen(false)}
                             >
-                                <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <GuidelinesForm onClose={() => setGuidelinesOpen(false)} />
+                                </motion.div>
                             </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )
+            }
 
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {settingsOpen && (
-                        <motion.div
-                            key="settings-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setSettingsOpen(false)}
-                        >
+            {
+                isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {settingsOpen && (
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
+                                key="settings-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-md flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setSettingsOpen(false)}
                             >
-                                <SettingsForm onClose={() => setSettingsOpen(false)} />
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <SettingsForm onClose={() => setSettingsOpen(false)} />
+                                </motion.div>
                             </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )
+            }
 
-            {isMounted && typeof document !== 'undefined' && createPortal(
-                <AnimatePresence>
-                    {onboardingOpen && (
-                        <motion.div
-                            key="onboarding-overlay"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="fixed inset-0 z-[10000] backdrop-blur-sm flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
-                            onClick={() => setOnboardingOpen(false)}
-                        >
+            {
+                isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {onboardingOpen && (
                             <motion.div
-                                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full max-w-5xl flex items-center justify-center"
+                                key="onboarding-overlay"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] backdrop-blur-sm flex items-center justify-center p-4 sm:p-12 pointer-events-auto"
+                                onClick={() => setOnboardingOpen(false)}
                             >
-                                <OnboardingWizard onComplete={() => {
-                                    setOnboardingOpen(false)
-                                    setOnboardingComplete(true)
-                                    // Inject thank-you message into chat
-                                    setMessages([{
-                                        id: `onboarding_done_${Date.now()}`,
-                                        role: "assistant",
-                                        content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
-                                    }])
-                                }} />
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-5xl flex items-center justify-center"
+                                >
+                                    <OnboardingWizard onComplete={() => {
+                                        setOnboardingOpen(false)
+                                        setOnboardingComplete(true)
+                                        // Inject thank-you message into chat
+                                        setMessages([{
+                                            id: `onboarding_done_${Date.now()}`,
+                                            role: "assistant",
+                                            content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
+                                        }])
+                                    }} />
+                                </motion.div>
                             </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>,
-                document.body
-            )}
-        </div>
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )
+            }
+
+        </div >
     )
 }
 

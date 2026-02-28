@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type, TypeVar, Union
+from pydantic import BaseModel
 
 from app.config import settings
 from app.services.brain.errors import BrainError, BrainProviderError, BrainValidationError
@@ -22,6 +23,8 @@ from .schemas.brain_types import BrainConfig, BrainRequest, BrainResponse
 
 logger = logging.getLogger(__name__)
 
+
+T = TypeVar("T", bound=BaseModel)
 
 class Brain:
     """Secure Brain facade used by Aaliyah and other agents."""
@@ -221,6 +224,48 @@ class Brain:
         )
         raise BrainProviderError("Unknown brain failure")
 
+    async def think_stream(
+        self,
+        prompt: str,
+        system_prompt: str = "You are a helpful AI assistant.",
+        model_override: Optional[str] = None,
+        temperature_override: Optional[float] = None,
+        images: Optional[list[str]] = None,
+    ):
+        """
+        Streaming LLM entrypoint. Yields text chunks as they arrive.
+        Used by the chat handler for real-time streamed responses.
+        """
+        # MOCK FALLBACK — only when API key is missing or placeholder
+        _key = str(settings.openrouter_api_key or "")
+        _is_placeholder = not _key or _key.startswith("your_") or "****************" in _key
+        if _is_placeholder:
+            logger.warning("Brain streaming in MOCK mode due to missing/invalid API key.")
+            mock_content = (
+                "I'm currently running in demo mode. "
+                "Connect a valid API key to unlock full capabilities."
+            )
+            for word in mock_content.split(" "):
+                yield word + " "
+                await asyncio.sleep(0.03)
+            return
+
+        model = model_override or self.config.model
+        temperature = temperature_override if temperature_override is not None else self.config.temperature
+
+        try:
+            async for chunk in self.provider.generate_stream(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                model=model,
+                temperature=temperature,
+                images=images,
+            ):
+                yield chunk
+        except Exception as exc:
+            logger.error("Brain streaming failed: %s", exc, exc_info=True)
+            yield "I encountered an issue processing your request. Please try again."
+
     async def reason(self, task: str, context: Dict[str, Any]) -> BrainResponse:
         """Reasoning wrapper with strict explicit instructions."""
         cot_system_prompt = (
@@ -228,3 +273,59 @@ class Brain:
             "Use concise internal analysis and then provide a direct final answer."
         )
         return await self.think(task, system_prompt=cot_system_prompt, context=context)
+
+    async def think_json(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        system_prompt: str = "You are a precise JSON assistant.",
+        context: Optional[Dict[str, Any]] = None,
+        model_override: Optional[str] = None,
+        temperature_override: Optional[float] = 0.0,
+    ) -> T:
+        """
+        Enforce structured JSON output using a Pydantic model.
+        Uses a single pass and manual parsing for provider compatibility.
+        """
+        schema = response_model.model_json_schema()
+        json_system_prompt = (
+            f"{system_prompt}\n"
+            "STRICT RULES:\n"
+            "1. RETURN JSON ONLY.\n"
+            "2. NO EXPLANATIONS or MARKDOWN outside the JSON block.\n"
+            f"3. FOLLOW THIS SCHEMA: {json.dumps(schema)}"
+        )
+        
+        # Use a retry loop for parsing
+        for _ in range(2):
+            response = await self.think(
+                prompt=prompt,
+                system_prompt=json_system_prompt,
+                context=context,
+                model_override=model_override,
+                temperature_override=temperature_override
+            )
+            
+            content = response.content.strip()
+            # Basic cleanup if model includes markdown
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            try:
+                # Extract first { and last } if there's noise
+                if not content.startswith("{"):
+                    import re
+                    match = re.search(r"(\{.*\})", content, re.DOTALL)
+                    if match:
+                        content = match.group(1)
+                
+                return response_model.model_validate_json(content)
+            except Exception as exc:
+                logger.warning("Structured output parsing failed, retrying... err=%s", exc)
+                continue
+        
+        raise BrainError(f"Failed to produce valid structured output for {response_model.__name__}")
+
+import json
