@@ -21,7 +21,8 @@ import { useViewerStore } from "@/lib/aaliyah/viewerStore"
 import { MeetingSummaryCard } from "@/components/aaliyah/workspace/feed/MeetingSummaryCard"
 import { CalendarWidget } from "@/components/aaliyah/workspace/feed/CalendarWidget"
 import { EmailDraftArtifact } from "./EmailDraftArtifact"
-export type { DraftArtifact } from "./EmailDraftArtifact"
+import type { DraftArtifact } from "./EmailDraftArtifact"
+export type { DraftArtifact }
 import { GroundedAnswerCard } from "@/components/aaliyah/workspace/feed/GroundedAnswerCard"
 import type { Evidence } from "@/components/aaliyah/workspace/feed/GroundedAnswerCard"
 export type { Evidence }
