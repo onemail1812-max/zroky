@@ -1052,22 +1052,21 @@ function WorkspaceLayoutInner() {
                                             />
                                         </div>
                                     ))}
-                                </div>
-
-                                {/* Begin Setup Button — below the greeting */}
-                                {!onboardingComplete && (
-                                    <div className="max-w-5xl mx-auto px-4 md:px-8 w-full shrink-0">
-                                        <div className="flex w-full gap-3 mb-6 pl-11">
-                                            <button
-                                                onClick={() => setOnboardingOpen(true)}
-                                                className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
-                                            >
-                                                Begin Setup
-                                                <ArrowRight className="w-4 h-4" />
-                                            </button>
+                                    {/* Begin Setup Button — directly below the greeting */}
+                                    {!onboardingComplete && (
+                                        <div className="max-w-5xl mx-auto px-4 md:px-8 w-full shrink-0 mt-2">
+                                            <div className="flex w-full gap-3 pl-11">
+                                                <button
+                                                    onClick={() => setOnboardingOpen(true)}
+                                                    className="px-6 py-3 bg-zinc-900 text-white rounded-2xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-lg hover:shadow-zinc-900/20 flex items-center gap-2"
+                                                >
+                                                    Begin Setup
+                                                    <ArrowRight className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
 
                                 {/* Footer (Typing Indicator) */}
                                 <div className="pb-32 px-4 md:px-8 max-w-5xl mx-auto w-full shrink-0 mt-auto">
