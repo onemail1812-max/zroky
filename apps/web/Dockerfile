@@ -12,6 +12,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED 1
+# CRITICAL: Next.js standalone bakes rewrites at build time.
+# API_URL must be available during build so rewrites point to the correct Docker service.
+ARG API_URL=http://api:8000
+ENV API_URL=${API_URL}
 RUN npm run build
 
 # Stage 3: Production image, copy all the files and run next
@@ -19,6 +23,8 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
+# Ensure API_URL is available at runtime too for any SSR rewrites
+ENV API_URL=http://api:8000
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
