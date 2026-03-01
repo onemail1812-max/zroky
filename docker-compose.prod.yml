@@ -23,6 +23,7 @@ services:
     environment:
       # Prod overrides
       ENV: production
+      DEBUG: "true"
       DATABASE_URL: postgresql://postgres:postgres@db:5432/zroky
       # Secrets (In real prod, inject via platform secrets)
       SECRET_KEY: ${SECRET_KEY}
