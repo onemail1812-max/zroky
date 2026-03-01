@@ -16,6 +16,20 @@ engine = create_engine(
     pool_recycle=3600,
 )
 
+# Fix: Register missing psycopg2 type adapters for PostgreSQL varchar OIDs.
+# Without this, queries crash with "Unknown PG numeric type: 1043" on PG 15+.
+if DATABASE_URL.startswith("postgresql"):
+    try:
+        import psycopg2
+        import psycopg2.extensions
+        # OID 1043 = varchar, OID 1015 = varchar[]
+        VARCHAR = psycopg2.extensions.new_type((1043,), "VARCHAR", psycopg2.extensions.UNICODE)
+        psycopg2.extensions.register_type(VARCHAR)
+        VARCHAR_ARRAY = psycopg2.extensions.new_array_type((1015,), "VARCHAR[]", VARCHAR)
+        psycopg2.extensions.register_type(VARCHAR_ARRAY)
+    except Exception:
+        pass
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
