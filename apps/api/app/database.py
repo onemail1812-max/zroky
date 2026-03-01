@@ -29,27 +29,27 @@ engine = create_engine(
 # =============================================================================
 if DATABASE_URL.startswith("postgresql"):
     try:
-        from sqlalchemy.dialects.postgresql import psycopg2 as _pg_dialect
-
-        _OrigNumeric = _pg_dialect._PGNumeric
-
-        class _PatchedPGNumeric(_OrigNumeric):
-            def result_processor(self, dialect, coltype):
-                # OID 1043 = varchar, OID 25 = text — treat as string-to-float
-                if coltype in (1043, 25):
-                    def process(value):
-                        if value is None:
-                            return None
-                        try:
-                            return float(value)
-                        except (ValueError, TypeError):
-                            return value
-                    return process
-                return super().result_processor(dialect, coltype)
-
-        _pg_dialect._PGNumeric = _PatchedPGNumeric
-    except Exception:
-        pass
+        from sqlalchemy.dialects.postgresql import _psycopg_common
+        
+        _orig_result_processor = _psycopg_common._PsycopgNumeric.result_processor
+        
+        def _patched_result_processor(self, dialect, coltype):
+            # OID 1043 = varchar, OID 25 = text
+            if coltype in (1043, 25):
+                def process(value):
+                    if value is None:
+                        return None
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        return value
+                return process
+            return _orig_result_processor(self, dialect, coltype)
+            
+        _psycopg_common._PsycopgNumeric.result_processor = _patched_result_processor
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to patch PGNumeric: {e}")
 
     # Also register psycopg2 type casters for safety
     try:
