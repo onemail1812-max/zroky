@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Dict
 
-from sqlalchemy import func
+from sqlalchemy import func, cast, Text
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 
@@ -202,7 +202,10 @@ class AaliyahOrchestrator:
         unread = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.is_read == False).count()
         needs_reply = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.awaiting_reply == True).count()
         followups = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.category == "followups").count()
-        drafts_count = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.metadata_json.like('%"draft":%')).count()
+        drafts_count = db.query(TriagedEmail).filter(
+            TriagedEmail.workspace_id == self.workspace_id, 
+            cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
+        ).count()
 
         payload = {
             "unread": unread,
@@ -244,7 +247,10 @@ class AaliyahOrchestrator:
                 stats["priority_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.priority == "High").count()
                 stats["needs_reply_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, (TriagedEmail.category == "Needs Reply") | (TriagedEmail.awaiting_reply == True)).count()
                 stats["followups_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.category == "Followups").count()
-                stats["drafts_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.metadata_json.like('%"draft":%')).count()
+                stats["drafts_count"] = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id, 
+                    cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
+                ).count()
             except Exception as e:
                 logger.error(f"Failed to fetch realtime stats: {e}")
         return stats
