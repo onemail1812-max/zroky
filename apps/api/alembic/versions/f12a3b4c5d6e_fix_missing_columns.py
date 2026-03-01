@@ -22,8 +22,8 @@ def upgrade() -> None:
 
     # Add missing columns to employees
     with op.batch_alter_table('employees', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('workspace_id', sa.String(), nullable=False, server_default='default'))
-        batch_op.add_column(sa.Column('user_id', sa.String(), nullable=False, server_default='system'))
+        batch_op.add_column(sa.Column('workspace_id', sa.String(), nullable=False, server_default=sa.text("'default'")))
+        batch_op.add_column(sa.Column('user_id', sa.String(), nullable=False, server_default=sa.text("'system'")))
         batch_op.drop_column('traits')
         batch_op.drop_column('bio')
         batch_op.drop_column('name')
@@ -36,7 +36,7 @@ def upgrade() -> None:
     # Add missing columns to jobs
     with op.batch_alter_table('jobs', schema=None) as batch_op:
         batch_op.add_column(sa.Column('dedupe_id', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('max_attempts', sa.Integer(), nullable=False, server_default='3'))
+        batch_op.add_column(sa.Column('max_attempts', sa.Integer(), nullable=False, server_default=sa.text('3')))
         batch_op.add_column(sa.Column('locked_at', sa.DateTime(), nullable=True))
         batch_op.add_column(sa.Column('locked_by', sa.String(), nullable=True))
         batch_op.add_column(sa.Column('traceback_data', sa.Text(), nullable=True))

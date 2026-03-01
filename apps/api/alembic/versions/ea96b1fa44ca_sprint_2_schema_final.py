@@ -83,8 +83,8 @@ def downgrade() -> None:
 
     with op.batch_alter_table('audit_logs', schema=None) as batch_op:
         batch_op.add_column(sa.Column('changes', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('user_id', sa.String(), nullable=False, server_default='system'))
-        batch_op.add_column(sa.Column('entity_type', sa.String(), nullable=False, server_default='system'))
+        batch_op.add_column(sa.Column('user_id', sa.String(), nullable=False, server_default=sa.text("'system'")))
+        batch_op.add_column(sa.Column('entity_type', sa.String(), nullable=False, server_default=sa.text("'system'")))
         batch_op.add_column(sa.Column('entity_id', sa.String(), nullable=True))
         batch_op.drop_index(batch_op.f('ix_audit_logs_thread_id'))
         batch_op.drop_index(batch_op.f('ix_audit_logs_id'))
