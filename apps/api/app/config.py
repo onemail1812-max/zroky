@@ -116,15 +116,14 @@ class Settings(BaseSettings):
     # ------------------
     # Validations & Defaults
     # ------------------
-    @validator("OAUTH_ENCRYPTION_KEY")
-    def validate_encryption_key(cls, v):
+    @validator("OAUTH_ENCRYPTION_KEY", pre=True, always=True)
+    def validate_encryption_key(cls, v, values):
         import re, secrets, logging
         _log = logging.getLogger("app.config")
 
-        if not v or v.strip() == "":
+        if not v or (isinstance(v, str) and v.strip() == ""):
             # In debug/dev mode, auto-generate a secure key instead of crashing
-            from app.config import settings as _s
-            if getattr(_s, "debug", True):
+            if values.get("DEBUG"):
                 generated = secrets.token_hex(32)
                 _log.warning(
                     "OAUTH_ENCRYPTION_KEY is empty — auto-generated a temporary key. "
