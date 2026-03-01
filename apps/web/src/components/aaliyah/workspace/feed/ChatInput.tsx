@@ -115,7 +115,7 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
                         setAttachments([]);
                     }
                 }}
-                className="relative flex items-end w-full rounded-xl border bg-white p-1 shadow-sm transition-all focus-within:ring-1 focus-within:ring-zinc-400"
+                className="relative flex items-end w-full rounded-xl border border-white ring-1 ring-zinc-200 bg-white p-1 shadow-sm transition-all focus-within:ring-1 focus-within:ring-zinc-300"
             >
                 <input
                     type="file"

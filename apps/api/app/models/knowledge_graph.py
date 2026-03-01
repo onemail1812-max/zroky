@@ -28,7 +28,7 @@ class KnowledgeEntity(Base):
     properties = Column(SafeJSON(), nullable=True)  # free-form key/value pairs
     source_type = Column(String(64), nullable=True)  # email, chat, calendar
     source_id = Column(String(256), nullable=True)
-    confidence = Column(Float, default=1.0, nullable=False)
+    confidence = Column(String, default="1.0", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -49,7 +49,7 @@ class KnowledgeRelationship(Base):
     target_entity_id = Column(String, nullable=False, index=True)
     relation_type = Column(String(128), nullable=False, index=True)  # worksAt, prefers, attendedWith, etc.
     properties = Column(SafeJSON(), nullable=True)
-    confidence = Column(Float, default=1.0, nullable=False)
+    confidence = Column(String, default="1.0", nullable=False)
     source_type = Column(String(64), nullable=True)
     source_id = Column(String(256), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

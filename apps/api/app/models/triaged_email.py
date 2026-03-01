@@ -26,7 +26,7 @@ class TriagedEmail(Base):
     priority = Column(String, index=True, nullable=True) # High, Medium, Low
     is_noise = Column(Boolean, default=False)
     is_read = Column(Boolean, default=False)
-    confidence = Column(Float, nullable=True)
+    confidence = Column(String, nullable=True)
     reasoning = Column(Text, nullable=True)
     
     # Workflow Status
