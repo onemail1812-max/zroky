@@ -268,9 +268,16 @@ def _decode_live_token(stream_token: str) -> dict[str, Any]:
 async def get_status(
     context: CurrentContext = Depends(get_current_context),
 ):
-
-    orchestrator = _get_orchestrator(context.workspace_id)
-    return orchestrator.get_status()
+    try:
+        orchestrator = _get_orchestrator(context.workspace_id)
+        return orchestrator.get_status()
+    except Exception as e:
+        import traceback
+        err_msg = f"Aaliyah Status Error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(err_msg)
+        with open("last_error.txt", "w") as f:
+            f.write(err_msg)
+        raise HTTPException(status_code=500, detail=f"Status Error: {str(e)}")
 
 
 # ── Onboarding Gate ──────────────────────────────────────────────────
@@ -556,9 +563,16 @@ async def get_briefing(
 async def get_stats(
     context: CurrentContext = Depends(get_current_context),
 ):
-
-    orchestrator = _get_orchestrator(context.workspace_id)
-    return orchestrator.get_stats()
+    try:
+        orchestrator = _get_orchestrator(context.workspace_id)
+        return orchestrator.get_stats()
+    except Exception as e:
+        import traceback
+        err_msg = f"Aaliyah Stats Error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(err_msg)
+        with open("last_error.txt", "w") as f:
+            f.write(err_msg)
+        raise HTTPException(status_code=500, detail=f"Stats Error: {str(e)}")
 
 
 @router.get("/live/token")
@@ -648,9 +662,17 @@ async def get_counts(
     db: Session = Depends(get_db),
 ):
     """Canonical counts (Sprint 1)"""
-    orchestrator = _get_orchestrator(context.workspace_id)
-    stats = orchestrator.get_stats(db)
-    return stats
+    try:
+        orchestrator = _get_orchestrator(context.workspace_id)
+        stats = orchestrator.get_stats(db)
+        return stats
+    except Exception as e:
+        import traceback
+        err_msg = f"Aaliyah Counts Error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(err_msg)
+        with open("last_error.txt", "w") as f:
+            f.write(err_msg)
+        raise HTTPException(status_code=500, detail=f"Counts Error: {str(e)}")
 
 
 @router.get("/threads")

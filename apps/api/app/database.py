@@ -23,9 +23,26 @@ SessionLocal = sessionmaker(
 )
 
 
+import logging
+logger = logging.getLogger(__name__)
+
 def get_db():
-    db = SessionLocal()
     try:
+        db = SessionLocal()
         yield db
+    except Exception as e:
+        import traceback
+        err_msg = f"Database Connection Error: {str(e)}\n{traceback.format_exc()}"
+        logger.error(err_msg)
+        # Attempt to write to a diagnostic file for the user
+        try:
+            with open("last_error.txt", "w") as f:
+                f.write(err_msg)
+        except:
+            pass
+        raise
     finally:
-        db.close()
+        try:
+            db.close()
+        except:
+            pass

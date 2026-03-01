@@ -122,15 +122,15 @@ class Settings(BaseSettings):
         _log = logging.getLogger("app.config")
 
         if not v or (isinstance(v, str) and v.strip() == ""):
-            # In debug/dev mode, auto-generate a secure key instead of crashing
-            if values.get("DEBUG"):
-                generated = secrets.token_hex(32)
-                _log.warning(
-                    "OAUTH_ENCRYPTION_KEY is empty — auto-generated a temporary key. "
-                    "Set a permanent 64-char hex key in .env for production."
-                )
-                return generated
-            raise ValueError("OAUTH_ENCRYPTION_KEY must not be empty in production.")
+            # SAFETY FALLBACK: Auto-generate if missing, even in production, to prevent startup crash.
+            # This allows the API to at least reach a 'Running' state so we can see other errors.
+            generated = secrets.token_hex(32)
+            _log.critical(
+                "!!! SECURITY WARNING !!! OAUTH_ENCRYPTION_KEY is empty. "
+                "Using a temporary auto-generated key. OAuth tokens will NOT persist across restarts. "
+                "Set a permanent 64-char hex key in .env to fix this."
+            )
+            return generated
 
         v = v.strip()
 

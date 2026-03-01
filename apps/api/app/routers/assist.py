@@ -507,20 +507,30 @@ async def get_chat_history(
     """
     Fetch server-side chat history for a thread or global context.
     """
-    from app.models.chat_message import ChatRepository
-    repo = ChatRepository(db, context.workspace_id)
-    messages = repo.list_messages(thread_id=thread_id)
-    
-    return [
-        {
-            "id": m.id,
-            "role": m.role,
-            "content": m.content,
-            "type": m.msg_type,
-            "payload": m.payload,
-            "created_at": m.created_at
-        } for m in messages
-    ]
+    try:
+        from app.models.chat_message import ChatRepository
+        repo = ChatRepository(db, context.workspace_id)
+        messages = repo.list_messages(thread_id=thread_id)
+        
+        return [
+            {
+                "id": m.id,
+                "role": m.role,
+                "content": m.content,
+                "type": m.msg_type,
+                "payload": m.payload,
+                "created_at": m.created_at
+            } for m in messages
+        ]
+    except Exception as e:
+        import traceback
+        err_msg = f"Assist History Error: {str(e)}\n{traceback.format_exc()}"
+        try:
+            with open("last_error.txt", "w") as f:
+                f.write(err_msg)
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/compose")
 @limiter.limit("5/minute")

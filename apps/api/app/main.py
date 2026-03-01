@@ -122,6 +122,14 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", str(exc))
+    
+    import traceback
+    err_msg = f"Global Unhandled Exception: {str(exc)}\n{traceback.format_exc()}"
+    try:
+        with open("last_error.txt", "w") as f:
+            f.write(err_msg)
+    except:
+        pass
 
     content = {
         "error": {
