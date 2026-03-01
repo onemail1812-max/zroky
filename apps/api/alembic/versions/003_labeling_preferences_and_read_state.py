@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "003_labeling_preferences_and_read_state"
+revision = "003_labeling_prefs"
 down_revision = "002_aaliyah_sprint1_foundation"
 branch_labels = None
 depends_on = None
