@@ -8,7 +8,10 @@ from app.models.user import User
 from app.models.workspace import Workspace
 import uuid
 import re
+import logging
 from app.security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 
 class CurrentContext:

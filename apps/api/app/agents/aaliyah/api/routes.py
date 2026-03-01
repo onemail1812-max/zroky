@@ -22,6 +22,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.database import SessionLocal, get_db
 from app.dependencies import CurrentContext, get_current_context
+from app.security import get_current_user
 from app.models.audit_log import AuditLog
 from app.models.workspace import Workspace
 from app.models.draft_template import DraftTemplate
