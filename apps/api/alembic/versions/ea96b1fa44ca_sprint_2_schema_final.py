@@ -32,30 +32,27 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_approvals_thread_id'), ['thread_id'], unique=False)
 
     with op.batch_alter_table('audit_logs', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('actor_user_id', sa.String(), nullable=True))
+        batch_op.add_column(sa.Column('target_type', sa.String(), nullable=True))
+        batch_op.add_column(sa.Column('target_id', sa.String(), nullable=True))
         batch_op.add_column(sa.Column('thread_id', sa.String(), nullable=True))
         batch_op.add_column(sa.Column('provider', sa.String(), nullable=True))
-        batch_op.alter_column('status',
-               existing_type=sa.VARCHAR(),
-               nullable=False,
-               existing_server_default=sa.text("'APPLIED'"))
+        batch_op.add_column(sa.Column('before_state', app.db_types.SafeJSON(), nullable=True))
+        batch_op.add_column(sa.Column('after_state', app.db_types.SafeJSON(), nullable=True))
+        batch_op.add_column(sa.Column('undo_payload', app.db_types.SafeJSON(), nullable=True))
+        batch_op.add_column(sa.Column('explain_one_liner', sa.String(), nullable=True))
+        batch_op.add_column(sa.Column('status', sa.String(), nullable=False, server_default=sa.text("'APPLIED'")))
+        batch_op.drop_index('ix_audit_logs_created_at')
+        batch_op.drop_index('ix_audit_logs_entity_id')
+        batch_op.drop_index('ix_audit_logs_entity_type')
+        batch_op.drop_index('ix_audit_logs_user_id')
+        batch_op.create_index(batch_op.f('ix_audit_logs_actor_user_id'), ['actor_user_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_audit_logs_id'), ['id'], unique=False)
         batch_op.create_index(batch_op.f('ix_audit_logs_thread_id'), ['thread_id'], unique=False)
-
-    with op.batch_alter_table('drafts', schema=None, naming_convention={
-        "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"
-    }) as batch_op:
-        batch_op.add_column(sa.Column('intent', sa.String(), nullable=True))
-        batch_op.add_column(sa.Column('risk_labels', app.db_types.SafeJSON(), nullable=True))
-        batch_op.add_column(sa.Column('missing_info', app.db_types.SafeJSON(), nullable=True))
-        batch_op.add_column(sa.Column('version', sa.Integer(), nullable=False, server_default=sa.text('1')))
-        batch_op.alter_column('email_message_id',
-               existing_type=sa.VARCHAR(),
-               nullable=True)
-        batch_op.drop_constraint('fk_drafts_email_message_id_email_messages', type_='foreignkey')
-
-    with op.batch_alter_table('meeting_transcripts', schema=None) as batch_op:
-        batch_op.alter_column('id',
-               existing_type=sa.VARCHAR(),
-               nullable=False)
+        batch_op.drop_column('entity_id')
+        batch_op.drop_column('entity_type')
+        batch_op.drop_column('user_id')
+        batch_op.drop_column('changes')
 
     with op.batch_alter_table('triaged_emails', schema=None) as batch_op:
         batch_op.add_column(sa.Column('requires_approval', sa.Boolean(), nullable=False, server_default=sa.text('0')))
@@ -84,29 +81,28 @@ def downgrade() -> None:
         batch_op.drop_column('approval_reason')
         batch_op.drop_column('requires_approval')
 
-    with op.batch_alter_table('meeting_transcripts', schema=None) as batch_op:
-        batch_op.alter_column('id',
-               existing_type=sa.VARCHAR(),
-               nullable=True)
-
-    with op.batch_alter_table('drafts', schema=None) as batch_op:
-        batch_op.create_foreign_key(None, 'email_messages', ['email_message_id'], ['id'])
-        batch_op.alter_column('email_message_id',
-               existing_type=sa.VARCHAR(),
-               nullable=False)
-        batch_op.drop_column('version')
-        batch_op.drop_column('missing_info')
-        batch_op.drop_column('risk_labels')
-        batch_op.drop_column('intent')
-
     with op.batch_alter_table('audit_logs', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('changes', sa.Text(), nullable=True))
+        batch_op.add_column(sa.Column('user_id', sa.String(), nullable=False, server_default='system'))
+        batch_op.add_column(sa.Column('entity_type', sa.String(), nullable=False, server_default='system'))
+        batch_op.add_column(sa.Column('entity_id', sa.String(), nullable=True))
         batch_op.drop_index(batch_op.f('ix_audit_logs_thread_id'))
-        batch_op.alter_column('status',
-               existing_type=sa.VARCHAR(),
-               nullable=True,
-               existing_server_default=sa.text("'APPLIED'"))
+        batch_op.drop_index(batch_op.f('ix_audit_logs_id'))
+        batch_op.drop_index(batch_op.f('ix_audit_logs_actor_user_id'))
+        batch_op.create_index('ix_audit_logs_user_id', ['user_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_entity_type', ['entity_type'], unique=False)
+        batch_op.create_index('ix_audit_logs_entity_id', ['entity_id'], unique=False)
+        batch_op.create_index('ix_audit_logs_created_at', ['created_at'], unique=False)
+        batch_op.drop_column('status')
+        batch_op.drop_column('explain_one_liner')
+        batch_op.drop_column('undo_payload')
+        batch_op.drop_column('after_state')
+        batch_op.drop_column('before_state')
         batch_op.drop_column('provider')
         batch_op.drop_column('thread_id')
+        batch_op.drop_column('target_id')
+        batch_op.drop_column('target_type')
+        batch_op.drop_column('actor_user_id')
 
     with op.batch_alter_table('approvals', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_approvals_thread_id'))

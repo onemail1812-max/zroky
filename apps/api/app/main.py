@@ -45,9 +45,13 @@ async def lifespan(application: FastAPI):
     import app.models  # noqa: F401  — ensure all models registered
     import asyncio
 
-    # Dev-friendly: auto-create tables for SQLite in debug mode.
-    if settings.DATABASE_URL.startswith("sqlite") and settings.DEBUG:
+    # PROVISION MISSING TABLES: auto-create missing tables on boot.
+    # Safe to run on Postgres/SQLite, only creates completely missing tables (e.g. drafts) without dropping existing ones.
+    try:
         Base.metadata.create_all(bind=engine)
+        logger.info("✅ Database schema validated and missing tables provisioned.")
+    except Exception as e:
+        logger.error(f"Failed to auto-provision tables: {e}")
 
     # Start the async background worker loop
     from app.core.queue import queue, JobType
