@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "D:\Zroky\apps\api\test_pg_json.py", line 7, in <module>
+    import app.main
+  File "D:\Zroky\apps\api\app\main.py", line 21, in <module>
+    from app.agents.aaliyah.api import (
+  File "D:\Zroky\apps\api\app\agents\aaliyah\api\__init__.py", line 1, in <module>
+    from .routes import router as core_router
+  File "D:\Zroky\apps\api\app\agents\aaliyah\api\routes.py", line 269, in <module>
+    token_payload: dict = Depends(get_current_user),
+                                  ^^^^^^^^^^^^^^^^
+NameError: name 'get_current_user' is not defined

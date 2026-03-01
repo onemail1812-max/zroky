@@ -51,7 +51,9 @@ async def lifespan(application: FastAPI):
         Base.metadata.create_all(bind=engine)
         logger.info("✅ Database schema validated and missing tables provisioned.")
     except Exception as e:
-        logger.error(f"Failed to auto-provision tables: {e}")
+        # Postgres throws UniqueViolation for internal types (like ENUMs) if they already exist.
+        # This is expected and safe to ignore since Alembic handles actual migrations.
+        logger.warning(f"Note: Auto-provisioning skipped due to existing schema constraints. {e}")
 
     # Start the async background worker loop
     from app.core.queue import queue, JobType

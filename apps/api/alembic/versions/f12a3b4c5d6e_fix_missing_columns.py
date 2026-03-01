@@ -11,7 +11,7 @@ import app.db_types
 
 # revision identifiers, used by Alembic.
 revision = 'f12a3b4c5d6e'
-down_revision = 'ea96b1fa44ca'
+down_revision = '36fc5403bc75'
 branch_labels = None
 depends_on = None
 

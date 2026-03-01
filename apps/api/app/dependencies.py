@@ -53,11 +53,63 @@ async def get_current_context(
         if not membership and workspace_id:
             membership = db.query(Membership).filter(Membership.user_id == user_id).first()
 
+        # [CRITICAL FIX]: If a brand new user hits the app before hitting `/me`, 
+        # throwing a 403 here violently disrupts the DB `yield` sequence in FastAPI, causing a 500 proxy crash. 
+        # Instead, we seamlessly auto-provision a default workspace.
         if not membership:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User profile or workspace not found. Please complete onboarding.",
+            from app.models.workspace import Workspace
+            from app.models.user import User
+            
+            # 1. Ensure User exists
+            user_prof = db.query(User).filter(User.id == user_id).first()
+            if not user_prof:
+                user_prof = User(
+                    id=user_id,
+                    email=token_payload.get("email") or f"{user_id}@clerk.local",
+                    hashed_password="",
+                    full_name=token_payload.get("user_metadata", {}).get("full_name") if isinstance(token_payload.get("user_metadata"), dict) else None,
+                    is_active=True,
+                )
+                db.add(user_prof)
+                
+            # 2. Auto-provision Sandbox Workspace
+            def _slugify(value: str) -> str:
+                value = value.lower().strip()
+                value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
+                return value or "workspace"
+
+            def _unique_slug(base: str) -> str:
+                slug = base
+                counter = 1
+                while db.query(Workspace).filter(Workspace.slug == slug).first():
+                    slug = f"{base}-{counter}"
+                    counter += 1
+                return slug
+
+            user_meta = token_payload.get("user_metadata")
+            ws_name = user_meta.get("workspace_name") if isinstance(user_meta, dict) else None
+            name = ws_name or f"{(user_prof.email.split('@')[0] if user_prof.email else 'My').title()} Workspace"
+            slug = _unique_slug(_slugify(name))
+            
+            ws_id = workspace_id or str(uuid.uuid4())
+            workspace = Workspace(
+                id=ws_id,
+                name=name,
+                slug=slug,
+                owner_id=user_id,
+                onboarding_status="pending"
             )
+            db.add(workspace)
+
+            membership = Membership(
+                id=str(uuid.uuid4()),
+                workspace_id=ws_id,
+                user_id=user_id,
+                role=MembershipRole.ADMIN,
+            )
+            db.add(membership)
+            db.commit()
+            logger.info(f"✅ Auto-provisioned sandbox workspace {ws_id} for new user {user_id} to prevent 403 crash.")
 
         return CurrentContext(
             workspace_id=membership.workspace_id,

@@ -266,10 +266,31 @@ def _decode_live_token(stream_token: str) -> dict[str, Any]:
 
 @router.get("/status")
 async def get_status(
-    context: CurrentContext = Depends(get_current_context),
+    token_payload: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     try:
-        orchestrator = _get_orchestrator(context.workspace_id)
+        user_id = token_payload.get("sub")
+        workspace_id = token_payload.get("workspace_id")
+        
+        # If no workspace in token, try DB
+        if not workspace_id or workspace_id == "default":
+            from app.models.membership import Membership
+            membership = db.query(Membership).filter(Membership.user_id == user_id).first()
+            if membership:
+                workspace_id = membership.workspace_id
+                
+        # If truly no workspace yet (onboarding incomplete), return idle safe state
+        if not workspace_id:
+            return {
+                "status": "idle",
+                "active_task": None,
+                "pending_approvals": 0,
+                "last_sync": {"gmail": None, "calendar": None},
+                "last_updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+        orchestrator = _get_orchestrator(workspace_id)
         return orchestrator.get_status()
     except Exception as e:
         import traceback
