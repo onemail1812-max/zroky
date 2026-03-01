@@ -21,7 +21,7 @@ class Membership(Base):
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)
     user_id = Column(String, index=True, nullable=False)
-    role = Column(SQLEnum(MembershipRole), default=MembershipRole.USER, nullable=False)
+    role = Column(SQLEnum(MembershipRole, native_enum=False), default=MembershipRole.USER, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:

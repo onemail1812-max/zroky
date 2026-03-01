@@ -1,0 +1,5 @@
+Database Connection Error: 403: User profile or workspace not found. Please complete onboarding.
+Traceback (most recent call last):
+  File "D:\Zroky\apps\api\app\database.py", line 32, in get_db
+    yield db
+fastapi.exceptions.HTTPException: 403: User profile or workspace not found. Please complete onboarding.

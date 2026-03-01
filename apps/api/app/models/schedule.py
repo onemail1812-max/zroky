@@ -25,7 +25,7 @@ class Schedule(Base):
     workspace_id = Column(String, index=True, nullable=False)
     artifact_id = Column(String, index=True, nullable=False)
     scheduled_for = Column(DateTime, nullable=False, index=True)
-    status = Column(SQLEnum(ScheduleStatus), default=ScheduleStatus.SCHEDULED, nullable=False)
+    status = Column(SQLEnum(ScheduleStatus, native_enum=False), default=ScheduleStatus.SCHEDULED, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self) -> str:

@@ -29,7 +29,7 @@ class Approval(Base):
     requested_by_user_id = Column(String, nullable=True) # System auto-requests might be null?
     decided_by_user_id = Column(String, nullable=True)
     
-    decision = Column(SQLEnum(ApprovalDecision), default=ApprovalDecision.PENDING, nullable=False)
+    decision = Column(SQLEnum(ApprovalDecision, native_enum=False), default=ApprovalDecision.PENDING, nullable=False)
     reason = Column(Text, nullable=True) # Notes or explanation
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

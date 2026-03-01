@@ -39,8 +39,8 @@ class Integration(Base):
 
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)
-    provider = Column(SQLEnum(IntegrationProvider), nullable=False)
-    status = Column(SQLEnum(IntegrationStatus), default=IntegrationStatus.DISCONNECTED, nullable=False)
+    provider = Column(SQLEnum(IntegrationProvider, native_enum=False), nullable=False)
+    status = Column(SQLEnum(IntegrationStatus, native_enum=False), default=IntegrationStatus.DISCONNECTED, nullable=False)
     scopes_json = Column(Text, nullable=True)  # JSON list of scopes
     token_encrypted = Column(Text, nullable=True)  # Encrypted token placeholder
     config_json = Column(Text, nullable=True)  # Provider-specific config

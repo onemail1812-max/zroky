@@ -40,8 +40,8 @@ class Artifact(Base):
     workspace_id = Column(String, index=True, nullable=False)
     employee_id = Column(String, index=True, nullable=False)
     thread_id = Column(String, nullable=True, index=True)
-    type = Column(SQLEnum(ArtifactType), nullable=False)
-    status = Column(SQLEnum(ArtifactStatus), default=ArtifactStatus.DRAFT, nullable=False)
+    type = Column(SQLEnum(ArtifactType, native_enum=False), nullable=False)
+    status = Column(SQLEnum(ArtifactStatus, native_enum=False), default=ArtifactStatus.DRAFT, nullable=False)
     title = Column(String, nullable=True)
     content_json = Column(Text, nullable=False)  # JSON serialized
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

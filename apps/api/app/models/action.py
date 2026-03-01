@@ -50,9 +50,9 @@ class Action(Base):
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)
     employee_id = Column(String, index=True, nullable=False)
-    type = Column(SQLEnum(ActionType), nullable=False)
-    risk_level = Column(SQLEnum(RiskLevel), nullable=False)
-    state = Column(SQLEnum(ActionState), default=ActionState.CREATED, nullable=False)
+    type = Column(SQLEnum(ActionType, native_enum=False), nullable=False)
+    risk_level = Column(SQLEnum(RiskLevel, native_enum=False), nullable=False)
+    state = Column(SQLEnum(ActionState, native_enum=False), default=ActionState.CREATED, nullable=False)
     target_type = Column(String, nullable=True)  # e.g. artifact, call_session
     target_id = Column(String, nullable=True)
     input_json = Column(Text, nullable=True)  # JSON serialized input

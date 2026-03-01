@@ -23,7 +23,7 @@ class Message(Base):
     workspace_id = Column(String, index=True, nullable=False)
     thread_id = Column(String, index=True, nullable=False)
     employee_id = Column(String, index=True, nullable=False)
-    author_type = Column(SQLEnum(AuthorType), nullable=False)
+    author_type = Column(SQLEnum(AuthorType, native_enum=False), nullable=False)
     author_user_id = Column(String, index=True, nullable=True)
     content_text = Column(Text, nullable=False)
     content_json = Column(Text, nullable=True)  # JSON serialized

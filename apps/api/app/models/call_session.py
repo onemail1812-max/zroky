@@ -41,8 +41,8 @@ class CallSession(Base):
     workspace_id = Column(String, index=True, nullable=False)
     employee_id = Column(String, index=True, nullable=False)
     provider = Column(String, nullable=False)  # TWILIO, EXOTEL
-    direction = Column(SQLEnum(CallDirection), nullable=False)
-    status = Column(SQLEnum(CallStatus), default=CallStatus.CREATED, nullable=False)
+    direction = Column(SQLEnum(CallDirection, native_enum=False), nullable=False)
+    status = Column(SQLEnum(CallStatus, native_enum=False), default=CallStatus.CREATED, nullable=False)
     from_number = Column(String, nullable=True)
     to_number = Column(String, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -51,7 +51,7 @@ class CallSession(Base):
     recording_drive_file_id = Column(String, nullable=True)
     recording_drive_link = Column(String, nullable=True)
     recording_status = Column(
-        SQLEnum(RecordingStatus), default=RecordingStatus.NONE, nullable=False
+        SQLEnum(RecordingStatus, native_enum=False), default=RecordingStatus.NONE, nullable=False
     )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

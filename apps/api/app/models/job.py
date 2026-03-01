@@ -28,7 +28,7 @@ class Job(Base):
     payload_json = Column(Text, nullable=True)               # JSON serialized payload
     
     run_at = Column(DateTime, nullable=False, index=True)
-    status = Column(SQLEnum(JobStatus), default=JobStatus.PENDING, nullable=False, index=True)
+    status = Column(SQLEnum(JobStatus, native_enum=False), default=JobStatus.PENDING, nullable=False, index=True)
     
     attempts = Column(Integer, default=0, nullable=False)
     max_attempts = Column(Integer, default=3, nullable=False)
