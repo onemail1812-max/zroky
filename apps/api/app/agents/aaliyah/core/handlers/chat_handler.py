@@ -455,8 +455,12 @@ class ChatHandler(BaseHandler):
         memory = DualStateMemory(db, self.workspace_id)
         yield {"type": "status", "content": "Analyzing context..."}
 
-        context = memory.recall(message, top_k=3, thread_id=thread_id)
-        prompt_context = context.get("prompt_context", "")
+        try:
+            context = memory.recall(message, top_k=3, thread_id=thread_id)
+            prompt_context = context.get("prompt_context", "")
+        except Exception as mem_err:
+            logger.warning("Memory recall failed (chat will continue without context): %s", mem_err)
+            prompt_context = ""
 
         llm_images = []
         if attachments:
@@ -493,20 +497,27 @@ class ChatHandler(BaseHandler):
             prompt_context = f"{prompt_context}\n{attachment_info}"
 
         from app.models.integration import Integration, IntegrationStatus
-        integrations = db.query(Integration).filter(Integration.workspace_id == self.workspace_id).all()
-        
-        google_ok = any("google" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
-        outlook_ok = any("outlook" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
-        is_connected = google_ok or outlook_ok
+        try:
+            integrations = db.query(Integration).filter(Integration.workspace_id == self.workspace_id).all()
+            google_ok = any("google" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+            outlook_ok = any("outlook" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+            is_connected = google_ok or outlook_ok
+        except Exception as int_err:
+            logger.warning("Integration query failed: %s", int_err)
+            is_connected = False
         connection_status_msg = (
             "CONNECTED to inbox and calendar." if is_connected 
             else "DISCONNECTED. You cannot see emails or calendar events right now. Proactively inform the user they must connect in Settings if they ask for data you don't have."
         )
 
-        workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-        ws_settings = workspace.settings_json or {}
-        aaliyah_settings = ws_settings.get("aaliyah", {})
-        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+        try:
+            workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+            ws_settings = workspace.settings_json or {} if workspace else {}
+            aaliyah_settings = ws_settings.get("aaliyah", {})
+            user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+        except Exception as ws_err:
+            logger.warning("Workspace query failed: %s", ws_err)
+            user_name = "there"
 
         system_prompt = (
             f"You are Aaliyah, an elite AI Chief of Staff for {user_name}.\n"
@@ -524,16 +535,17 @@ class ChatHandler(BaseHandler):
         from app.core.queue import queue, JobType
         
         pending_email = None
-        if thread_id:
-            pending_email = db.query(TriagedEmail).filter(
-                TriagedEmail.thread_id == thread_id,
-                TriagedEmail.workspace_id == self.workspace_id
-            ).first()
-        
-        if not pending_email or not (pending_email.metadata_json or {}).get("needs_clarity"):
-            recent_emails = db.query(TriagedEmail).filter(
-                TriagedEmail.workspace_id == self.workspace_id,
-            ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
+        try:
+            if thread_id:
+                pending_email = db.query(TriagedEmail).filter(
+                    TriagedEmail.thread_id == thread_id,
+                    TriagedEmail.workspace_id == self.workspace_id
+                ).first()
+            
+            if not pending_email or not (pending_email.metadata_json or {}).get("needs_clarity"):
+                recent_emails = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
             
             found = None
             for pe in recent_emails:
@@ -543,6 +555,9 @@ class ChatHandler(BaseHandler):
                     found = pe
                     break
             pending_email = found
+        except Exception as te_err:
+            logger.warning("TriagedEmail query failed: %s", te_err)
+            pending_email = None
         
         if pending_email:
             meta = dict(pending_email.metadata_json or {})

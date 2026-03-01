@@ -224,29 +224,14 @@ class PostgresVectorStore:
         return self._rrf_merge(semantic_results, keyword_results, top_k)
 
     def _keyword_search(self, query_text: str, top_k: int, filter_metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
-        """Simple keyword search (SQL LIKE or POSIX regex for portability)."""
+        """Simple keyword search using SQLAlchemy ORM (avoids raw SQL OID issues)."""
         try:
-            # We use a broad search across source types and content
             search_pattern = f"%{query_text}%"
-            
-            where_clause = "workspace_id = :ws_id AND content_text LIKE :query"
-            params = {"ws_id": self.workspace_id, "query": search_pattern, "limit": top_k}
-            if filter_metadata:
-                for i, (key, value) in enumerate(filter_metadata.items()):
-                    pk = f"mk_{i}"
-                    pv = f"mv_{i}"
-                    where_clause += f" AND metadata_json->>:{pk} = :{pv}"
-                    params[pk] = key
-                    params[pv] = str(value)
-
-            sql = text(f"""
-                SELECT id, source_type, source_id, content_text, metadata_json
-                FROM memory_entries
-                WHERE {where_clause}
-                LIMIT :limit
-            """)
-            result = self.db.execute(sql, params)
-            rows = result.fetchall()
+            query = self.db.query(MemoryEntry).filter(
+                MemoryEntry.workspace_id == self.workspace_id,
+                MemoryEntry.content_text.like(search_pattern),
+            )
+            rows = query.limit(top_k).all()
             return [
                 {
                     "id": row.id,
@@ -254,7 +239,7 @@ class PostgresVectorStore:
                     "source_id": row.source_id,
                     "content_text": row.content_text,
                     "metadata": row.metadata_json or {},
-                    "similarity": 0.5, # Base similarity for keyword hits
+                    "similarity": 0.5,  # Base similarity for keyword hits
                 }
                 for row in rows
             ]
