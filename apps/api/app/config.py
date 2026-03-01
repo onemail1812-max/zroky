@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     OAUTH_ENCRYPTION_KEY: str = Field(..., description="32-byte hex string required for token encryption.")
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "http://zroky.com:3000", "http://zroky.com:8000", "http://34.180.2.4:3000", "http://34.180.2.4:8000"]
     CORS_CREDENTIALS: bool = True
     CORS_METHODS: List[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
     CORS_HEADERS: List[str] = [
