@@ -73,7 +73,7 @@ async def connector_oauth_callback_post(
     service_type = decoded.get("service_type") or serviceType or "email"
 
     _provider_enabled(provider)
-    redirect_uri = settings.google_redirect_uri if provider == "google" else settings.microsoft_redirect_uri
+    redirect_uri = settings.GOOGLE_REDIRECT_URI if provider == "google" else settings.MICROSOFT_REDIRECT_URI
     # Use the redirectUri from payload (frontend origin) if configured to allow dynamic
     # But usually backend MUST match exactly what was sent in auth request
     # Since we built auth request with settings.*_redirect_uri, we must use that here too.
@@ -110,20 +110,20 @@ def _assert_workspace_header_consistency(request: Request, workspace_id: str) ->
 
 
 def _provider_enabled(provider: str) -> None:
-    # if provider == "google" and not settings.google_enabled:
+    # if provider == "google" and not settings.GOOGLE_ENABLED:
     #     raise HTTPException(status_code=400, detail="Google integration is disabled")
-    # if provider == "microsoft" and not settings.microsoft_enabled:
+    # if provider == "microsoft" and not settings.MICROSOFT_ENABLED:
     #     raise HTTPException(status_code=400, detail="Microsoft integration is disabled")
     pass
 
 
 def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: str) -> str:
     if provider == "google":
-        if not settings.google_client_id:
+        if not settings.GOOGLE_CLIENT_ID:
             raise HTTPException(status_code=500, detail="Missing Google client configuration")
 
         # MOCK FLOW for Dev/Demo
-        if settings.google_client_id == "mock-google-client":
+        if settings.GOOGLE_CLIENT_ID == "mock-google-client":
             # Redirect directly to our own callback with a mock code
             params = {
                 "state": state,
@@ -134,7 +134,7 @@ def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: 
             return f"{redirect_uri}?{query}"
 
         params = {
-            "client_id": settings.google_client_id,
+            "client_id": settings.GOOGLE_CLIENT_ID,
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": " ".join(scopes),
@@ -147,12 +147,12 @@ def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: 
         query = urllib.parse.urlencode(params)
         return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
 
-    tenant = settings.microsoft_tenant_id
+    tenant = settings.MICROSOFT_TENANT_ID
     auth_endpoint = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
-    if not settings.microsoft_client_id:
+    if not settings.MICROSOFT_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Missing Microsoft client configuration")
 
-    if settings.microsoft_client_id == "mock-ms-client":
+    if settings.MICROSOFT_CLIENT_ID == "mock-ms-client":
         params = {
             "state": state,
             "code": "mock_microsoft_code_123",
@@ -162,7 +162,7 @@ def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: 
         return f"{redirect_uri}?{query}"
 
     params = {
-        "client_id": settings.microsoft_client_id,
+        "client_id": settings.MICROSOFT_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "response_mode": "query",
@@ -183,7 +183,7 @@ def _redirect_with_error(return_url: str, error: str, description: str | None = 
 
 
 def _default_return_url() -> str:
-    return f"{settings.frontend_base_url.rstrip('/')}/oauth/callback"
+    return f"{settings.FRONTEND_BASE_URL.rstrip('/')}/oauth/callback"
 
 
 def _safe_json_loads(value: Optional[str]) -> dict:
@@ -249,7 +249,7 @@ def _exchange_code(provider: str, code: str, redirect_uri: str, scopes: List[str
         }
 
     if provider == "google":
-        if not settings.google_client_id or not settings.google_client_secret:
+        if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
             raise HTTPException(status_code=500, detail="Missing Google client configuration")
 
         resp = requests.post(
@@ -257,8 +257,8 @@ def _exchange_code(provider: str, code: str, redirect_uri: str, scopes: List[str
             data={
                 "grant_type": "authorization_code",
                 "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
                 "redirect_uri": redirect_uri,
             },
             timeout=20,
@@ -280,17 +280,17 @@ def _exchange_code(provider: str, code: str, redirect_uri: str, scopes: List[str
                 pass
         return token
 
-    tenant = settings.microsoft_tenant_id
+    tenant = settings.MICROSOFT_TENANT_ID
     token_endpoint = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-    if not settings.microsoft_client_id or not settings.microsoft_client_secret:
+    if not settings.MICROSOFT_CLIENT_ID or not settings.MICROSOFT_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Missing Microsoft client configuration")
 
     resp = requests.post(
         token_endpoint,
         data={
             "grant_type": "authorization_code",
-            "client_id": settings.microsoft_client_id,
-            "client_secret": settings.microsoft_client_secret,
+            "client_id": settings.MICROSOFT_CLIENT_ID,
+            "client_secret": settings.MICROSOFT_CLIENT_SECRET,
             "code": code,
             "redirect_uri": redirect_uri,
             "scope": " ".join(scopes),
@@ -403,7 +403,7 @@ async def connect_provider(
     
     state = encode_state(state_payload)
 
-    redirect_uri = settings.google_redirect_uri if provider == "google" else settings.microsoft_redirect_uri
+    redirect_uri = settings.GOOGLE_REDIRECT_URI if provider == "google" else settings.MICROSOFT_REDIRECT_URI
     if payload.returnUrl and "localhost" in payload.returnUrl:
          # For local dev, trust the returnUrl if explicit override needed, but standard flow uses configured callback
          pass
@@ -464,7 +464,7 @@ async def _handle_oauth_callback(
             return _redirect_with_error(return_url, "invalid_state", "Missing workspace context")
 
         _provider_enabled(provider)
-        redirect_uri = settings.google_redirect_uri if provider == "google" else settings.microsoft_redirect_uri
+        redirect_uri = settings.GOOGLE_REDIRECT_URI if provider == "google" else settings.MICROSOFT_REDIRECT_URI
         token = _exchange_code(provider, code, redirect_uri, scopes)
 
         _store_integration(

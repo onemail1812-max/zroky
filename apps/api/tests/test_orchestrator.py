@@ -6,16 +6,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Required env vars before importing app modules.
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
 from app.database import Base
 from app.models.memory_entry import MemoryEntry
-from app.services.aaliyah.ingestion.email_ingestor import EmailMetadata, NormalizedEmailMessage
-from app.services.aaliyah.orchestrator import AaliyahOrchestrator
+from app.agents.aaliyah.core.ingestion.email_ingestor import EmailMetadata, NormalizedEmailMessage
+from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
 from app.services.brain.schemas.brain_types import BrainResponse
 
 
@@ -60,14 +60,14 @@ class OrchestratorTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        async def fake_fetch(*args, **kwargs):
-            return fake_items
+        async def fake_fetch_inc(*args, **kwargs):
+            return fake_items, []
 
-        with patch("app.services.aaliyah.ingestion.email_ingestor.EmailIngestor.fetch_and_normalize", new=fake_fetch):
+        with patch("app.agents.aaliyah.core.ingestion.email_ingestor.EmailIngestor.fetch_incremental", new=fake_fetch_inc):
             result = await orchestrator.sync_inbox(db, user_id="u1")
 
         self.assertEqual(result["count"], 1)
-        stats = orchestrator.get_stats()
+        stats = orchestrator.get_stats(db) # Pass db to get realtime stats
         self.assertGreaterEqual(stats["triaged_count"], 1)
         self.assertEqual(db.query(MemoryEntry).count(), 1)
         db.close()

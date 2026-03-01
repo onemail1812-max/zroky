@@ -9,7 +9,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # Fallback Redis URL if not present in settings (local dev)
-redis_url = getattr(settings, "redis_url", "redis://localhost:6379/0")
+redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
 
 celery_app = Celery(
     "zroky_workers",

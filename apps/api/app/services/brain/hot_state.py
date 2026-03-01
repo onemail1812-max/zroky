@@ -39,7 +39,7 @@ def _get_redis() -> Any:
         return _redis_client
     _redis_init_attempted = True
 
-    redis_url = getattr(settings, "redis_url", None) or ""
+    redis_url = getattr(settings, "REDIS_URL", None) or ""
     if not redis_url.strip():
         logger.info("HotState: no REDIS_URL configured — using in-memory fallback")
         return None

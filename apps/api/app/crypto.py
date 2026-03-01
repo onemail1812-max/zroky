@@ -13,7 +13,7 @@ def generate_key() -> str:
 def get_cipher() -> Fernet:
     """Get Fernet cipher instance using secret key."""
     key = base64.urlsafe_b64encode(
-        hashlib.sha256(settings.secret_key.encode()).digest()
+        hashlib.sha256(settings.SECRET_KEY.encode()).digest()
     )
     return Fernet(key)
 

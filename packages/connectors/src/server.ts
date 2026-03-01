@@ -6,14 +6,7 @@
 
 import 'dotenv/config';
 
-// Debug: Print credential info at startup
-console.log('=== STARTUP DEBUG ===');
-console.log('GOOGLE_CLIENT_ID length:', process.env.GOOGLE_CLIENT_ID?.length);
-console.log('GOOGLE_CLIENT_SECRET length:', process.env.GOOGLE_CLIENT_SECRET?.length);
-console.log('GOOGLE_CLIENT_SECRET first 5:', process.env.GOOGLE_CLIENT_SECRET?.substring(0, 5));
-console.log('API_BASE_URL:', process.env.API_BASE_URL);
-console.log('=== END DEBUG ===');
-
+// Startup: Verify credential presence (never log secret values)
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';

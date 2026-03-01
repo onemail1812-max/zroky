@@ -16,7 +16,7 @@ class LLMService:
         """
         Drafts a reply using a fast, capable model (Gemini).
         """
-        model = settings.aaliyah_draft_model
+        model = settings.AALIYAH_DRAFT_MODEL
         
         system_prompt = """You are an executive assistant for a busy professional.
 Draft a concise, polite reply. 
@@ -57,7 +57,7 @@ Draft a concise, polite reply.
         Summarizes the thread using a reasoning-capable model (DeepSeek R1).
         Returns 3 bullet points: Context, Key Ask, Next Step.
         """
-        model = settings.aaliyah_reasoning_model
+        model = settings.AALIYAH_REASONING_MODEL
         
         prompt = f"""
         Analyze this email thread and extract exactly 3 bullet points:
@@ -111,7 +111,7 @@ Draft a concise, polite reply.
         """Fallback to Gemini for summary"""
         response = await self.client.generate(
             messages=[{"role": "user", "content": f"Summarize in 3 bullet points: {email.body_cleaned}"}],
-            model=settings.aaliyah_draft_model
+            model=settings.AALIYAH_DRAFT_MODEL
         )
         return [l.strip("- ").strip() for l in response.strip().split("\n") if l.strip()][:3]
 

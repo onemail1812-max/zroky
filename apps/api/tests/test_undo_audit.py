@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Required env vars before importing app modules
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
@@ -15,15 +15,15 @@ os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
 os.environ.setdefault("MICROSOFT_CLIENT_ID", "test-ms-client-id")
 os.environ.setdefault("MICROSOFT_CLIENT_SECRET", "test-ms-client-secret")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 os.environ.setdefault("CLERK_JWKS_URL", "https://example.com/.well-known/jwks.json")
 os.environ.setdefault("CLERK_JWT_AUD", "test-aud")
 os.environ.setdefault("CLERK_JWT_ISS", "https://example.com")
 
 from app.database import Base
 from app.models.audit_log import AuditLog
-from app.services.aaliyah.action_executor import ActionExecutor
-from app.services.aaliyah.undo_service import UndoService
+from app.agents.aaliyah.core.action_executor import ActionExecutor
+from app.agents.aaliyah.core.undo_service import UndoService
 from app.services.audit_log_service import AuditLogService, AuditAction, AuditEntityType
 
 

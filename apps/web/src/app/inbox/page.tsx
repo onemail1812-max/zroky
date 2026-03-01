@@ -165,9 +165,7 @@ export default function InboxPage() {
                     <NavItem id="approvals" label="Approvals" count={counts.approvals || 0} active={activeTab} onClick={toggleTab} icon={CheckCircle2} />
                     <NavItem id="follow_ups" label="Follow-ups" count={counts.follow_ups || 0} active={activeTab} onClick={toggleTab} icon={Clock} />
 
-                    <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Everything Else</div>
-                    <NavItem id="newsletter" label="Newsletter" count={counts.newsletter || 0} active={activeTab} onClick={toggleTab} icon={Newspaper} />
-                    <NavItem id="notifications" label="Notifications" count={counts.notifications || 0} active={activeTab} onClick={toggleTab} icon={Bell} />
+                    <div className="pt-4 pb-2 px-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Other</div>
                     <NavItem id="drafts" label="Drafts" count={counts.drafts || 0} active={activeTab} onClick={toggleTab} icon={FileText} />
                 </nav>
             </div>

@@ -34,10 +34,58 @@ from app.api.routes.meetings import router as meetings_router
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# ── Lifespan ─────────────────────────────────────────────────────────────
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Modern lifespan context manager (replaces deprecated on_event)."""
+    # ── STARTUP ──────────────────────────────────────────────────────
+    import app.models  # noqa: F401  — ensure all models registered
+    import asyncio
+
+    # Dev-friendly: auto-create tables for SQLite in debug mode.
+    if settings.DATABASE_URL.startswith("sqlite") and settings.DEBUG:
+        Base.metadata.create_all(bind=engine)
+
+    # Start the async background worker loop
+    from app.core.queue import queue, JobType
+    from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting, process_heartbeat
+    from app.workers.followup_worker import process_auto_followup
+    from app.workers.notetaker_worker import process_meeting_job
+    handlers = {
+        JobType.SYNC_PROVIDER.value: process_sync_provider,
+        JobType.AI_TRIAGE.value: process_ai_triage,
+        JobType.PROCESS_DRAFT.value: process_drafting,
+        JobType.AUTO_FOLLOWUP.value: process_auto_followup,
+        JobType.HEARTBEAT.value: process_heartbeat,
+        JobType.PROCESS_AUDIO.value: process_meeting_job,
+    }
+
+    worker_task = asyncio.create_task(queue.worker_loop(handlers))
+    scheduler_task = asyncio.create_task(queue.scheduler_loop())
+
+    logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
+
+    yield  # ── App is running ────────────────────────────────────────
+
+    # ── SHUTDOWN ─────────────────────────────────────────────────────
+    logger.info("Shutting down background workers...")
+    worker_task.cancel()
+    scheduler_task.cancel()
+    for task in (worker_task, scheduler_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    logger.info("✅ Graceful shutdown complete.")
+
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
     debug=False,
+    lifespan=lifespan,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -83,7 +131,7 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     }
 
     # [Phase 10 Traceback Guard]: Do not expose tracebacks in production!
-    if settings.debug and getattr(settings, "environment", "development") == "development":
+    if settings.DEBUG and getattr(settings, "environment", "development") == "development":
         import traceback
         content["error"]["message"] = f"Internal server error: {str(exc)}"
         content["error"]["traceback"] = traceback.format_exc()
@@ -94,39 +142,6 @@ async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSON
     )
 
 
-# ── Startup ─────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    # Ensure all models are registered before create_all.
-    import app.models  # noqa: F401
-    import asyncio
-
-    # Dev-friendly: auto-create tables for SQLite.
-    # [Phase 10 SQLite Guard]: Dev-friendly auto-create tables for SQLite only in debug mode.
-    if settings.database_url.startswith("sqlite") and settings.debug:
-        Base.metadata.create_all(bind=engine)
-        
-    # Start the async background worker loop
-    from app.core.queue import queue, JobType
-    from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting, process_heartbeat
-    from app.workers.followup_worker import process_auto_followup
-    handlers = {
-        JobType.SYNC_PROVIDER.value: process_sync_provider,
-        JobType.AI_TRIAGE.value: process_ai_triage,
-        JobType.PROCESS_DRAFT.value: process_drafting,
-        JobType.AUTO_FOLLOWUP.value: process_auto_followup,
-        JobType.HEARTBEAT.value: process_heartbeat
-    }
-    
-    # Run the worker listener
-    asyncio.create_task(queue.worker_loop(handlers))
-    
-    # Run the 24/7 auto-sync scheduler
-    asyncio.create_task(queue.scheduler_loop())
-
-    logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
-
 
 # ── CORS ─────────────────────────────────────────────────────────────────
 
@@ -134,10 +149,10 @@ async def startup_event() -> None:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=settings.cors_credentials,
-    allow_methods=settings.cors_methods,
-    allow_headers=settings.cors_headers,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=settings.CORS_CREDENTIALS,
+    allow_methods=settings.CORS_METHODS,
+    allow_headers=settings.CORS_HEADERS,
 )
 
 # Removed Global RateLimiterMiddleware (120 req/min) in favor of slowapi per-endpoint limits
@@ -162,29 +177,41 @@ app.include_router(assist_router.router, prefix="/assist", tags=["assist"])
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Zroky API", "version": settings.app_version}
+    return {"message": "Welcome to Zroky API", "version": settings.APP_VERSION}
 
 
 @app.post("/admin/zdr/purge-now", tags=["admin", "zdr"])
 async def trigger_zdr_purge(
+    request: Request,
     hours_ttl: int = 24,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
 ):
     """
     Manually trigger the Zero Data Retention (ZDR) policy.
     Anonymizes all PII from TriagedEmail records older than the specified TTL.
+
+    Security: Requires authentication + ADMIN_SECRET header + debug mode.
     """
+    # Gate 1: Debug-only — never available in production
+    if not settings.DEBUG:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Gate 2: Require admin secret header
+    admin_secret = request.headers.get("X-Admin-Secret", "")
+    expected_secret = getattr(settings, "SECRET_KEY", None)
+    if not admin_secret or not expected_secret or admin_secret != expected_secret:
+        raise HTTPException(status_code=403, detail="Forbidden: invalid admin credentials")
+
     from app.workers.zdr_purge import purge_stale_pii
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    logger.info(f"Manual ZDR Purge triggered with TTL={hours_ttl}h")
-    
+
+    logger.info("Manual ZDR Purge triggered by user=%s with TTL=%dh", user.get("sub", "unknown"), hours_ttl)
+
     anonymized_count, errors = purge_stale_pii(db, hours_ttl=hours_ttl)
-    
+
     if errors > 0:
         return {"status": "error", "message": "ZDR Purge encountered errors. Check logs."}
-        
+
     return {
         "status": "success",
         "message": f"ZDR Policy enforced. Successfully anonymized {anonymized_count} stale records."
@@ -284,7 +311,7 @@ async def health_check_providers(
 
 @app.get("/version")
 async def get_version():
-    return {"name": "zroky-api", "version": settings.app_version}
+    return {"name": "zroky-api", "version": settings.APP_VERSION}
 
 
 @app.get("/me")
@@ -381,7 +408,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "app.main:app",
-        host=settings.server_host,
-        port=settings.server_port,
+        host=settings.SERVER_HOST,
+        port=settings.SERVER_PORT,
         reload=False,
     )

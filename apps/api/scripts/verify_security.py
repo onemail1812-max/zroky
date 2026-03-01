@@ -13,7 +13,7 @@ async def test_security_warnings():
     # Overwrite settings to simulate a misconfigured production environment
     settings.env = "production"
     settings.secret_key = "weak"
-    settings.oauth_encryption_key = "0123456789abcdef0123456789abcdef"
+    settings.oauth_encryption_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     settings.clerk_jwks_url = "" # Missing
 
     # This should trigger CRITICAL logs

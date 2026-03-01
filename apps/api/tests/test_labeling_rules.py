@@ -5,18 +5,18 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
 from app.database import Base
 from app.models.calendar_event_snapshot import CalendarEventSnapshot
 from app.models.triaged_email import TriagedEmail
-from app.services.aaliyah.ingestion.email_ingestor import EmailMetadata, NormalizedEmailMessage
-from app.services.aaliyah.labeling_rules import LabelingRulesEngine
-from app.services.aaliyah.triage_service import TriageResult
+from app.agents.aaliyah.core.ingestion.email_ingestor import EmailMetadata, NormalizedEmailMessage
+from app.agents.aaliyah.core.labeling_rules import LabelingRulesEngine
+from app.agents.aaliyah.core.triage_service import TriageResult
 
 
 class LabelingRulesTests(unittest.TestCase):

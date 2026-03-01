@@ -35,11 +35,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=settings.access_token_expire_minutes
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, settings.secret_key, algorithm=settings.algorithm
+        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
     return encoded_jwt
 
@@ -48,11 +48,11 @@ def create_refresh_token(data: dict) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(
-        days=settings.refresh_token_expire_days
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, settings.secret_key, algorithm=settings.algorithm
+        to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM
     )
     return encoded_jwt
 
@@ -62,8 +62,8 @@ _JWKS_CACHE: dict[str, dict[str, Any]] = {}
 
 def _resolve_clerk_jwks_url(token: str) -> Optional[str]:
     """Resolve Clerk JWKS URL from config or token issuer."""
-    if settings.clerk_jwks_url:
-        return settings.clerk_jwks_url
+    if settings.CLERK_JWKS_URL:
+        return settings.CLERK_JWKS_URL
 
     try:
         claims = jwt.get_unverified_claims(token)
@@ -119,10 +119,10 @@ def _verify_clerk_token(token: str) -> dict:
     decode_kwargs = {
         "algorithms": ["RS256"],
     }
-    if settings.clerk_jwt_iss:
-        decode_kwargs["issuer"] = settings.clerk_jwt_iss
-    if settings.clerk_jwt_aud:
-        decode_kwargs["audience"] = settings.clerk_jwt_aud
+    if settings.CLERK_JWT_ISS:
+        decode_kwargs["issuer"] = settings.CLERK_JWT_ISS
+    if settings.CLERK_JWT_AUD:
+        decode_kwargs["audience"] = settings.CLERK_JWT_AUD
 
     try:
         return jwt.decode(
@@ -133,7 +133,7 @@ def _verify_clerk_token(token: str) -> dict:
     except JWTError as e:
         # If issuer/audience settings are misconfigured, retry with JWKS-only validation.
         # This keeps local development working while still verifying signature + expiry.
-        if settings.clerk_jwt_iss or settings.clerk_jwt_aud:
+        if settings.CLERK_JWT_ISS or settings.CLERK_JWT_AUD:
             try:
                 return jwt.decode(
                     token,
@@ -157,10 +157,10 @@ def verify_token(token: str) -> dict:
     3. Fallback → verify via local JWT secret
     """
     # Debug mode: no Clerk configured → allow any token
-    if settings.debug and not settings.clerk_jwks_url:
+    if settings.DEBUG and not settings.CLERK_JWKS_URL:
         # Try to decode as local JWT first
         try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             return payload
         except JWTError:
             # Can't decode? Fine in debug, return demo user
@@ -172,7 +172,7 @@ def verify_token(token: str) -> dict:
 
     # Fallback: local JWT
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
     except JWTError as e:
         raise HTTPException(
@@ -191,7 +191,7 @@ async def get_current_user(
     """
     # No credentials provided
     if credentials is None:
-        if settings.debug and not settings.clerk_jwks_url:
+        if settings.DEBUG and not settings.CLERK_JWKS_URL:
             return {"sub": "user_demo_001", "workspace_id": "ws_demo_stable_001"}
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

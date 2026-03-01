@@ -27,7 +27,7 @@ def get_instructor_client():
     # We use OpenAI-compatible client (works with DeepSeek/OpenRouter)
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key=settings.brain_api_key,
+        api_key=settings.BRAIN_API_KEY,
     )
     
     return instructor.from_openai(client)

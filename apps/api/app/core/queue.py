@@ -8,7 +8,7 @@ import json
 import logging
 import uuid
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
 import traceback
@@ -56,7 +56,7 @@ class AdvancedSQLiteQueue:
                 workspace_id=payload.get("workspace_id"),
                 payload_json=json.dumps(payload, default=str),
                 dedupe_id=dedupe_id,
-                run_at=run_at or datetime.utcnow(),
+                run_at=run_at or datetime.now(timezone.utc),
                 status=JobStatus.PENDING
             )
             db.add(new_job)
@@ -74,7 +74,7 @@ class AdvancedSQLiteQueue:
         """Atomic locking using SQLite."""
         db = SessionLocal()
         try:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             
             # Find a pending job that is ready to run
             # OR a dead RUNNING job (crash recovery: locked more than 5 mins ago)
@@ -122,7 +122,7 @@ class AdvancedSQLiteQueue:
             
             db = SessionLocal()
             try:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 # Stale jobs: Running but locked more than 10 mins ago
                 stale_threshold = now - timedelta(minutes=10)
                 
@@ -173,7 +173,7 @@ class AdvancedSQLiteQueue:
                 # Success! Mark as done
                 db_job = db.query(Job).get(job.id)
                 db_job.status = JobStatus.DONE
-                db_job.updated_at = datetime.utcnow()
+                db_job.updated_at = datetime.now(timezone.utc)
                 db.commit()
                 logger.info(f"Job {job.id} completed successfully")
                 
@@ -193,7 +193,7 @@ class AdvancedSQLiteQueue:
                     db_job.status = JobStatus.PENDING
                     # Exponential backoff: 2s, 4s, 8s, etc.
                     backoff_secs = 2 ** db_job.attempts
-                    db_job.run_at = datetime.utcnow() + timedelta(seconds=backoff_secs)
+                    db_job.run_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_secs)
                     
                     # Also unlock
                     db_job.locked_at = None

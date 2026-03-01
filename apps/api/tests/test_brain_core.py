@@ -2,11 +2,11 @@ import os
 import unittest
 
 # Required env vars before importing app modules.
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
 from app.services.brain.core import Brain
 from app.services.brain.errors import BrainProviderError, BrainValidationError

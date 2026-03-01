@@ -2,11 +2,12 @@ import asyncio
 import logging
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from app.database import SessionLocal
 from app.models.triaged_email import TriagedEmail
+from app.models.workspace import Workspace
 from app.agents.aaliyah.core.ingestion.email_ingestor import EmailIngestor, NormalizedEmailMessage
 from app.agents.aaliyah.core.triage_service import SmartTriageClassifier
 from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
@@ -48,6 +49,8 @@ async def process_sync_provider(payload: Dict[str, Any]):
         # Enqueue Triage for each NEW message
         enqueued_count = 0
         orc = AaliyahOrchestrator(workspace_id)
+        from sqlalchemy.exc import IntegrityError
+        
         for msg in messages:
             # Deduplication
             exists = db.query(TriagedEmail.id).filter(
@@ -71,10 +74,16 @@ async def process_sync_provider(payload: Dict[str, Any]):
                 category="Processing...",
                 priority="Low",
                 is_read=msg.metadata.headers.get("is_read", False),
-                created_at=datetime.utcnow()
+                created_at=datetime.now(timezone.utc)
             )
             db.add(triaged_entry)
-            db.commit()
+
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                logger.warning(f"TOCTOU Collision: Email {msg.id} was concurrently inserted by another worker.")
+                continue
 
             # Enqueue STAGE 2
             await queue.enqueue(
@@ -123,8 +132,8 @@ async def process_sync_provider(payload: Dict[str, Any]):
         logger.info(f"Workflow [1/3] Discovery finished. Enqueued {enqueued_count} messages for Triage.")
 
     except Exception as e:
-        logger.error(f"Discovery failed: {e}")
-        # Proactive Alert to User
+        logger.error(f"Discovery failed for workspace={workspace_id}: {e}", exc_info=True)
+        # Proactive Alert to User — best-effort, never masks the root cause
         try:
             orc = AaliyahOrchestrator(workspace_id)
             await orc.emit_status(
@@ -132,9 +141,12 @@ async def process_sync_provider(payload: Dict[str, Any]):
                 f"Sync failed for workspace {workspace_id}. Please check your connection.",
                 {"error": str(e), "workspace_id": workspace_id}
             )
-        except Exception:
-            pass
-        raise e
+        except Exception as emit_err:
+            logger.warning(
+                "Failed to emit sync_failed alert for workspace=%s (root cause: %s): %s",
+                workspace_id, e, emit_err,
+            )
+        raise
     finally:
         db.close()
 
@@ -259,7 +271,6 @@ async def process_ai_triage(payload: Dict[str, Any]):
         if triage.is_noise and entry.external_message_id:
             try:
                 from app.agents.aaliyah.core.action_executor import ActionExecutor
-                from app.models.workspace import Workspace
                 ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
                 if ws and ws.owner_id:
                     executor = ActionExecutor(db)
@@ -308,7 +319,6 @@ async def process_ai_triage(payload: Dict[str, Any]):
             sender_name = msg.metadata.sender.split("<")[0].strip() if "<" in (msg.metadata.sender or "") else (msg.metadata.sender or "Unknown")
             
             # Fetch user name from Workspace owner settings
-            from app.models.workspace import Workspace
             ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
             user_name = "there"
             if ws:
@@ -403,7 +413,9 @@ async def process_drafting(payload: Dict[str, Any]):
                 "reasoning": "Consolidated humanized response",
                 "tone_tags": draft.tone_tags
             }
-            entry.metadata_json = meta
+            entry.metadata_json = dict(meta)
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
             db.commit()
 
             # Final Event: Draft Ready (Triggers "Boss, I've prepared a draft...")

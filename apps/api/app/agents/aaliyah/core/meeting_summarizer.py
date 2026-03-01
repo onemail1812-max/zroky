@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from app.models.calendar_event_snapshot import CalendarEventSnapshot
@@ -38,8 +38,8 @@ class MeetingSummarizer:
                     provider="manual",
                     provider_event_id=f"manual-{adhoc_id}",
                     title=f"Ad-hoc Meeting Upload {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                    start_at=datetime.utcnow(),
-                    end_at=datetime.utcnow(),
+                    start_at=datetime.now(timezone.utc),
+                    end_at=datetime.now(timezone.utc),
                     is_all_day=False,
                     status="confirmed",
                     organizer_email="me@local",

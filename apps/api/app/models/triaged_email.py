@@ -1,11 +1,14 @@
 """TriagedEmail model - persistent storage for AI-categorized emails."""
-from sqlalchemy import Column, String, DateTime, Boolean, Float, Text
+from sqlalchemy import Column, String, DateTime, Boolean, Float, Text, UniqueConstraint
 from datetime import datetime
 from app.database import Base
 from app.db_types import SafeJSON
 
 class TriagedEmail(Base):
     __tablename__ = "triaged_emails"
+    __table_args__ = (
+        UniqueConstraint('workspace_id', 'external_message_id', name='uix_workspace_external_msg'),
+    )
 
     id = Column(String, primary_key=True, index=True)
     workspace_id = Column(String, index=True, nullable=False)

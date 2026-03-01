@@ -1,7 +1,7 @@
 
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
-from app.services.aaliyah.drafting import DraftingAgent, DraftResponse
+from app.agents.aaliyah.core.drafting import DraftingAgent, DraftResponse
 from app.models.triaged_email import TriagedEmail
 from app.models.draft_template import DraftTemplate
 from app.models.workspace import Workspace
@@ -12,12 +12,12 @@ class TestDraftingAgent(unittest.IsolatedAsyncioTestCase):
         self.workspace_id = "ws_123"
         
         # Patching inside __init__ requires patching the class before instantiation or mocking dependencies after
-        # Since Agent instantiates Brain() in __init__, we need to patch 'app.services.aaliyah.drafting.Brain'
+        # Since Agent instantiates Brain() in __init__, we need to patch 'app.agents.aaliyah.core.drafting.Brain'
         pass
 
-    @patch("app.services.aaliyah.drafting.Brain")
-    @patch("app.services.aaliyah.drafting.KnowledgeGraphService")
-    @patch("app.services.aaliyah.drafting.LabelingRulesEngine")
+    @patch("app.agents.aaliyah.core.drafting.Brain")
+    @patch("app.agents.aaliyah.core.drafting.KnowledgeGraphService")
+    @patch("app.agents.aaliyah.core.drafting.LabelingRulesEngine")
     async def test_generate_draft_flow(self, MockLRE, MockKG, MockBrain):
         # Setup mocks
         mock_brain_instance = MockBrain.return_value

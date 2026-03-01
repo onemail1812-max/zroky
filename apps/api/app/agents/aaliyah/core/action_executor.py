@@ -165,7 +165,7 @@ class ActionExecutor:
         
         if existing_token:
              # Check if it was sent recently (last 10 minutes)
-             if datetime.utcnow() - existing_token.created_at < timedelta(minutes=10):
+             if datetime.now(timezone.utc) - existing_token.created_at < timedelta(minutes=10):
                   # [v2.1 Supreme Council Fix] - Only block if NOT already marked as failed in the email record
                   # This allows retry if the previous attempt crashed before sent_result
                   if draft.get("status") != "failed":
@@ -177,7 +177,7 @@ class ActionExecutor:
             workspace_id=workspace_id,
             entity_id=email_id,
             action_type="SEND_REPLY",
-            expires_at=datetime.utcnow() + timedelta(hours=24)
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
         )
         self.db.add(new_token)
         self.db.commit()

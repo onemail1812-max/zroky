@@ -14,7 +14,7 @@ api_root = os.path.abspath(os.path.join(current_dir, ".."))
 sys.path.append(api_root)
 
 # Import Orchestrator
-from app.services.aaliyah.orchestrator import AaliyahOrchestrator
+from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
 
 # Configure logging to see the thoughts
 logging.basicConfig(level=logging.INFO, format='%(name)s - %(message)s')

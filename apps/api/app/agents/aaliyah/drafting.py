@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.draft import Draft, DraftStatus
@@ -11,6 +12,8 @@ from app.services.email.safety import evaluate_safety
 from app.services.email.sender import EmailSender
 from app.models.workspace import Workspace
 from app.services.llm.service import llm_service
+
+logger = logging.getLogger(__name__)
 
 async def generate_draft(db: Session, email: EmailMessage, llm_client: OpenRouterClient = None):
     """

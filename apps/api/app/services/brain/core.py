@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import random
+import re
 import time
 from typing import Any, Dict, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
@@ -30,11 +33,11 @@ class Brain:
     """Secure Brain facade used by Aaliyah and other agents."""
 
     def __init__(self, config: Optional[BrainConfig] = None, provider: Optional[OpenRouterProvider] = None):
-        self.config = config or BrainConfig(model=settings.brain_model)
+        self.config = config or BrainConfig(model=settings.BRAIN_MODEL)
         self.provider = provider or OpenRouterProvider(
-            api_key=settings.brain_api_key or settings.openrouter_api_key,
+            api_key=settings.BRAIN_API_KEY or settings.OPENROUTER_API_KEY,
             default_model=self.config.model,
-            base_url=settings.openrouter_base_url,
+            base_url=settings.OPENROUTER_BASE_URL,
         )
         logger.info("Brain initialized model=%s", self.config.model)
 
@@ -79,7 +82,7 @@ class Brain:
             logger.warning("Prompt injection signal detected prompt_fp=%s", prompt_fp)
 
         # MOCK FALLBACK — only when API key is missing or placeholder
-        _key = str(settings.openrouter_api_key or "")
+        _key = str(settings.OPENROUTER_API_KEY or "")
         _is_placeholder = not _key or _key.startswith("your_") or "****************" in _key
         if _is_placeholder:
              logger.warning("Brain running in MOCK mode due to missing/invalid API key.")
@@ -138,7 +141,6 @@ class Brain:
         primary_model = model
         backup_model = "google/gemini-flash-1.5" # High availability fallback
         
-        import random
 
         for attempt in range(self.config.retry_count + 1):
             current_model = primary_model if attempt < self.config.retry_count else backup_model
@@ -194,9 +196,13 @@ class Brain:
 
         total_latency_ms = int((time.time() - call_start) * 1000)
         
-        # MOCK FALLBACK for Dev/Demo
-        if settings.debug or not settings.openrouter_api_key or "sk-or-v1-****************" in str(settings.openrouter_api_key):
-             logger.warning("Brain running in MOCK mode due to missing/invalid API key.")
+        # MOCK FALLBACK: Only when API key is genuinely missing/invalid — NOT just because debug=True
+        _api_key = str(settings.OPENROUTER_API_KEY or "")
+        if not _api_key or _api_key.startswith("sk-or-v1-****") or _api_key == "changeme":
+             logger.warning(
+                 "Brain MOCK mode: no valid API key configured. Set OPENROUTER_API_KEY in .env. prompt_fp=%s",
+                 prompt_fp,
+             )
              return BrainResponse(
                  content="[MOCK BRAIN] This is a simulated response from Aaliyah. The OpenRouter API key is missing or invalid in this environment.",
                  model_used="mock-model-v1",
@@ -237,7 +243,7 @@ class Brain:
         Used by the chat handler for real-time streamed responses.
         """
         # MOCK FALLBACK — only when API key is missing or placeholder
-        _key = str(settings.openrouter_api_key or "")
+        _key = str(settings.OPENROUTER_API_KEY or "")
         _is_placeholder = not _key or _key.startswith("your_") or "****************" in _key
         if _is_placeholder:
             logger.warning("Brain streaming in MOCK mode due to missing/invalid API key.")
@@ -316,7 +322,6 @@ class Brain:
             try:
                 # Extract first { and last } if there's noise
                 if not content.startswith("{"):
-                    import re
                     match = re.search(r"(\{.*\})", content, re.DOTALL)
                     if match:
                         content = match.group(1)
@@ -328,4 +333,3 @@ class Brain:
         
         raise BrainError(f"Failed to produce valid structured output for {response_model.__name__}")
 
-import json

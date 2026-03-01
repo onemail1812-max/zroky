@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -83,7 +83,7 @@ async def search(
             "need_clarification": True
         }
         
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     min_date = None
     tf = payload.time_filter.lower()
     if tf == "today":
@@ -580,4 +580,3 @@ async def compose_email(
         import logging
         logging.getLogger(__name__).error(f"Compose failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

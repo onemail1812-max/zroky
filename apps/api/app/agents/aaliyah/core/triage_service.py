@@ -29,7 +29,7 @@ Example 2:
 Sender: newsletter@techcrunch.com
 Subject: This Week in AI — Feb 2026
 Snippet: Welcome to our weekly roundup of the latest in...
-Answer: {"category": "FYI", "priority": "Low", "is_noise": true, "confidence": 0.97, "reasoning": "Marketing newsletter.", "language": "English"}
+Answer: {"category": "Newsletter", "priority": "Low", "is_noise": true, "confidence": 0.97, "reasoning": "Marketing newsletter.", "language": "English"}
 
 Example 3:
 Sender: jane@company.com
@@ -87,7 +87,7 @@ class SmartTriageClassifier:
         # If it's pure noise or high priority simple alert, return early
         if heuristic.category == "Priority" and heuristic.confidence >= 0.8:
             return heuristic
-        if heuristic.category == "FYI" and heuristic.is_noise:
+        if heuristic.category == "Newsletter" and heuristic.is_noise:
             return heuristic
 
         # Tier-1 fast model for everything else or ambiguous cases.

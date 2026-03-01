@@ -76,9 +76,9 @@ class EmbeddingClient:
     """OpenRouter-compatible embedding client with deterministic fallback."""
 
     def __init__(self):
-        self.base_url = settings.openrouter_base_url.rstrip("/")
-        self.model = settings.openrouter_embedding_model
-        self.api_key = settings.openrouter_api_key
+        self.base_url = settings.OPENROUTER_BASE_URL.rstrip("/")
+        self.model = settings.OPENROUTER_EMBEDDING_MODEL
+        self.api_key = settings.OPENROUTER_API_KEY
 
     def embed(self, text_input: str) -> list[float]:
         if not self.api_key or self.api_key.startswith("test-"):
@@ -93,8 +93,8 @@ class EmbeddingClient:
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
-                    "HTTP-Referer": settings.openrouter_app_url,
-                    "X-Title": settings.openrouter_app_name,
+                    "HTTP-Referer": settings.OPENROUTER_APP_URL,
+                    "X-Title": settings.OPENROUTER_APP_NAME,
                 },
                 json=payload,
                 timeout=15,
@@ -231,12 +231,13 @@ class PostgresVectorStore:
             
             where_clause = "workspace_id = :ws_id AND content_text LIKE :query"
             params = {"ws_id": self.workspace_id, "query": search_pattern, "limit": top_k}
-            
             if filter_metadata:
-                for key, value in filter_metadata.items():
-                    param_name = f"meta_{key}"
-                    where_clause += f" AND metadata_json->>'{key}' = :{param_name}"
-                    params[param_name] = str(value)
+                for i, (key, value) in enumerate(filter_metadata.items()):
+                    pk = f"mk_{i}"
+                    pv = f"mv_{i}"
+                    where_clause += f" AND metadata_json->>:{pk} = :{pv}"
+                    params[pk] = key
+                    params[pv] = str(value)
 
             sql = text(f"""
                 SELECT id, source_type, source_id, content_text, metadata_json
@@ -306,10 +307,12 @@ class PostgresVectorStore:
             }
 
             if filter_metadata:
-                for key, value in filter_metadata.items():
-                    param_name = f"meta_{key}"
-                    where_clause += f" AND metadata_json->>'{key}' = :{param_name}"
-                    params[param_name] = str(value)
+                for i, (key, value) in enumerate(filter_metadata.items()):
+                    pk = f"mk_{i}"
+                    pv = f"mv_{i}"
+                    where_clause += f" AND metadata_json->>:{pk} = :{pv}"
+                    params[pk] = key
+                    params[pv] = str(value)
 
             sql = text(f"""
                 SELECT id, source_type, source_id, content_text, metadata_json,
@@ -341,19 +344,25 @@ class PostgresVectorStore:
         """In-Python cosine similarity (works with SQLite and Postgres without pgvector)."""
         query = self.db.query(MemoryEntry).filter(MemoryEntry.workspace_id == self.workspace_id)
         
-        if filter_metadata:
-            for key, value in filter_metadata.items():
-                query = query.filter(MemoryEntry.metadata_json[key].as_string() == str(value))
-
         rows = (
             query
             .order_by(MemoryEntry.updated_at.desc())
-            .limit(250)
+            .limit(500)
             .all()
         )
 
         scored: list[tuple[float, MemoryEntry]] = []
         for row in rows:
+            if filter_metadata:
+                match = True
+                row_meta = row.metadata_json or {}
+                for k, v in filter_metadata.items():
+                    if str(row_meta.get(k)) != str(v):
+                        match = False
+                        break
+                if not match:
+                    continue
+
             embedding = row.embedding_json
             if isinstance(embedding, str):
                 try:

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.triaged_email import TriagedEmail
@@ -17,7 +17,7 @@ async def process_auto_followup(payload: dict):
 
     db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Threshold: 48 hours ago
         threshold = now - timedelta(hours=48)
         

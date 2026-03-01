@@ -322,7 +322,7 @@ Content: {latest_content}
             if "[BOOKING_LINK]" in draft_body and is_scheduling_intent:
                 bm = BookingManager(self.db, self.workspace_id)
                 link = bm.create_link(slots=slots[:5] if 'slots' in locals() else [], recipient_email=email.sender, subject=f"Meeting: {email.subject}")
-                public_url = f"{settings.public_app_url}/booking/{link.slug}"
+                public_url = f"{settings.FRONTEND_BASE_URL}/booking/{link.slug}"
                 draft_body = draft_body.replace("[BOOKING_LINK]", f"You can book here: {public_url}")
 
             sources_used = []
@@ -362,7 +362,7 @@ Content: {latest_content}
             text = text.split("```")[1].split("```")[0].strip()
         try:
             return json.loads(text)
-        except:
+        except (ValueError, KeyError):
             return {}
 
     async def save_draft(self, email_id: str, draft: DraftResponse) -> bool:

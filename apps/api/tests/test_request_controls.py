@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.aaliyah.request_controls import InMemoryIdempotencyStore, InMemoryRateLimiter
+from app.agents.aaliyah.core.request_controls import InMemoryIdempotencyStore, InMemoryRateLimiter
 
 
 class RequestControlsTests(unittest.TestCase):

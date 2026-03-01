@@ -2,10 +2,10 @@
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime, timezone, timedelta
-from app.services.aaliyah.drafting import DraftingAgent, DraftResponse
+from app.agents.aaliyah.core.drafting import DraftingAgent, DraftResponse
 from app.models.triaged_email import TriagedEmail
 from app.models.workspace import Workspace
-from app.services.aaliyah.scheduling.availability_engine import TimeSlot
+from app.agents.aaliyah.core.scheduling.availability_engine import TimeSlot
 from app.database import SessionLocal
 
 import pytest
@@ -53,11 +53,11 @@ async def test_drafting_with_availability():
         content='{"action": "reply", "subject": "Re: Meeting", "body": "I am free at 2pm. [BOOKING_LINK]", "rationale": "Scheduling"}'
     )
 
-    with patch("app.services.aaliyah.drafting.LabelingRulesEngine", return_value=mock_lre), \
-         patch("app.services.aaliyah.drafting.KnowledgeGraphService", return_value=mock_kg), \
-         patch("app.services.aaliyah.drafting.AvailabilityEngine", return_value=mock_availability), \
-         patch("app.services.aaliyah.drafting.Brain", return_value=mock_brain), \
-         patch("app.services.aaliyah.drafting.BookingManager") as MockBookingManager:
+    with patch("app.agents.aaliyah.core.drafting.LabelingRulesEngine", return_value=mock_lre), \
+         patch("app.agents.aaliyah.core.drafting.KnowledgeGraphService", return_value=mock_kg), \
+         patch("app.agents.aaliyah.core.drafting.AvailabilityEngine", return_value=mock_availability), \
+         patch("app.agents.aaliyah.core.drafting.Brain", return_value=mock_brain), \
+         patch("app.agents.aaliyah.core.drafting.BookingManager") as MockBookingManager:
          
         # Mock BookingManager instance
         mock_bm_instance = MockBookingManager.return_value

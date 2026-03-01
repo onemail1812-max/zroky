@@ -41,11 +41,26 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_CREDENTIALS: bool = True
+    CORS_METHODS: List[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+    CORS_HEADERS: List[str] = [
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-Forwarded-For",
+    ]
     FRONTEND_BASE_URL: str = "http://localhost:3000"
     
     # Auth
+    ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    CLERK_JWKS_URL: Optional[str] = None
+    CLERK_JWT_ISS: Optional[str] = None
+    CLERK_JWT_AUD: Optional[str] = None
 
     # ------------------
     # LLM Services (OpenRouter / Custom Brain)
@@ -71,12 +86,24 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/oauth/google/callback"
+    GOOGLE_SCOPES: List[str] = [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.settings.basic",
+        "https://www.googleapis.com/auth/calendar",
+    ]
 
     MICROSOFT_ENABLED: bool = False
     MICROSOFT_CLIENT_ID: Optional[str] = None
     MICROSOFT_CLIENT_SECRET: Optional[str] = None
     MICROSOFT_TENANT_ID: str = "common"
     MICROSOFT_REDIRECT_URI: str = "http://localhost:8000/oauth/microsoft/callback"
+    MICROSOFT_SCOPES: List[str] = [
+        "openid", "profile", "email", "User.Read", "offline_access",
+        "Mail.ReadWrite", "Mail.Send", "MailboxSettings.ReadWrite",
+        "Calendars.Read", "Calendars.ReadWrite",
+    ]
 
     # Sync Loop
     SYNC_INTERVAL: int = 120
@@ -91,121 +118,38 @@ class Settings(BaseSettings):
     # ------------------
     @validator("OAUTH_ENCRYPTION_KEY")
     def validate_encryption_key(cls, v):
-        if len(v) < 64: # 32 bytes = 64 hex chars
-             pass 
+        import re, secrets, logging
+        _log = logging.getLogger("app.config")
+
+        if not v or v.strip() == "":
+            # In debug/dev mode, auto-generate a secure key instead of crashing
+            from app.config import settings as _s
+            if getattr(_s, "debug", True):
+                generated = secrets.token_hex(32)
+                _log.warning(
+                    "OAUTH_ENCRYPTION_KEY is empty — auto-generated a temporary key. "
+                    "Set a permanent 64-char hex key in .env for production."
+                )
+                return generated
+            raise ValueError("OAUTH_ENCRYPTION_KEY must not be empty in production.")
+
+        v = v.strip()
+
+        # Must be valid hex characters only
+        if not re.fullmatch(r"[0-9a-fA-F]+", v):
+            raise ValueError("OAUTH_ENCRYPTION_KEY must contain only hex characters (0-9, a-f).")
+
+        # Must be exactly 64 hex chars = 32 bytes (AES-256)
+        if len(v) < 64:
+            raise ValueError(
+                f"OAUTH_ENCRYPTION_KEY is too short ({len(v)} chars). "
+                f"Must be at least 64 hex characters (32 bytes). "
+                f"Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
         return v
     
-    # Compatibility with old code that might access settings.google_scopes etc
-    @property
-    def google_scopes(self) -> list[str]:
-        return [
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-            "https://www.googleapis.com/auth/gmail.modify",
-            "https://www.googleapis.com/auth/gmail.settings.basic",
-            "https://www.googleapis.com/auth/calendar",
-        ]
-        
-    @property
-    def microsoft_scopes(self) -> list[str]:
-        return [
-            "openid", "profile", "email", "User.Read", "offline_access",
-            "Mail.ReadWrite", "Mail.Send", "MailboxSettings.ReadWrite",
-            "Calendars.Read", "Calendars.ReadWrite",
-        ]
 
-    # Properties to maintain backward compatibility with old settings names 
-    # if code uses lowercase properties that map to uppercase ENV vars
-    @property
-    def openrouter_api_key(self): return self.OPENROUTER_API_KEY
-    @property
-    def openrouter_base_url(self): return self.OPENROUTER_BASE_URL
-    @property
-    def openrouter_app_url(self): return self.OPENROUTER_APP_URL
-    @property
-    def openrouter_app_name(self): return self.OPENROUTER_APP_NAME
-    @property
-    def aaliyah_draft_model(self): return self.AALIYAH_DRAFT_MODEL
-    @property
-    def aaliyah_reasoning_model(self): return self.AALIYAH_REASONING_MODEL
-    @property
-    def aaliyah_verify_model(self): return self.AALIYAH_VERIFY_MODEL
-    
-    @property
-    def server_host(self): return self.SERVER_HOST
-    @property
-    def server_port(self): return self.SERVER_PORT
-    @property
-    def database_url(self): return self.DATABASE_URL
-    @property
-    def redis_url(self): return self.REDIS_URL
-    @property
-    def app_name(self): return self.APP_NAME
-    @property
-    def app_version(self): return self.APP_VERSION
-    @property
-    def debug(self): return self.DEBUG
-    @property
-    def secret_key(self): return self.SECRET_KEY
-    @property
-    def algorithm(self): return "HS256"
-    @property
-    def access_token_expire_minutes(self): return self.ACCESS_TOKEN_EXPIRE_MINUTES
-    @property
-    def refresh_token_expire_days(self): return self.REFRESH_TOKEN_EXPIRE_DAYS
-    @property
-    def cors_origins(self): return self.CORS_ORIGINS
-    @property
-    def cors_credentials(self): return True
-    @property
-    def cors_methods(self): return ["*"]
-    @property
-    def cors_headers(self): return ["*"]
-    @property
-    def google_enabled(self): return self.GOOGLE_ENABLED
-    @property
-    def google_client_id(self): return self.GOOGLE_CLIENT_ID
-    @property
-    def google_client_secret(self): return self.GOOGLE_CLIENT_SECRET
-    @property
-    def google_redirect_uri(self): return self.GOOGLE_REDIRECT_URI
-    @property
-    def microsoft_enabled(self): return self.MICROSOFT_ENABLED
-    @property
-    def microsoft_client_id(self): return self.MICROSOFT_CLIENT_ID
-    @property
-    def microsoft_client_secret(self): return self.MICROSOFT_CLIENT_SECRET
-    @property
-    def microsoft_tenant_id(self): return self.MICROSOFT_TENANT_ID
-    @property
-    def microsoft_redirect_uri(self): return self.MICROSOFT_REDIRECT_URI
-    @property
-    def sync_interval(self): return self.SYNC_INTERVAL
-    @property
-    def env(self): return self.ENV
-    @property
-    def oauth_encryption_key(self): return self.OAUTH_ENCRYPTION_KEY
-    @property
-    def clerk_jwks_url(self): return None
-    @property
-    def clerk_jwt_iss(self): return None
-    @property
-    def clerk_jwt_aud(self): return None
-    
-    @property
-    def frontend_base_url(self): return self.FRONTEND_BASE_URL
-
-    @property
-    def brain_model(self): return self.BRAIN_MODEL
-    
-    @property
-    def brain_api_key(self): return self.BRAIN_API_KEY
-
-    @property
-    def groq_api_key(self): return self.GROQ_API_KEY
-
-    @property
-    def openrouter_embedding_model(self): return self.OPENROUTER_EMBEDDING_MODEL
 
 # Instantiate global settings
 settings = Settings()

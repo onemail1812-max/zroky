@@ -1,6 +1,6 @@
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -23,7 +23,7 @@ class RelationshipManager:
             KnowledgeEntity.name == email # Using email as name for unique lookups
         ).first()
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if not entity:
             entity = KnowledgeEntity(
                 id=str(uuid.uuid4()),
@@ -57,7 +57,7 @@ class RelationshipManager:
         
         props = dict(entity.properties or {})
         props["interaction_count"] = props.get("interaction_count", 0) + 1
-        props["last_seen"] = datetime.utcnow().isoformat()
+        props["last_seen"] = datetime.now(timezone.utc).isoformat()
         
         # Heuristic: Increase importance score slightly with frequent interactions
         current_score = props.get("importance_score", 0.5)

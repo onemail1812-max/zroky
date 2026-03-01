@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_, desc, case
 from sqlalchemy.orm import Session
@@ -328,7 +328,7 @@ class SearchAgent:
         if keywords:
             query = query.filter(EmailIndex.searchable_text.ilike(f"%{keywords}%"))
             
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if time_range == "today":
             start = now.replace(hour=0, minute=0, second=0)
             query = query.filter(EmailIndex.last_message_at >= start)
@@ -353,7 +353,7 @@ class SearchAgent:
         if keywords:
             query = query.filter(CalendarIndex.searchable_text.ilike(f"%{keywords}%"))
             
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if time_range == "today":
              start = now.replace(hour=0, minute=0, second=0)
              end = start + timedelta(days=1)
@@ -377,4 +377,3 @@ class SearchAgent:
             parts.append(keywords)
         # time_range logic omitted for simplicity
         return " ".join(parts)
-

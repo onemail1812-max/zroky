@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
-from app.services.aaliyah.scheduling.availability_engine import AvailabilityEngine, TimeSlot
+from app.agents.aaliyah.core.scheduling.availability_engine import AvailabilityEngine, TimeSlot
 from app.models.calendar_event_snapshot import CalendarEventSnapshot
 
 class TestAvailabilityEngine(unittest.TestCase):

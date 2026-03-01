@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
 from app.database import Base
-from app.services.aaliyah.ingestion.calendar_sync import CalendarSync, NormalizedCalendarEvent
+from app.agents.aaliyah.core.ingestion.calendar_sync import CalendarSync, NormalizedCalendarEvent
 
 
 class CalendarSyncTests(unittest.TestCase):

@@ -12,7 +12,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 api_root = os.path.abspath(os.path.join(current_dir, ".."))
 sys.path.append(api_root)
 
-from app.services.aaliyah.core.agent import AaliyahCore
+from app.agents.aaliyah.core.core.agent import AaliyahCore
 
 logging.basicConfig(level=logging.INFO, format='%(name)s - %(message)s')
 

@@ -27,7 +27,7 @@ class OpenRouterProvider:
             raise BrainConfigurationError("Default model is missing")
 
         self.api_key = api_key
-        self.base_url = (base_url or settings.openrouter_base_url or "https://openrouter.ai/api/v1").rstrip("/")
+        self.base_url = (base_url or settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1").rstrip("/")
         self.default_model = default_model
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -52,10 +52,10 @@ class OpenRouterProvider:
         request_url = f"{self.base_url}/chat/completions"
         auth_token = self.api_key
 
-        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.groq_api_key:
+        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.GROQ_API_KEY:
             logger.info("⚡ Enterprise Routing: Diverting to native Groq for model %s", actual_model)
             request_url = "https://api.groq.com/openai/v1/chat/completions"
-            auth_token = settings.groq_api_key
+            auth_token = settings.GROQ_API_KEY
             if actual_model.startswith("groq/"):
                 actual_model = actual_model.replace("groq/", "", 1)
             # Ensure compatible model names for Groq natively
@@ -71,8 +71,8 @@ class OpenRouterProvider:
         
         # Openrouter specific headers 
         if "openrouter.ai" in request_url:
-            headers["HTTP-Referer"] = settings.openrouter_app_url
-            headers["X-Title"] = settings.openrouter_app_name
+            headers["HTTP-Referer"] = settings.OPENROUTER_APP_URL
+            headers["X-Title"] = settings.OPENROUTER_APP_NAME
 
         user_content: Any = prompt
         if images:
@@ -164,10 +164,10 @@ class OpenRouterProvider:
         base_url = self.base_url
         auth_token = self.api_key
 
-        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.groq_api_key:
+        if (actual_model.startswith("groq/") or "llama-3" in actual_model.lower()) and settings.GROQ_API_KEY:
             logger.info("⚡ Enterprise Routing (Stream): Diverting to native Groq for model %s", actual_model)
             base_url = "https://api.groq.com/openai/v1"
-            auth_token = settings.groq_api_key
+            auth_token = settings.GROQ_API_KEY
             if actual_model.startswith("groq/"):
                 actual_model = actual_model.replace("groq/", "", 1)
             if "llama-3.3-70b" in actual_model.lower():
@@ -179,8 +179,8 @@ class OpenRouterProvider:
             base_url=base_url,
             api_key=auth_token,
             default_headers={
-                "HTTP-Referer": settings.openrouter_app_url,
-                "X-Title": settings.openrouter_app_name,
+                "HTTP-Referer": settings.OPENROUTER_APP_URL,
+                "X-Title": settings.OPENROUTER_APP_NAME,
             } if "openrouter.ai" in base_url else None,
         )
 

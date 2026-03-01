@@ -36,12 +36,12 @@ class OpenRouterClient:
     """Robust client for OpenRouter LLM API."""
 
     def __init__(self, api_key: str | None = None, base_url: str | None = None):
-        self.api_key = api_key or settings.openrouter_api_key
-        self.base_url = base_url or settings.openrouter_base_url
+        self.api_key = api_key or settings.OPENROUTER_API_KEY
+        self.base_url = base_url or settings.OPENROUTER_BASE_URL
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "HTTP-Referer": settings.openrouter_app_url,
-            "X-Title": settings.openrouter_app_name,
+            "HTTP-Referer": settings.OPENROUTER_APP_URL,
+            "X-Title": settings.OPENROUTER_APP_NAME,
             "Content-Type": "application/json",
         }
         

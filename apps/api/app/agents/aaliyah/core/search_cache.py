@@ -1,5 +1,5 @@
 from typing import Dict, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import RLock
 
 class TTLCache:
@@ -18,7 +18,7 @@ class TTLCache:
                 return None
             
             value, timestamp = self._cache[key]
-            if datetime.utcnow() - timestamp > self._ttl:
+            if datetime.now(timezone.utc) - timestamp > self._ttl:
                 # Expired
                 del self._cache[key]
                 return None
@@ -31,7 +31,7 @@ class TTLCache:
             if len(self._cache) >= self._maxsize:
                 self._evict_oldest()
                 
-            self._cache[key] = (value, datetime.utcnow())
+            self._cache[key] = (value, datetime.now(timezone.utc))
             
     def _evict_oldest(self) -> None:
         """Removes the oldest entries to free up space (10% of maxsize)."""

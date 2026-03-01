@@ -236,12 +236,12 @@ def _create_live_token(context: CurrentContext) -> str:
         "purpose": "aaliyah_live",
         "exp": expires_at,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def _decode_live_token(stream_token: str) -> dict[str, Any]:
     try:
-        payload = jwt.decode(stream_token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(stream_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -585,7 +585,7 @@ async def live_stream(
 
     payload = _decode_live_token(stream_token)
     workspace_id = str(payload["workspace_id"])
-    redis_url = getattr(settings, "redis_url", "redis://localhost:6379/0")
+    redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
 
     async def event_generator():
         # Yield initial connection event
@@ -923,7 +923,7 @@ async def list_upcoming_meetings(
     
     from app.models.calendar_event_snapshot import CalendarEventSnapshot
     # Use naive UTC to match database storage if needed
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     future = now + timedelta(hours=lookahead_hours)
     
     try:
@@ -1163,8 +1163,9 @@ async def sync_inbox(
         "provider": payload.provider,
         "max_results": payload.max_results
     }
-    # Dedupe ID can be user+workspace+provider
-    job_id = await queue.enqueue(JobType.SYNC_PROVIDER, job_payload)
+    # Dedupe ID drops rapid consecutive webhook clicks spanning identical user/workspace
+    dedupe_trace = f"sync_inbox:{context.user_id}:{workspace_id}:{payload.provider}"
+    job_id = await queue.enqueue(JobType.SYNC_PROVIDER, job_payload, dedupe_id=dedupe_trace)
     
     logger.info(f"SYNC_STARTED: workspace={workspace_id} job_id={job_id} type=inbox")
 

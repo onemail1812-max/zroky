@@ -74,7 +74,7 @@ def setup_logging(log_file: str = "app.json.log") -> None:
 
     root_logger = logging.getLogger()
     # Set to INFO by default, DEBUG if configured
-    root_logger.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+    root_logger.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
 
     # Remove existing handlers
     for handler in list(root_logger.handlers):
@@ -83,7 +83,7 @@ def setup_logging(log_file: str = "app.json.log") -> None:
     formatter = JSONFormatter()
 
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG if settings.debug else logging.INFO)
+    console_handler.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -16,7 +16,7 @@ def purge_stale_pii(db: Session, hours_ttl: int = 24) -> Tuple[int, int]:
     Anonymizes all PII fields from TriagedEmail records older than `hours_ttl`.
     Returns a tuple of (emails_anonymized, errors).
     """
-    cutoff_time = datetime.utcnow() - timedelta(hours=hours_ttl)
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_ttl)
     
     try:
         # Find all emails older than the cutoff that haven't been redacted yet

@@ -6,16 +6,16 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 # Required env vars before importing app modules.
-os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-google-client-secret")
-os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef")
+os.environ.setdefault("OAUTH_ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
 from app.database import Base
-from app.services.aaliyah.ingestion.email_ingestor import EmailIngestor
+from app.agents.aaliyah.core.ingestion.email_ingestor import EmailIngestor
 
 
 class FakeGmailService:
@@ -47,9 +47,9 @@ class EmailIngestorTests(unittest.IsolatedAsyncioTestCase):
         ingestor = EmailIngestor("w1", db)
 
         with patch(
-            "app.services.aaliyah.ingestion.email_ingestor.IntegrationTokenManager.get_valid_token",
+            "app.agents.aaliyah.core.ingestion.email_ingestor.IntegrationTokenManager.get_valid_token",
             return_value={"access_token": "x"},
-        ), patch("app.services.aaliyah.ingestion.email_ingestor.GmailService", new=FakeGmailService):
+        ), patch("app.agents.aaliyah.core.ingestion.email_ingestor.GmailService", new=FakeGmailService):
             items = await ingestor.fetch_and_normalize(provider="google", max_results=5)
 
         self.assertEqual(len(items), 1)

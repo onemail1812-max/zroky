@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import json
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 from uuid import uuid4
 
@@ -74,7 +74,7 @@ async def upload_document(
         metadata={
             "filename": file.filename,
             "category": category,
-            "uploaded_at": datetime.utcnow().isoformat(),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
         }
     )
     

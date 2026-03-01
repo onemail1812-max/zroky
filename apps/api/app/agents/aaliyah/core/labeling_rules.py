@@ -273,7 +273,7 @@ class LabelingRulesEngine:
         return query.order_by(TriagedEmail.updated_at.desc()).limit(max(1, min(limit, 100))).all()
 
     def list_upcoming_calendar_events(self, *, days_ahead: int = 7, limit: int = 200) -> list[CalendarEventSnapshot]:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         upper = now + timedelta(days=max(1, min(days_ahead, 30)))
         return (
             self.db.query(CalendarEventSnapshot)

@@ -5,8 +5,8 @@ from typing import Any, Dict, Optional
 from app.services.brain.core import Brain
 from app.integrations.gmail_client import GmailClient
 from app.models.integration import IntegrationProvider
-from app.core.database import SessionLocal
-from app.api.deps import get_valid_token
+from app.database import SessionLocal
+from app.services.integrations.token_store import get_valid_token
 
 logger = logging.getLogger(__name__)
 

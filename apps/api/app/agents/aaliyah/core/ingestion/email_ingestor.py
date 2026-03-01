@@ -223,7 +223,7 @@ class EmailIngestor:
                 f"{msg.content or ''} {msg.metadata.snippet or ''}"
             ).lower()[:10000] # Cap search text
             
-            ts = msg.created_at or datetime.utcnow()
+            ts = msg.created_at or datetime.now(timezone.utc)
             
             if not row:
                  row = EmailIndex(
