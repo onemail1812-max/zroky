@@ -29,9 +29,12 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # Google OAuth
+      GOOGLE_CLIENT_ID: "592661553992-ski8fv40824emc43hudmvkj4g93jt1dv.apps.googleusercontent.com"
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       # External URLs
-      FRONTEND_BASE_URL: https://aaliyah.zroky.com
-      PUBLIC_APP_URL: https://aaliyah.zroky.com
+      FRONTEND_BASE_URL: http://zroky.com:3000
+      PUBLIC_APP_URL: http://zroky.com:3000
     depends_on:
       - db
       - redis
