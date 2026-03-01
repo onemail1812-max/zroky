@@ -134,6 +134,8 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
                 </button>
 
                 <textarea
+                    id="chat-input"
+                    name="chat-input"
                     ref={textareaRef}
                     rows={1}
                     value={value || ""}
