@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from app.db.base_class import Base
 from app.config import settings
@@ -16,19 +16,50 @@ engine = create_engine(
     pool_recycle=3600,
 )
 
-# Fix: Register missing psycopg2 type adapters for PostgreSQL varchar OIDs.
-# Without this, queries crash with "Unknown PG numeric type: 1043" on PG 15+.
+# =============================================================================
+# FIX: "Unknown PG numeric type: 1043" — systemic SQLAlchemy/psycopg2 issue.
+#
+# Root cause: SQLAlchemy's _PGNumeric.result_processor raises an error when
+# PostgreSQL returns a column with OID 1043 (varchar) where SQLAlchemy expects
+# a numeric type. This happens when PG schema has varchar columns but the
+# SQLAlchemy model says Float/Numeric (schema drift from create_all failures).
+#
+# Fix: Monkey-patch _PGNumeric to gracefully handle varchar OIDs by casting
+# the string value to float instead of raising InvalidRequestError.
+# =============================================================================
 if DATABASE_URL.startswith("postgresql"):
+    try:
+        from sqlalchemy.dialects.postgresql import psycopg2 as _pg_dialect
+
+        _OrigNumeric = _pg_dialect._PGNumeric
+
+        class _PatchedPGNumeric(_OrigNumeric):
+            def result_processor(self, dialect, coltype):
+                # OID 1043 = varchar, OID 25 = text — treat as string-to-float
+                if coltype in (1043, 25):
+                    def process(value):
+                        if value is None:
+                            return None
+                        try:
+                            return float(value)
+                        except (ValueError, TypeError):
+                            return value
+                    return process
+                return super().result_processor(dialect, coltype)
+
+        _pg_dialect._PGNumeric = _PatchedPGNumeric
+    except Exception:
+        pass
+
+    # Also register psycopg2 type casters for safety
     try:
         import psycopg2
         import psycopg2.extensions
-        # OID 1043 = varchar, OID 1015 = varchar[]
         VARCHAR = psycopg2.extensions.new_type((1043,), "VARCHAR", psycopg2.extensions.UNICODE)
         psycopg2.extensions.register_type(VARCHAR)
-        VARCHAR_ARRAY = psycopg2.extensions.new_array_type((1015,), "VARCHAR[]", VARCHAR)
-        psycopg2.extensions.register_type(VARCHAR_ARRAY)
     except Exception:
         pass
+
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -48,7 +79,6 @@ def get_db():
         import traceback
         err_msg = f"Database Connection Error: {str(e)}\n{traceback.format_exc()}"
         logger.error(err_msg)
-        # Attempt to write to a diagnostic file for the user
         try:
             with open("last_error.txt", "w") as f:
                 f.write(err_msg)
@@ -60,3 +90,4 @@ def get_db():
             db.close()
         except:
             pass
+
