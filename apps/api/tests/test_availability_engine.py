@@ -9,6 +9,12 @@ class TestAvailabilityEngine(unittest.TestCase):
     def setUp(self):
         self.db = MagicMock()
         self.workspace_id = "ws_test"
+        
+        # FIX: Ensure a real Workspace is returned so settings don't default to a MagicMock object
+        from app.models.workspace import Workspace
+        ws = Workspace(id=self.workspace_id, settings_json={"aaliyah": {}})
+        self.db.query.return_value.filter.return_value.first.return_value = ws
+        
         self.engine = AvailabilityEngine(self.db, self.workspace_id)
         # Mock default work hours: 9-17 UTC, Mon-Fri
 

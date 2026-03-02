@@ -5,7 +5,6 @@ from unittest.mock import patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Required env vars before importing app modules.
 os.environ.setdefault("SECRET_KEY", "test-secret-must-be-min-16-chars")
 os.environ.setdefault("AALIYAH_API_KEY", "test-key")
 os.environ.setdefault("BRAIN_API_KEY", "test-key")
@@ -22,18 +21,22 @@ class FakeGmailService:
     def __init__(self, _token):
         pass
 
-    def list_unread_messages(self, max_results: int = 10):
-        return [
-            {
-                "id": "msg-1",
-                "thread_id": "thread-1",
-                "sender": "steve@company.com",
-                "subject": "Q3 planning",
-                "snippet": "Can we move this to Tuesday?",
-                "received_at": "2026-02-11T10:15:00+00:00",
-                "is_read": False,
-            }
-        ][:max_results]
+    async def list_unread_messages(self, max_results: int = 10):
+        return [self._get_mock_msg()][:max_results]
+
+    async def search_messages(self, query: str = "", max_results: int = 10):
+        return [self._get_mock_msg()][:max_results]
+        
+    def _get_mock_msg(self):
+        return {
+            "id": "msg-1",
+            "thread_id": "thread-1",
+            "sender": "steve@company.com",
+            "subject": "Q3 planning",
+            "snippet": "Can we move this to Tuesday?",
+            "received_at": "2026-02-11T10:15:00+00:00",
+            "is_read": False,
+        }
 
 
 class EmailIngestorTests(unittest.IsolatedAsyncioTestCase):
@@ -47,8 +50,8 @@ class EmailIngestorTests(unittest.IsolatedAsyncioTestCase):
         ingestor = EmailIngestor("w1", db)
 
         with patch(
-            "app.agents.aaliyah.core.ingestion.email_ingestor.IntegrationTokenManager.get_valid_token",
-            return_value={"access_token": "x"},
+            "app.agents.aaliyah.core.ingestion.email_ingestor.get_valid_token",
+            return_value="x",
         ), patch("app.agents.aaliyah.core.ingestion.email_ingestor.GmailService", new=FakeGmailService):
             items = await ingestor.fetch_and_normalize(provider="google", max_results=5)
 

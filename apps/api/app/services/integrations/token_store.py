@@ -49,24 +49,40 @@ def get_valid_token(db, workspace_id: str, provider: str) -> str | None:
     if not isinstance(token_data, dict):
         return str(token_data)
 
+    import logging
+    logger = logging.getLogger(__name__)
+
     access_token = token_data.get("access_token")
     expires_at = token_data.get("expires_at")
+    refresh_token = token_data.get("refresh_token")
 
-    # Refresh if expired or expiring within 60 seconds
-    if expires_at and int(expires_at) < int(time.time()) + 60:
-        refresh_token = token_data.get("refresh_token")
-        if refresh_token:
-            new_token = _refresh_access_token(provider, refresh_token)
-            if new_token:
-                token_data["access_token"] = new_token["access_token"]
-                if "expires_in" in new_token:
-                    token_data["expires_at"] = int(time.time()) + int(new_token["expires_in"])
-                if "refresh_token" in new_token:
-                    token_data["refresh_token"] = new_token["refresh_token"]
-                
-                integration.token_encrypted = encrypt_token(token_data)
-                db.commit()
-                return token_data["access_token"]
+    # Determine if token needs refresh:
+    # - expires_at is set and token is expired/expiring within 60s
+    # - expires_at is missing (unknown state) — proactively refresh if we can
+    needs_refresh = False
+    if expires_at:
+        needs_refresh = int(expires_at) < int(time.time()) + 60
+    elif refresh_token and not access_token:
+        # No access token at all — must refresh
+        needs_refresh = True
+
+    if needs_refresh and refresh_token:
+        new_token = _refresh_access_token(provider, refresh_token)
+        if new_token and "access_token" in new_token:
+            token_data["access_token"] = new_token["access_token"]
+            if "expires_in" in new_token:
+                token_data["expires_at"] = int(time.time()) + int(new_token["expires_in"])
+            if "refresh_token" in new_token:
+                token_data["refresh_token"] = new_token["refresh_token"]
+            
+            integration.token_encrypted = encrypt_token(token_data)
+            db.commit()
+            return token_data["access_token"]
+        else:
+            # Refresh failed — token is expired, return None to signal failure
+            logger.warning(f"Token refresh failed for provider={provider}, workspace={workspace_id}")
+            if expires_at and int(expires_at) < int(time.time()):
+                return None  # Token is definitely expired, don't return stale token
     
     return access_token
 

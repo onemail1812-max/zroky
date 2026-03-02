@@ -176,8 +176,14 @@ class SmartTriageClassifier:
         """Ensure category and priority are from valid sets."""
         raw_cat = result.category.strip()
         best_cat = "Notifications"
+
+        def _norm(s: str) -> str:
+            """Normalize for comparison: lowercase, strip all separators."""
+            return s.lower().replace("-", "").replace("_", "").replace(" ", "")
+
+        raw_norm = _norm(raw_cat)
         for valid in VALID_CATEGORIES:
-            if valid.lower() == raw_cat.lower().replace("-"," ").replace("_"," "):
+            if _norm(valid) == raw_norm:
                 best_cat = valid
                 break
         

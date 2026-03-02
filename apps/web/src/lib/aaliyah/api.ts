@@ -362,7 +362,7 @@ export async function getUpcomingMeetings(limit = 10, lookaheadHours = 24) {
 }
 export async function getLiveToken() {
   try {
-    const response = await aaliyahApi.get("/live/token")
+    const response = await aaliyahApi.get("/live/token", { params: { t: Date.now() } })
     const token = response.data?.stream_token
     if (typeof token !== "string" || !token) throw new Error("Missing live stream token")
     return token

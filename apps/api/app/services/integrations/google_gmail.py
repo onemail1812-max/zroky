@@ -84,3 +84,5 @@ class GmailService:
     async def send_message(self, to: str, subject: str, text: str, cc: str | None = None, bcc: str | None = None, thread_id: str | None = None, attachments: list | None = None) -> dict:
         return await self.client.send_message(to, subject, text, cc=cc, bcc=bcc, thread_id=thread_id, attachments=attachments)
 
+    async def list_sent_messages(self, max_results: int = 5):
+        return await self.search_messages(query="in:sent", max_results=max_results)

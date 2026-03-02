@@ -4,7 +4,7 @@ from app.config import settings
 
 @pytest.mark.asyncio
 async def test_instructor_triage_real():
-    if not settings.brain_api_key:
+    if not settings.BRAIN_API_KEY:
         pytest.skip("No API key available for testing.")
 
     client = get_instructor_client()

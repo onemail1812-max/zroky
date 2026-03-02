@@ -123,15 +123,27 @@ async def get_email_body(
     """
     On-demand full body fetch for a single email.
     Called when user opens an email in the thread view.
-    Fetches directly from Gmail/Outlook API with full format.
+    First checks database cache (metadata_json['body']), falls back to live API.
     """
+    email_record = db.query(TriagedEmail).filter(
+        (TriagedEmail.id == message_id) | (TriagedEmail.external_message_id == message_id),
+        TriagedEmail.workspace_id == context.workspace_id
+    ).first()
+    
+    if email_record and email_record.metadata_json and isinstance(email_record.metadata_json, dict):
+        cached_body = email_record.metadata_json.get("body")
+        if cached_body:
+            return {"body": cached_body, "format": "plain", "provider": email_record.provider}
+
+    ext_id = email_record.external_message_id if email_record else message_id
+
     # Try Google first
     token = get_valid_token(db, context.workspace_id, "google")
     if token:
         try:
             from app.integrations.gmail_client import GmailClient
             client = GmailClient(token)
-            msg = await client.get_message(message_id, format="full")
+            msg = await client.get_message(ext_id, format="full")
             body = _extract_body_from_gmail_message(msg)
             return {"body": body, "format": "plain", "provider": "google"}
         except Exception as e:
@@ -143,7 +155,7 @@ async def get_email_body(
         try:
             from app.integrations.outlook_client import OutlookClient
             client = OutlookClient(ms_token)
-            body = await client.get_message_body(message_id)
+            body = await client.get_message_body(ext_id)
             return {"body": body, "format": "plain", "provider": "microsoft"}
         except Exception as e:
             logger.warning(f"Outlook body fetch failed for {message_id}: {e}")

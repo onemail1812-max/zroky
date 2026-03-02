@@ -128,6 +128,9 @@ Return ONLY raw JSON with this structure:
             content = response.content.strip()
             
             # Robust JSON extraction
+            import re
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            
             try:
                 # If wrapped in markdown code block
                 if "```json" in content:

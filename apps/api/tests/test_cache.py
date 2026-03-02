@@ -7,6 +7,7 @@ import pytest
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+@pytest.mark.asyncio
 async def test_cache_fallback():
     print("--- [1] Checking Redis Connection ---")
     cache = RedisCache("test")

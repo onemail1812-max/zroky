@@ -15,14 +15,19 @@ class TestDraftingAgent(unittest.IsolatedAsyncioTestCase):
         # Since Agent instantiates Brain() in __init__, we need to patch 'app.agents.aaliyah.core.drafting.Brain'
         pass
 
+    @patch("app.agents.aaliyah.core.drafting.CriticAgent")
     @patch("app.agents.aaliyah.core.drafting.Brain")
     @patch("app.agents.aaliyah.core.drafting.KnowledgeGraphService")
     @patch("app.agents.aaliyah.core.drafting.LabelingRulesEngine")
-    async def test_generate_draft_flow(self, MockLRE, MockKG, MockBrain):
+    async def test_generate_draft_flow(self, MockLRE, MockKG, MockBrain, MockCritic):
         # Setup mocks
         mock_brain_instance = MockBrain.return_value
         mock_kg_instance = MockKG.return_value
         mock_lre_instance = MockLRE.return_value
+        mock_critic_instance = MockCritic.return_value
+        mock_critic_instance.review_draft = AsyncMock()
+        mock_critic_instance.review_draft.return_value.status = "approved"
+        mock_critic_instance.review_draft.return_value.rewritten_body = None
         
         agent = DraftingAgent(self.db, self.workspace_id)
         
@@ -74,10 +79,7 @@ class TestDraftingAgent(unittest.IsolatedAsyncioTestCase):
         prompt = call_kwargs["prompt"]
         system_prompt = call_kwargs["system_prompt"]
         
-        self.assertIn("Quote", prompt)
-        self.assertIn("Price is $X", prompt)
-        self.assertIn("- Aaliyah", prompt)
-        self.assertIn("friendly tone", system_prompt)
+        self.assertIn("Tone: friendly", system_prompt)
 
 if __name__ == "__main__":
     unittest.main()

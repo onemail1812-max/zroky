@@ -597,10 +597,15 @@ async def get_stats(
         raise HTTPException(status_code=500, detail=f"Stats Error: {str(e)}")
 
 
+from fastapi import Response
+
 @router.get("/live/token")
 async def get_live_token(
+    response: Response,
     context: CurrentContext = Depends(get_current_context),
 ):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     token = _create_live_token(context)
     return {"stream_token": token, "expires_in_seconds": _LIVE_TOKEN_TTL_SECONDS}
 
@@ -608,16 +613,21 @@ async def get_live_token(
 @router.get("/live/stream")
 async def live_stream(
     request: Request,
+    stream_token: Optional[str] = Query(default=None),
 ):
     """Canonical SSE stream with real event subscription via Redis."""
     from fastapi.responses import StreamingResponse
     import redis.asyncio as redis
     from app.config import settings
 
+    # Support both: Authorization Bearer header (fetch-event-source) AND
+    # stream_token query param (native EventSource, which cannot send headers)
     authorization = request.headers.get("Authorization")
-    if not authorization or not authorization.startswith("Bearer "):
+    if authorization and authorization.startswith("Bearer "):
+        stream_token = authorization.split(" ")[1]
+    
+    if not stream_token:
         raise HTTPException(status_code=401, detail="Missing or invalid token")
-    stream_token = authorization.split(" ")[1]
 
     payload = _decode_live_token(stream_token)
     workspace_id = str(payload["workspace_id"])
@@ -2074,3 +2084,89 @@ async def get_debug_snapshot(
         },
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+
+# ── Scheduled Task Routes (Cloud Scheduler / Cron) ──────────────────
+
+@router.post("/scheduled/morning-sync")
+async def scheduled_morning_sync(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    6AM Daily Morning Sync — called by Cloud Scheduler.
+    Syncs inbox + calendar for all active workspaces, emits daily_6am_sync_complete.
+    Protected by X-Cron-Secret header.
+    """
+    cron_secret = request.headers.get("X-Cron-Secret", "")
+    if cron_secret != getattr(settings, "CRON_SECRET", ""):
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+
+    workspaces = db.query(Workspace).filter(
+        Workspace.onboarding_status == "completed"
+    ).all()
+
+    results = []
+    for ws in workspaces:
+        try:
+            orchestrator = _get_orchestrator(ws.id)
+
+            # Sync inbox
+            await orchestrator.sync_inbox(db, user_id=ws.owner_id, provider="auto", incremental=True)
+
+            # Sync calendar
+            await orchestrator.sync_calendar(db, user_id=ws.owner_id, provider="auto")
+
+            # Run follow-up scan
+            await orchestrator.run_followup_scan(db, user_id=ws.owner_id)
+
+            # Emit daily morning sync complete
+            from app.models.calendar_event_snapshot import CalendarEventSnapshot
+            meeting_count = db.query(CalendarEventSnapshot).filter(
+                CalendarEventSnapshot.workspace_id == ws.id,
+                CalendarEventSnapshot.start_at >= datetime.now(timezone.utc),
+                CalendarEventSnapshot.start_at <= datetime.now(timezone.utc) + timedelta(hours=18),
+                CalendarEventSnapshot.is_cancelled == False,
+            ).count()
+
+            await orchestrator.emit_status(
+                "daily_6am_sync_complete",
+                f"Morning sync complete for workspace {ws.id}",
+                {"meeting_count": meeting_count, "workspace_id": ws.id}
+            )
+
+            results.append({"workspace_id": ws.id, "status": "ok", "meetings_today": meeting_count})
+        except Exception as e:
+            logger.error(f"Morning sync failed for workspace {ws.id}: {e}")
+            results.append({"workspace_id": ws.id, "status": "error", "error": str(e)})
+
+    return {"status": "completed", "workspaces": len(results), "results": results}
+
+
+@router.post("/scheduled/followup-scan")
+async def scheduled_followup_scan(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Follow-up nudge scan — called by Cloud Scheduler (e.g. every 6 hours).
+    Scans all active workspaces for unanswered threads and emits proactive nudges.
+    """
+    cron_secret = request.headers.get("X-Cron-Secret", "")
+    if cron_secret != getattr(settings, "CRON_SECRET", ""):
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
+
+    workspaces = db.query(Workspace).filter(
+        Workspace.onboarding_status == "completed"
+    ).all()
+
+    total_nudges = 0
+    for ws in workspaces:
+        try:
+            from app.workers.followup_worker import process_auto_followup
+            await process_auto_followup({"workspace_id": ws.id})
+            total_nudges += 1
+        except Exception as e:
+            logger.error(f"Follow-up scan failed for workspace {ws.id}: {e}")
+
+    return {"status": "completed", "workspaces_scanned": len(workspaces), "nudges_sent": total_nudges}

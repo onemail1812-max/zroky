@@ -38,3 +38,7 @@ class OutlookService:
 
     async def send_message(self, to: str, subject: str, text: str, cc: str | None = None, bcc: str | None = None, thread_id: str | None = None, attachments: list | None = None) -> bool:
         return await self.client.send_message(to, subject, text, cc=cc, bcc=bcc, thread_id=thread_id, attachments=attachments)
+
+    async def list_sent_messages(self, max_results: int = 5):
+        res = await self.client.list_messages(max_results=max_results, folder="sentitems")
+        return res.get("value", [])

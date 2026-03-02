@@ -171,7 +171,7 @@ class AdvancedSQLiteQueue:
                     handler(payload)
                 
                 # Success! Mark as done
-                db_job = db.query(Job).get(job.id)
+                db_job = db.get(Job, job.id)
                 db_job.status = JobStatus.DONE
                 db_job.updated_at = datetime.now(timezone.utc)
                 db.commit()
@@ -180,7 +180,7 @@ class AdvancedSQLiteQueue:
             except Exception as e:
                 # Failure! Handle Retry or DLQ
                 db.rollback()
-                db_job = db.query(Job).get(job.id)
+                db_job = db.get(Job, job.id)
                 
                 db_job.attempts += 1
                 db_job.last_error = str(e)

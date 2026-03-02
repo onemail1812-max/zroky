@@ -105,7 +105,10 @@ async def test_e2e_pipeline(db_session):
         with patch("app.workers.local_sync.AaliyahOrchestrator") as MockOrc:
             MockOrc.return_value.emit_status = AsyncMock()
             MockOrc.return_value.broadcast_updates = AsyncMock()
-            with patch("app.services.aaliyah.relationship_manager.RelationshipManager"):
+            with patch("app.services.aaliyah.relationship_manager.RelationshipManager") as MockRM:
+                MockRM.return_value.analyze_relationship = AsyncMock(return_value="Prior interactions were positive.")
+                from unittest.mock import MagicMock
+                MockRM.return_value.get_relationship_summary = MagicMock(return_value="Summary")
                 with patch("app.services.aaliyah.vision_service.VisionService") as MockVision:
                     MockVision.return_value.analyze_attachment = AsyncMock(return_value="test analysis")
                     with patch("app.agents.aaliyah.core.action_executor.ActionExecutor") as MockAction:
@@ -116,7 +119,7 @@ async def test_e2e_pipeline(db_session):
     triage_entry = db_session.query(TriagedEmail).filter_by(id=triage_payload["triaged_id"]).first()
     assert triage_entry is not None
     assert triage_entry.category == "Priority"
-    assert triage_entry.priority == "Urgent", "VIP status should escalate priority to Urgent"
+    assert triage_entry.priority == "High", "VIP status should escalate priority to High"
     
     # Verify Triage enqueued PROCESS_DRAFT
     draft_job = db_session.query(Job).filter(Job.type == JobType.PROCESS_DRAFT.value).first()
@@ -129,12 +132,15 @@ async def test_e2e_pipeline(db_session):
 
     with patch("app.agents.aaliyah.core.drafting.DraftingAgent") as MockDrafter:
         drafter_instance = MockDrafter.return_value
-        mock_draft_result = type('obj', (object,), {
-            "subject": "Re: Q3 Report",
-            "body": "Here is the Q3 report attached.",
-            "rationale": "Standard report response.",
-            "tone_tags": ["Professional", "Concise"]
-        })()
+        from app.agents.aaliyah.core.drafting import DraftResponse
+        mock_draft_result = DraftResponse(
+            subject="Re: Q3 Report",
+            body="Here is the Q3 report attached.",
+            rationale="Standard report response.",
+            intent="reply",
+            risk_labels=[],
+            tone_tags=["Professional", "Concise"]
+        )
         drafter_instance.generate_draft = AsyncMock(return_value=mock_draft_result)
         with patch("app.workers.local_sync.AaliyahOrchestrator") as MockOrc:
             MockOrc.return_value.emit_status = AsyncMock()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, AnyHttpUrl, validator
+from pydantic import Field, AnyHttpUrl, field_validator
 from typing import Optional, List
 
 # Explicitly find .env
@@ -113,11 +113,15 @@ class Settings(BaseSettings):
     # ------------------
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Scheduled Tasks (Cloud Scheduler)
+    CRON_SECRET: str = Field(default="", description="Shared secret for Cloud Scheduler cron endpoints")
+
     # ------------------
     # Validations & Defaults
     # ------------------
-    @validator("OAUTH_ENCRYPTION_KEY", pre=True, always=True)
-    def validate_encryption_key(cls, v, values):
+    @field_validator("OAUTH_ENCRYPTION_KEY", mode="before")
+    @classmethod
+    def validate_encryption_key(cls, v):
         import re, secrets, logging
         _log = logging.getLogger("app.config")
 

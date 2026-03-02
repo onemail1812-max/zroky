@@ -17,10 +17,19 @@ async def test_drafting_with_availability():
     
     # Mock Settings
     ws = Workspace(id=workspace_id, settings_json={"aaliyah": {"signature": "- Aaliyah"}})
-    db.query.return_value.filter.return_value.first.return_value = ws
+    mock_user = MagicMock(email="test@user.com")
     
-    # Mock Templates
-    db.query.return_value.filter.return_value.all.return_value = []
+    def mock_query(model):
+        m = MagicMock()
+        if getattr(model, "__name__", "") == "Workspace":
+            m.filter.return_value.first.return_value = ws
+        elif getattr(model, "__name__", "") == "User":
+            m.filter.return_value.first.return_value = mock_user
+        else:
+            m.filter.return_value.all.return_value = []
+        return m
+        
+    db.query.side_effect = mock_query
 
     # Mock Labels
     mock_lre = MagicMock()
@@ -30,17 +39,10 @@ async def test_drafting_with_availability():
     mock_availability = MagicMock()
     # Return 2 fake slots
     now = datetime.now(timezone.utc)
-    slot1 = TimeSlot(
-        start=now + timedelta(days=1, hours=2), 
-        end=now + timedelta(days=1, hours=3), 
-        duration_minutes=60
-    )
-    slot2 = TimeSlot(
-        start=now + timedelta(days=1, hours=4), 
-        end=now + timedelta(days=1, hours=5), 
-        duration_minutes=60
-    )
-    mock_availability.find_slots.return_value = [slot1, slot2]
+    mock_availability.propose_n_slots.return_value = [
+        now + timedelta(days=1, hours=2),
+        now + timedelta(days=1, hours=4)
+    ]
 
     # Mock KG
     mock_kg = MagicMock()
@@ -85,8 +87,7 @@ async def test_drafting_with_availability():
         
         draft = await agent.generate_draft(email)
         
-        # Verify find_slots called
-        mock_availability.find_slots.assert_called_once()
+        mock_availability.propose_n_slots.assert_called_once()
         mock_bm_instance.create_link.assert_called_once()
         
         # Verify prompt contained slots

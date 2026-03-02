@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import { Plus_Jakarta_Sans } from "next/font/google"
+import { ClerkProvider } from "@clerk/nextjs"
 import { QueryProvider } from "@/components/aaliyah/providers/QueryProvider"
 import { Toaster } from "react-hot-toast"
 import "./globals.css"
@@ -21,22 +22,24 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${plusJakartaSans.variable} font-sans antialiased`} suppressHydrationWarning>
-        {process.env.NODE_ENV === 'production' && (
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `
-              console.log = function() {};
-              console.warn = function() {};
-              console.error = function() {};
-              `,
-            }}
-          />
-        )}
-        <Toaster position="top-right" />
-        <QueryProvider>{children}</QueryProvider>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <body className={`${plusJakartaSans.variable} font-sans antialiased`} suppressHydrationWarning>
+          {process.env.NODE_ENV === 'production' && (
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+                console.log = function() {};
+                console.warn = function() {};
+                console.error = function() {};
+                `,
+              }}
+            />
+          )}
+          <Toaster position="top-right" />
+          <QueryProvider>{children}</QueryProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

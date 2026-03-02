@@ -113,16 +113,22 @@ class DraftingAgent:
         Generate a reply draft using LLM and context.
         Enforces "No Hallucination" and "Style Learning".
         """
-        # 0. Skip if already drafted
+        # 0. Skip if already drafted and sent. If not sent, clear old draft and re-draft.
         if email.metadata_json and "draft" in email.metadata_json:
-            # Check if it was sent
             if email.metadata_json["draft"].get("status") == "sent":
                 return None
-            # If it exists but not sent, we might want to re-draft? For now, skip.
-            return None
+            # Clear stale draft so re-generation starts clean
+            meta = dict(email.metadata_json)
+            meta.pop("draft", None)
+            email.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(email, "metadata_json")
+            self.db.flush()
 
         # 1. Extract and Sanitize Latest Reply Only
-        clean_full_body = sanitize_email_body(email.snippet or "")
+        # Prefer full body from metadata_json over truncated snippet
+        raw_body = (email.metadata_json or {}).get("body") or email.snippet or ""
+        clean_full_body = sanitize_email_body(raw_body)
         latest_content = extract_latest_reply(clean_full_body)
         if not latest_content:
              latest_content = clean_full_body or ""

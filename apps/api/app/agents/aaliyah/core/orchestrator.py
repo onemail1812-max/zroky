@@ -177,8 +177,15 @@ class AaliyahOrchestrator:
             self.comm_engine.add_event(state.communication, "approval_required", p, urgent=True)
         elif event_type == "followup_scan_complete" and p.get("count", 0) > 0:
             self.comm_engine.add_event(state.communication, "followup_due", p)
-        elif event_type == "sync_complete" and p.get("cleaned_count", 0) > 0:
-            self.comm_engine.add_event(state.communication, "cleaned_done", {"count": p.get("cleaned_count")})
+        elif event_type == "calendar_conflict_detected":
+            self.comm_engine.add_event(state.communication, "calendar_conflict_detected", p, urgent=True)
+        elif event_type == "daily_6am_sync_complete":
+            self.comm_engine.add_event(state.communication, "daily_6am_sync_complete", p, urgent=True)
+        elif event_type == "sync_complete":
+            if p.get("cleaned_count", 0) > 0:
+                self.comm_engine.add_event(state.communication, "cleaned_done", {"count": p.get("cleaned_count")})
+            if p.get("count", 0) > 0:
+                self.comm_engine.add_event(state.communication, "sync_complete", p)
 
         # Flush CommEngine
         if event_type != "assistant_message":
@@ -186,14 +193,21 @@ class AaliyahOrchestrator:
             try:
                 db = SessionLocal()
                 workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-                preferences = workspace.settings_json if workspace else {}
+                preferences = workspace.settings_json if workspace and workspace.settings_json else {}
+                if isinstance(preferences, str):
+                    import json
+                    try:
+                        preferences = json.loads(preferences)
+                    except Exception:
+                        preferences = {}
+                        
                 user_name = preferences.get("user_name") or preferences.get("first_name") or "there"
                 
                 msg = await self.comm_engine.flush(state.communication, user_name=user_name, brain=self.brain, preferences=preferences)
                 if msg:
                      await self._emit("assistant_message", msg, {"text": msg, "role": "assistant"})
             except Exception as e:
-                logger.error(f"CommEngine flush failed: {e}")
+                logger.error(f"CommEngine flush failed: {e}", exc_info=True)
             finally:
                 if db: db.close()
 

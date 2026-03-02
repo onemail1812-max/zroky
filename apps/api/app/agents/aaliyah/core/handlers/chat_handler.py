@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from dataclasses import asdict
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, List, TYPE_CHECKING
 
 from sqlalchemy.orm import Session
@@ -428,7 +429,7 @@ class ChatHandler(BaseHandler):
             user_id=user_id,
             action=AuditAction.CREATE,
             entity_id=f"chat:{datetime.now(timezone.utc).timestamp()}",
-            metadata={"intent": intent, "draft": asdict(draft) if draft else None, "critic": critic},
+            metadata={"intent": intent, "draft": (draft.model_dump() if hasattr(draft, 'model_dump') else asdict(draft)) if draft else None, "critic": critic},
             explain="Generated chat response artifact",
         )
         return {
@@ -542,19 +543,21 @@ class ChatHandler(BaseHandler):
                     TriagedEmail.workspace_id == self.workspace_id
                 ).first()
             
+            # Always fetch recent emails for the needs_clarity scan
+            # regardless of whether pending_email was found by thread_id
+            recent_emails = db.query(TriagedEmail).filter(
+                TriagedEmail.workspace_id == self.workspace_id,
+            ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
+
             if not pending_email or not (pending_email.metadata_json or {}).get("needs_clarity"):
-                recent_emails = db.query(TriagedEmail).filter(
-                    TriagedEmail.workspace_id == self.workspace_id,
-                ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
-            
-            found = None
-            for pe in recent_emails:
-                if pe is None: continue
-                meta = pe.metadata_json or {}
-                if meta.get("needs_clarity") and not meta.get("clarification_complete"):
-                    found = pe
-                    break
-            pending_email = found
+                found = None
+                for pe in recent_emails:
+                    if pe is None: continue
+                    meta = pe.metadata_json or {}
+                    if meta.get("needs_clarity") and not meta.get("clarification_complete"):
+                        found = pe
+                        break
+                pending_email = found
         except Exception as te_err:
             logger.warning("TriagedEmail query failed: %s", te_err)
             pending_email = None

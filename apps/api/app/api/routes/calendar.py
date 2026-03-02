@@ -268,9 +268,8 @@ async def get_booking_link(
     db: Session = Depends(get_db),
 ):
     """Public endpoint — get booking link details for a recipient."""
-    from app.agents.aaliyah.core.scheduling.booking_manager import BookingManager
-    manager = BookingManager(db, "")  # workspace_id not needed for slug lookup
-    link = manager.get_link_by_slug(slug)
+    from app.models.booking_link import BookingLink as BL
+    link = db.query(BL).filter(BL.slug == slug).first()
     if not link:
         raise HTTPException(status_code=404, detail="Booking link not found")
 
@@ -291,11 +290,47 @@ async def confirm_booking(
     db: Session = Depends(get_db),
 ):
     """Public endpoint — confirm a booking by selecting a slot."""
+    from app.models.booking_link import BookingLink as BL
     from app.agents.aaliyah.core.scheduling.booking_manager import BookingManager
-    manager = BookingManager(db, "")
+
+    # Look up the booking link to get the workspace_id
+    link_row = db.query(BL).filter(BL.slug == slug).first()
+    if not link_row:
+        raise HTTPException(status_code=404, detail="Booking link not found")
+
+    manager = BookingManager(db, link_row.workspace_id)
 
     try:
         link = manager.confirm_booking(slug, {"start": req.start, "end": req.end})
+
+        # Auto-create calendar event using the workspace's connected calendar
+        try:
+            g_token = get_valid_token(db, link_row.workspace_id, "google")
+            if g_token:
+                from app.services.integrations.google_calendar import GoogleCalendarService
+                gcal = GoogleCalendarService(g_token)
+                await gcal.create_event(
+                    summary=f"Meeting: {link_row.subject or 'Booked via Aaliyah'}",
+                    start=datetime.fromisoformat(req.start),
+                    end=datetime.fromisoformat(req.end),
+                    attendees=[link_row.recipient_email] if link_row.recipient_email else [],
+                    description=f"Booked via Aaliyah booking link.",
+                )
+            else:
+                ms_token = get_valid_token(db, link_row.workspace_id, "microsoft")
+                if ms_token:
+                    from app.services.integrations.microsoft_calendar import MicrosoftCalendarService
+                    mscal = MicrosoftCalendarService(ms_token)
+                    await mscal.create_event(
+                        summary=f"Meeting: {link_row.subject or 'Booked via Aaliyah'}",
+                        start=datetime.fromisoformat(req.start),
+                        end=datetime.fromisoformat(req.end),
+                        attendees=[link_row.recipient_email] if link_row.recipient_email else [],
+                        description=f"Booked via Aaliyah booking link.",
+                    )
+        except Exception as cal_err:
+            logger.error(f"Auto-create calendar event failed for booking {slug}: {cal_err}")
+
         return {
             "status": "booked",
             "booked_slot": link.booked_slot,

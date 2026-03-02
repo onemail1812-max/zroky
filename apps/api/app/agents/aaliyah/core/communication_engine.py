@@ -65,6 +65,9 @@ class CommunicationEngine:
         return await self._generate_llm_message(events, user_name, brain, preferences)
 
     async def _generate_llm_message(self, events: List[CommunicationEvent], user_name: str, brain: Any, preferences: Dict[str, Any]) -> str:
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Prepare context from events
         event_descriptions = []
         for e in events:
@@ -76,12 +79,24 @@ class CommunicationEngine:
                 event_descriptions.append(f"- I need your approval for: {e.payload.get('subject')}")
             elif e.type == "followup_due":
                 event_descriptions.append(f"- {e.payload.get('count', 0)} follow-ups are now due")
+            elif e.type == "calendar_conflict_detected":
+                event_descriptions.append(f"- I noticed {e.payload.get('count', 1)} overlapping meeting(s) on your calendar. Want me to suggest a reschedule?")
             elif e.type == "daily_6am_sync_complete":
                 event_descriptions.append(f"- Morning sync complete. You have {e.payload.get('meeting_count', 0)} meetings today.")
             elif e.type == "cleaned_done":
                 event_descriptions.append(f"- Archive/Cleaned {e.payload.get('count', 0)} less important emails.")
             elif e.type == "sync_failed":
                 event_descriptions.append("- I encountered an issue syncing your emails. It might be an expired connection or service issue.")
+            elif e.type in ("greeting", "session_started", "welcome"):
+                event_descriptions.append(f"- User just opened the app. Generate a short, warm greeting for {user_name}.")
+            elif e.type == "sync_complete":
+                count = e.payload.get("count", 0)
+                cleaned = e.payload.get("cleaned_count", 0)
+                if count > 0:
+                    event_descriptions.append(f"- Synced and triaged {count} new emails ({cleaned} auto-cleaned).")
+
+        if not event_descriptions:
+            return f"Hey {user_name}, I'm up to date. Nothing new to report right now."
 
         joined_events = "\n".join(event_descriptions)
         
@@ -114,8 +129,9 @@ class CommunicationEngine:
                 temperature_override=0.7
             )
             return response.content.strip()
-        except Exception:
-            # Fallback to simple logic if LLM fails
+        except Exception as e:
+            # Fallback to simple logic if LLM fails — log with traceback for debugging
+            logger.warning(f"CommunicationEngine LLM generation failed: {e}", exc_info=True)
             return f"{user_name}, I've processed {len(events)} updates for you. Check the feed for details."
 
 

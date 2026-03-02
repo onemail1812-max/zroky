@@ -66,20 +66,59 @@ async def get_employee_threads(
     return [thread]
 
 
-@router.get("/{thread_id}/messages", response_model=list[MessageResponse])
+@router.get("/{thread_id}/messages")
 async def get_thread_messages(
     thread_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
-    """Get messages in thread."""
+    """Get messages in thread, enriched with full email body from TriagedEmail."""
+    from app.models.triaged_email import TriagedEmail
+
     messages = (
         db.query(Message)
         .filter(Message.thread_id == thread_id, Message.workspace_id == context.workspace_id)
         .order_by(Message.created_at.asc())
         .all()
     )
-    return messages
+
+    # Enrich: load the full email context from TriagedEmail for this thread
+    triaged_emails = (
+        db.query(TriagedEmail)
+        .filter(
+            TriagedEmail.workspace_id == context.workspace_id,
+            (TriagedEmail.thread_id == thread_id) | (TriagedEmail.id == thread_id) | (TriagedEmail.external_message_id == thread_id),
+        )
+        .order_by(TriagedEmail.received_at.asc())
+        .all()
+    )
+
+    email_context = []
+    for te in triaged_emails:
+        meta = te.metadata_json or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        email_context.append({
+            "id": te.id,
+            "external_message_id": te.external_message_id,
+            "subject": te.subject,
+            "sender": te.sender,
+            "body": meta.get("body") or te.snippet or "",
+            "snippet": te.snippet,
+            "received_at": te.received_at.isoformat() if te.received_at else None,
+            "category": te.category,
+            "priority": te.priority,
+            "draft": meta.get("draft"),
+            "needs_clarity": te.needs_clarity,
+        })
+
+    return {
+        "messages": [MessageResponse.model_validate(m) for m in messages],
+        "email_context": email_context,
+    }
 
 
 @router.post("/{thread_id}/messages", response_model=MessageResponse)

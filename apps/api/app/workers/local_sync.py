@@ -74,6 +74,7 @@ async def process_sync_provider(payload: Dict[str, Any]):
                 category="Processing...",
                 priority="Low",
                 is_read=msg.metadata.headers.get("is_read", False),
+                metadata_json={"body": msg.content} if msg.content else {},
                 created_at=datetime.now(timezone.utc)
             )
             db.add(triaged_entry)
@@ -152,7 +153,8 @@ async def process_sync_provider(payload: Dict[str, Any]):
 
 async def process_heartbeat(payload: Dict[str, Any]):
     """
-    Periodic heartbeat to flush stale communication queues.
+    Periodic heartbeat to flush stale communication queues
+    and renew expiring webhook watches.
     """
     workspace_id = payload.get("workspace_id")
     if not workspace_id: return
@@ -160,6 +162,17 @@ async def process_heartbeat(payload: Dict[str, Any]):
     logger.info(f"Heartbeat: Flushing communication for workspace={workspace_id}")
     orc = AaliyahOrchestrator(workspace_id)
     await orc.flush_communication()
+
+    # Renew any expiring Gmail/Outlook push notification watches
+    db = SessionLocal()
+    try:
+        results = await orc.webhook_handler.renew_watches(db)
+        if results:
+            logger.info(f"Heartbeat: Webhook renewal results for {workspace_id}: {results}")
+    except Exception as e:
+        logger.warning(f"Heartbeat: Webhook renewal failed for {workspace_id}: {e}")
+    finally:
+        db.close()
 
 async def process_ai_triage(payload: Dict[str, Any]):
     """
@@ -181,7 +194,7 @@ async def process_ai_triage(payload: Dict[str, Any]):
         triage = await classifier.classify(msg)
         
         # Update DB
-        entry = db.query(TriagedEmail).get(triaged_id)
+        entry = db.get(TriagedEmail, triaged_id)
         if not entry: return
 
         entry.category = triage.category
@@ -193,10 +206,13 @@ async def process_ai_triage(payload: Dict[str, Any]):
         
         # Checkpoint 6: VIP Escalation
         if getattr(triage, "is_vip", False):
-            entry.priority = "Urgent"
-            if entry.metadata_json is None: entry.metadata_json = {}
-            entry.metadata_json["is_vip"] = True
-            entry.metadata_json["labels"] = list(set((entry.metadata_json.get("labels") or []) + ["VIP Priority"]))
+            entry.priority = "High"
+            meta = dict(entry.metadata_json or {})
+            meta["is_vip"] = True
+            meta["labels"] = list(set((meta.get("labels") or []) + ["VIP Priority"]))
+            entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
 
         # Checkpoint 6: Exec Analytics (Time Saved)
         # Heuristic: 5 mins for reply drafted, 2 mins for noise archived
@@ -207,7 +223,7 @@ async def process_ai_triage(payload: Dict[str, Any]):
             time_saved += 2
             
         if time_saved > 0:
-            workspace = db.query(Workspace).get(entry.workspace_id)
+            workspace = db.get(Workspace, entry.workspace_id)
             if workspace:
                 settings = workspace.settings_json or {}
                 analytics = settings.get("analytics", {})
@@ -216,9 +232,11 @@ async def process_ai_triage(payload: Dict[str, Any]):
                 workspace.settings_json = settings
                 db.add(workspace)
         
-        meta = entry.metadata_json or {}
+        meta = dict(entry.metadata_json or {})
         meta["language"] = triage.language
         entry.metadata_json = meta
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(entry, "metadata_json")
         
         db.commit()
 
@@ -233,9 +251,11 @@ async def process_ai_triage(payload: Dict[str, Any]):
             rm.record_interaction(sender_email, entry.external_message_id, direction="incoming")
             
             # Enrich metadata with relationship summary for subsequent stages
-            meta = entry.metadata_json or {}
+            meta = dict(entry.metadata_json or {})
             meta["relationship_summary"] = rm.get_relationship_summary(sender_email)
             entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
             db.commit()
 
         # STAGE 2.5: Vision Analysis (Multi-Modal Sensory Depth)
@@ -254,7 +274,7 @@ async def process_ai_triage(payload: Dict[str, Any]):
                     )
                     
                     # Store analysis in metadata
-                    meta = entry.metadata_json or {}
+                    meta = dict(entry.metadata_json or {})
                     if "vision_analysis" not in meta:
                         meta["vision_analysis"] = []
                     meta["vision_analysis"].append({
@@ -262,6 +282,8 @@ async def process_ai_triage(payload: Dict[str, Any]):
                         "analysis": analysis
                     })
                     entry.metadata_json = meta
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(entry, "metadata_json")
                     db.commit()
 
         db.commit()
@@ -304,14 +326,16 @@ async def process_ai_triage(payload: Dict[str, Any]):
         # Enqueue STAGE 3 if applicable
         if triage.needs_clarity and triage.clarification_questions:
             # Store full clarification state for the conversational loop
-            meta = entry.metadata_json or {}
+            meta = dict(entry.metadata_json or {})
             meta["needs_clarity"] = True
             meta["clarification_questions"] = triage.clarification_questions
             meta["clarification_answers"] = []
             meta["clarification_current_index"] = 0
             meta["clarification_complete"] = False
             meta["context_type"] = triage.context_type
-            entry.metadata_json = dict(meta)
+            entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
             db.commit()
 
             # Build a natural conversational message with the FIRST question
@@ -347,10 +371,12 @@ async def process_ai_triage(payload: Dict[str, Any]):
         
         elif triage.needs_clarity:
             # Fallback: needs_clarity but no specific questions generated
-            meta = entry.metadata_json or {}
+            meta = dict(entry.metadata_json or {})
             meta["needs_clarity"] = True
             meta["context_type"] = triage.context_type
-            entry.metadata_json = dict(meta)
+            entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
             db.commit()
 
             subject_preview = msg.metadata.subject[:30] + "..." if len(msg.metadata.subject or "") > 30 else (msg.metadata.subject or "No Subject")
@@ -397,7 +423,7 @@ async def process_drafting(payload: Dict[str, Any]):
     try:
         from app.agents.aaliyah.core.drafting import DraftingAgent
         
-        entry = db.query(TriagedEmail).get(triaged_id)
+        entry = db.get(TriagedEmail, triaged_id)
         if not entry: return
 
         agent = DraftingAgent(db, workspace_id)

@@ -78,7 +78,17 @@ class CalendarSyncer(BaseHandler):
             {"conflicts": result.get("conflict_count", 0)},
         )
 
-        if int(result.get("event_count", 0)) > 0 or int(result.get("conflict_count", 0)) > 0:
+        # Proactive Notification: Alert user about calendar conflicts
+        conflict_count = int(result.get("conflict_count", 0))
+        if conflict_count > 0:
+            await self._emit(
+                "calendar_conflict_detected",
+                f"I noticed {conflict_count} overlapping meeting{'s' if conflict_count > 1 else ''} on your calendar.",
+                {"count": conflict_count},
+            )
+
+        # Meeting Prep: generate cheat sheets for upcoming meetings and conflict resolutions
+        if int(result.get("event_count", 0)) > 0 or conflict_count > 0:
             try:
                 prep_agent = MeetingPrepAgent(db=db, workspace_id=self.workspace_id, brain=self.brain)
                 conflict_briefs = await prep_agent.scan_and_brief()

@@ -35,15 +35,11 @@ class LabelingRulesTests(unittest.TestCase):
             CalendarEventSnapshot(
                 id="e1",
                 workspace_id="w1",
-                provider="google",
-                external_event_id="external-1",
                 title="Project X Meeting",
                 organizer="steve@company.com",
                 start_at=datetime.utcnow() + timedelta(hours=2),
                 end_at=datetime.utcnow() + timedelta(hours=3),
-                is_all_day=False,
                 is_cancelled=False,
-                metadata_json={},
             )
         )
         db.commit()

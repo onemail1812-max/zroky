@@ -1,7 +1,7 @@
 import os
 import unittest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -22,8 +22,16 @@ class DraftEngineTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.db.close()
 
-    async def test_draft_includes_rationale_and_intent(self):
+    @patch("app.agents.aaliyah.core.drafting.CriticAgent")
+    async def test_draft_includes_rationale_and_intent(self, MockCritic):
         agent = DraftingAgent(self.db, "w3")
+        
+        # Mock Critic
+        mock_critic_instance = MockCritic.return_value
+        mock_critic_instance.review_draft = AsyncMock()
+        mock_critic_instance.review_draft.return_value.status = "approved"
+        mock_critic_instance.review_draft.return_value.rewritten_body = None
+        
         # Mock brain
         agent.brain.think = AsyncMock(return_value=MagicMock(content='''{
             "action": "reply",
@@ -35,6 +43,9 @@ class DraftEngineTests(unittest.IsolatedAsyncioTestCase):
             "rationale": "Replying to info request while checking internal facts."
         }'''))
         
+        from app.models.workspace import Workspace
+        ws = Workspace(id="w3", owner_id="u1", name="test", slug="test", settings_json={"aaliyah": {}})
+        self.db.add(ws)
         email = TriagedEmail(
             id="e1", workspace_id="w3", provider="google",
             external_message_id="ext-1", sender="client@test.com",
@@ -51,6 +62,11 @@ class DraftEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Money", draft.risk_labels)
 
     async def test_style_ladder_thresholds(self):
+        from app.models.workspace import Workspace
+        ws = Workspace(id="w3", owner_id="u1", name="test", slug="test", settings_json={"aaliyah": {}})
+        self.db.add(ws)
+        self.db.commit()
+        
         agent = DraftingAgent(self.db, "w3")
         
         # 0 sends

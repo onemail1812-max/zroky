@@ -202,12 +202,17 @@ export default function WorkspaceShell() {
     }
   }, [fetchStatus, fetchInbox, fetchHealth, triggerSync, triggerInitialSync])
 
-  // SSE Live Stream
+  // SSE Live Stream with Exponential Backoff Reconnection
   React.useEffect(() => {
     let es: EventSource | null = null
     let alive = true
+    let retryDelay = 2000 // Start at 2s
+    const MAX_RETRY_DELAY = 30000 // Cap at 30s
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
     const connect = async () => {
+      if (!alive) return
+
       try {
         const { getLiveToken } = await import("@/lib/aaliyah/api")
         const token = await getLiveToken()
@@ -218,8 +223,25 @@ export default function WorkspaceShell() {
         const url = `/aaliyah/live/stream?stream_token=${token}` + (lastId ? `&last_event_id=${lastId}` : "")
 
         es = new EventSource(url)
-        es.onopen = () => setIsLiveOffline(false)
-        es.onerror = () => setIsLiveOffline(true)
+
+        es.onopen = () => {
+          setIsLiveOffline(false)
+          retryDelay = 2000 // Reset on success
+        }
+
+        es.onerror = () => {
+          setIsLiveOffline(true)
+          es?.close()
+          es = null
+          if (alive) {
+            // Exponential backoff with jitter
+            const jitter = Math.random() * 1000
+            const delay = Math.min(retryDelay + jitter, MAX_RETRY_DELAY)
+            retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY)
+            setTimeout(() => void connect(), delay)
+          }
+        }
+
         es.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data)
@@ -252,8 +274,26 @@ export default function WorkspaceShell() {
             }
           } catch (e) { }
         }
+
+        // Heartbeat: detect silent disconnects every 30s
+        if (heartbeatTimer) clearInterval(heartbeatTimer)
+        heartbeatTimer = setInterval(() => {
+          if (es && es.readyState === EventSource.CLOSED) {
+            setIsLiveOffline(true)
+            es.close()
+            es = null
+            void connect()
+          }
+        }, 30000)
+
       } catch (err) {
-        if (alive) setIsLiveOffline(true)
+        if (alive) {
+          setIsLiveOffline(true)
+          const jitter = Math.random() * 1000
+          const delay = Math.min(retryDelay + jitter, MAX_RETRY_DELAY)
+          retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY)
+          setTimeout(() => void connect(), delay)
+        }
       }
     }
 
@@ -261,6 +301,7 @@ export default function WorkspaceShell() {
     return () => {
       alive = false
       es?.close()
+      if (heartbeatTimer) clearInterval(heartbeatTimer)
     }
   }, [fetchStatus, fetchInbox, setIsLiveOffline])
 
