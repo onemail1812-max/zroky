@@ -403,7 +403,7 @@ async def chat(
                 thread_id=thread_id,
                 attachments=payload.attachments
             ):
-                if chunk.get("type") == "delta":
+                if chunk.get("type") in ("delta", "chunk"):
                     full_content += chunk.get("content", "")
                 
                 yield f"data: {json.dumps(chunk)}\n\n"
@@ -524,12 +524,7 @@ async def get_chat_history(
         ]
     except Exception as e:
         import traceback
-        err_msg = f"Assist History Error: {str(e)}\n{traceback.format_exc()}"
-        try:
-            with open("last_error.txt", "w") as f:
-                f.write(err_msg)
-        except:
-            pass
+        logger.error(f"Assist History Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/compose")

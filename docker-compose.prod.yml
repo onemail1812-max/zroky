@@ -27,14 +27,14 @@ services:
     environment:
       # Prod overrides
       ENV: production
-      DEBUG: "true"
+      DEBUG: "false"
       DATABASE_URL: postgresql://postgres:postgres@db:5432/zroky
       # Secrets (In real prod, inject via platform secrets)
       SECRET_KEY: ${SECRET_KEY}
       OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       # Google OAuth
-      GOOGLE_CLIENT_ID: "592661553992-ski8fv40824emc43hudmvkj4g93jt1dv.apps.googleusercontent.com"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_REDIRECT_URI: "http://zroky.com:8000/oauth/google/callback"
       MICROSOFT_REDIRECT_URI: "http://zroky.com:8000/oauth/microsoft/callback"

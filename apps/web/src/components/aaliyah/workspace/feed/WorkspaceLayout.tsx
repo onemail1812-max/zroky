@@ -364,15 +364,28 @@ function WorkspaceLayoutInner() {
         return () => window.removeEventListener("message", handleMessage)
     }, [triggerInitialSync, fetchHealth])
 
-    // ── SSE Live Stream ──────────────────────────────────────────────
+    // ── SSE Live Stream (with exponential backoff reconnection) ─────
     const { setIsLiveOffline } = useSystemStore()
     React.useEffect(() => {
         if (!onboardingComplete || !onboardingChecked) return
 
         let controller: AbortController | null = null
         let alive = true
+        let retryDelay = 1000 // Start at 1s
+        const MAX_RETRY_DELAY = 30000 // Cap at 30s
+        let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+        const scheduleRetry = () => {
+            if (!alive) return
+            if (process.env.NODE_ENV !== 'production') console.log(`[SSE] Reconnecting in ${retryDelay / 1000}s...`)
+            retryTimer = setTimeout(() => {
+                if (alive) connect()
+            }, retryDelay)
+            retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY)
+        }
 
         const connect = async () => {
+            if (!alive) return
             try {
                 const { getLiveToken } = await import("@/lib/aaliyah/api")
                 const token = await getLiveToken()
@@ -381,13 +394,15 @@ function WorkspaceLayoutInner() {
                 const { fetchEventSource } = await import("@microsoft/fetch-event-source")
                 controller = new AbortController()
 
-                fetchEventSource(`/aaliyah/live/stream`, {
+                await fetchEventSource(`/aaliyah/live/stream`, {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${token}` },
                     signal: controller.signal,
+                    openWhenHidden: true,
                     onopen: async (res) => {
                         if (res.ok && res.status === 200) {
                             setIsLiveOffline(false)
+                            retryDelay = 1000 // Reset backoff on successful connect
                         } else if (res.status >= 400 && res.status < 500 && res.status !== 429) {
                             setIsLiveOffline(true)
                             throw new Error("Client error")
@@ -395,6 +410,9 @@ function WorkspaceLayoutInner() {
                     },
                     onerror: (err) => {
                         setIsLiveOffline(true)
+                        // Return undefined to let fetchEventSource close,
+                        // then we schedule our own retry with backoff
+                        throw err
                     },
                     onmessage: (event) => {
                         try {
@@ -498,13 +516,17 @@ function WorkspaceLayoutInner() {
                 })
             } catch (err) {
                 if (process.env.NODE_ENV !== 'production') console.error("[SSE] Connection failed:", err)
-                if (alive) setIsLiveOffline(true)
+                if (alive) {
+                    setIsLiveOffline(true)
+                    scheduleRetry()
+                }
             }
         }
 
         connect()
         return () => {
             alive = false
+            if (retryTimer) clearTimeout(retryTimer)
             if (controller) controller.abort()
         }
     }, [onboardingComplete, onboardingChecked, setIsLiveOffline, fetchHealth])

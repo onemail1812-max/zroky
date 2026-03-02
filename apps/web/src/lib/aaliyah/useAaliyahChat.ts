@@ -196,13 +196,27 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                         const parsed = JSON.parse(data);
 
                         if ((parsed.type === "delta" || parsed.type === "chunk") && parsed.content) {
+
+                            // JSON Object Guard: if the chunk sent raw JSON, extract readable text
+                            let cleanContent = parsed.content;
+                            if (typeof cleanContent === 'string' && (cleanContent.trim().startsWith('{') || cleanContent.trim().startsWith('['))) {
+                                try {
+                                    const obj = JSON.parse(cleanContent);
+                                    if (typeof obj === "object" && obj !== null && !Array.isArray(obj)) {
+                                        cleanContent = obj.answer_text || obj.reply || obj.summary || obj.body || obj.message || obj.content || cleanContent;
+                                    }
+                                } catch (e) {
+                                    // Not valid JSON, leave as is
+                                }
+                            }
+
                             setMessages(prev => {
                                 const updated = [...prev];
                                 const last = updated[updated.length - 1];
                                 if (last && last.role === "assistant" && last.type !== "email_action") {
                                     updated[updated.length - 1] = {
                                         ...last,
-                                        content: (last.content || "") + parsed.content,
+                                        content: (last.content || "") + cleanContent,
                                     };
                                 }
                                 return updated;

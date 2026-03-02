@@ -709,6 +709,31 @@ class ChatHandler(BaseHandler):
             self._patch_state(status="idle", active_task=None)
             return
 
+        if gate.allow_llm and intent in {"SEARCH", "RESEARCH", "CONFLICT"}:
+            try:
+                await self._emit("thinking", f"Specialized agent '{intent}' thinking...")
+                result = await self.dispatcher.dispatch(db, intent, message, {"query": message})
+                
+                await self._audit(
+                     db,
+                     user_id=user_id,
+                     action=AuditAction.EXECUTE,
+                     entity_id=f"{intent.lower()}:{datetime.now(timezone.utc).timestamp()}",
+                     explain=f"Delegated to {intent} agent for: '{message}'",
+                     metadata={"query": message, "intent": intent}
+                )
+
+                answer = result.get("answer_text") or result.get("answer") or result.get("reply") or "I couldn't find an answer."
+                
+                for word in answer.split(" "):
+                    yield {"type": "chunk", "content": word + " "}
+                
+                self._patch_state(status="idle", active_task=None)
+                return
+            except Exception as e:
+                logger.error(f"Intent streaming subagent failed: {e}", exc_info=True)
+                # Fall through to generic LLM on failure
+        
         async for chunk in self.brain.think_stream(
             prompt=message,
             system_prompt=system_prompt,

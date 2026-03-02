@@ -87,11 +87,17 @@ async def lifespan(application: FastAPI):
             pass
     logger.info("✅ Graceful shutdown complete.")
 
+# Defense-in-depth: docs only available when DEBUG is True AND not in production
+_show_docs = settings.DEBUG and settings.ENV != "production"
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    debug=False,
+    debug=settings.DEBUG,
     lifespan=lifespan,
+    docs_url="/docs" if _show_docs else None,
+    redoc_url="/redoc" if _show_docs else None,
+    openapi_url="/openapi.json" if _show_docs else None,
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -128,14 +134,6 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", str(exc))
-    
-    import traceback
-    err_msg = f"Global Unhandled Exception: {str(exc)}\n{traceback.format_exc()}"
-    try:
-        with open("last_error.txt", "w") as f:
-            f.write(err_msg)
-    except:
-        pass
 
     content = {
         "error": {

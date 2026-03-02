@@ -170,6 +170,35 @@ export const ChatMessage = React.memo(function ChatMessage({ role, content, type
     const isAction = type === "email_action";
     const isComposeAction = type === "compose_action";
 
+    const extractDisplayContent = (text: string | null | undefined): string => {
+        if (!text) return "";
+        try {
+            // Check if it looks like JSON
+            if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
+                const parsed = JSON.parse(text);
+                if (parsed.answer_text) return parsed.answer_text;
+                if (parsed.reply) return parsed.reply;
+                if (parsed.summary) {
+                    let out = `**Summary:** ${parsed.summary}\n\n`;
+                    if (parsed.people_involved && Array.isArray(parsed.people_involved)) {
+                        out += `**People Involved:** ${parsed.people_involved.join(', ')}\n\n`;
+                    }
+                    if (parsed.recommendation) {
+                        out += `**Recommendation:** ${parsed.recommendation}\n\n`;
+                    }
+                    if (parsed.talking_points && Array.isArray(parsed.talking_points)) {
+                        out += `**Talking Points:**\n${parsed.talking_points.map((p: string) => `- ${p}`).join('\n')}`;
+                    }
+                    return out.trim();
+                }
+            }
+            return text;
+        } catch (e) {
+            // Not valid JSON or parsing failed, return as text
+            return text;
+        }
+    };
+
     const ComposeActionCard = React.useCallback(({ payload }: { payload: any }) => {
         const [to, setTo] = React.useState(payload.to || "");
         const [subject, setSubject] = React.useState(payload.subject || "");
@@ -358,7 +387,7 @@ export const ChatMessage = React.memo(function ChatMessage({ role, content, type
                                         h3: ({ children }) => <h3 className="text-sm font-bold mt-2 mb-1 text-indigo-950 tracking-tight">{children}</h3>,
                                     }}
                                 >
-                                    {content || ""}
+                                    {extractDisplayContent(content) || ""}
                                 </ReactMarkdown>
                             </div>
                         )}
