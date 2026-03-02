@@ -16,6 +16,10 @@ ENV NEXT_TELEMETRY_DISABLED 1
 # API_URL must be available during build so rewrites point to the correct Docker service.
 ARG API_URL=http://api:8000
 ENV API_URL=${API_URL}
+
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+
 RUN npm run build
 
 # Stage 3: Production image, copy all the files and run next
