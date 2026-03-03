@@ -61,6 +61,7 @@ async def lifespan(application: FastAPI):
     from app.workers.followup_worker import process_auto_followup
     from app.workers.notetaker_worker import process_meeting_job
     from app.workers.token_rotation_worker import start_token_rotation_worker
+    from app.workers.auto_chat_worker import start_auto_chat_worker
     handlers = {
         JobType.SYNC_PROVIDER.value: process_sync_provider,
         JobType.AI_TRIAGE.value: process_ai_triage,
@@ -73,6 +74,7 @@ async def lifespan(application: FastAPI):
     worker_task = asyncio.create_task(queue.worker_loop(handlers))
     scheduler_task = asyncio.create_task(queue.scheduler_loop())
     token_rotation_task = asyncio.create_task(start_token_rotation_worker())
+    auto_chat_task = asyncio.create_task(start_auto_chat_worker())
 
     logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
 
@@ -83,7 +85,8 @@ async def lifespan(application: FastAPI):
     worker_task.cancel()
     scheduler_task.cancel()
     token_rotation_task.cancel()
-    for task in (worker_task, scheduler_task, token_rotation_task):
+    auto_chat_task.cancel()
+    for task in (worker_task, scheduler_task, token_rotation_task, auto_chat_task):
         try:
             await task
         except asyncio.CancelledError:
