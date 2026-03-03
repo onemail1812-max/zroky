@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "Advanced AI Executive Assistant",
 }
 
+export const dynamic = 'force-dynamic'
+
 export default function RootLayout({
   children,
 }: Readonly<{
