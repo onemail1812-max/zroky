@@ -335,17 +335,11 @@ export function ThreadConversation({
                     {/* Thread-scoped messages */}
                     <div className="flex-1 flex flex-col">
                         {!hasMessages && (
-                            <div className="flex-1 flex items-center justify-center py-12">
-                                <div className="text-center">
-                                    <div className="mx-auto h-12 w-12 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center mb-4">
-                                        <Sparkles className="h-5 w-5 text-zinc-300" />
-                                    </div>
-                                    <p className="text-[13px] text-zinc-400 font-medium max-w-[260px] leading-relaxed">
-                                        {emailId
-                                            ? `This is a private chat about this specific email. Aaliyah's context is focused here.`
-                                            : `This is your conversation with Aaliyah about this thread. Ask anything or wait for her analysis.`}
-                                    </p>
-                                </div>
+                            <div className="max-w-5xl mx-auto px-4 md:px-8 w-full shrink-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                <ChatMessage
+                                    role="assistant"
+                                    content={`I've reviewed this thread from **${thread.sender.name || thread.sender.email.split('@')[0]}** regarding **"${thread.subject || 'No Subject'}"**.\n\nWould you like me to draft a quick reply, summarize the details, or help you find related past conversations?`}
+                                />
                             </div>
                         )}
 
