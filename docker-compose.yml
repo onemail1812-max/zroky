@@ -19,6 +19,7 @@ services:
       - API_URL=http://api:8000
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=zroky_default"
       - "traefik.http.routers.web.rule=Host(`zroky.com`)"
       - "traefik.http.routers.web.entrypoints=websecure"
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
@@ -43,6 +44,7 @@ services:
       - ./zroky.db:/app/zroky.db
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=zroky_default"
       - "traefik.http.routers.api.rule=Host(`zroky.com`) && PathPrefix(`/api/v1`, `/aaliyah`, `/assist`, `/oauth`, `/health`, `/me`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
