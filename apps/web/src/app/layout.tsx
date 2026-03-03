@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Plus_Jakarta_Sans } from "next/font/google"
 import { ClerkProvider } from "@clerk/nextjs"
 import { QueryProvider } from "@/components/aaliyah/providers/QueryProvider"
+import { ClerkAuthSync } from "@/components/auth/ClerkAuthSync"
 import { Toaster } from "react-hot-toast"
 import "./globals.css"
 
@@ -37,6 +38,7 @@ export default function RootLayout({
             />
           )}
           <Toaster position="top-right" />
+          <ClerkAuthSync />
           <QueryProvider>{children}</QueryProvider>
         </body>
       </html>

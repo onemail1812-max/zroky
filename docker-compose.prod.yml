@@ -43,8 +43,9 @@ services:
       GOOGLE_REDIRECT_URI: "http://zroky.com:8000/oauth/google/callback"
       MICROSOFT_REDIRECT_URI: "http://zroky.com:8000/oauth/microsoft/callback"
       # External URLs
-      FRONTEND_BASE_URL: http://zroky.com:3000
-      PUBLIC_APP_URL: http://zroky.com:3000
+      FRONTEND_BASE_URL: https://zroky.com
+      PUBLIC_APP_URL: https://zroky.com
+      CLERK_JWKS_URL: https://clerk.zroky.com/.well-known/jwks.json
     depends_on:
       - db
       - redis
