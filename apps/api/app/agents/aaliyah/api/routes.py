@@ -59,6 +59,31 @@ class UserMessage(BaseModel):
     workspace_id: Optional[str] = None
 
 
+@router.get("/diagnostics/logs")
+async def get_diagnostic_logs(
+    context: CurrentContext = Depends(get_current_context),
+    lines: int = 200
+):
+    """Hidden endpoint to pull server logs for debugging"""
+    if not context.is_admin():
+        raise HTTPException(status_code=403, detail="Admin required")
+        
+    import subprocess
+    import os
+    try:
+        # Try to read local logs if not in docker
+        if os.path.exists("error_log.txt"):
+            with open("error_log.txt", "r", encoding="utf-8", errors="ignore") as f:
+                logs = f.readlines()[-lines:]
+                return {"logs": "".join(logs)}
+                
+        # If we are in docker/gcp, let's try reading standard output from the container runtime
+        # Usually it's in /var/log or captured by orchestrator
+        return {"logs": "Please check GCP Logs Viewer. Direct log access not configured in this container."}
+    except Exception as e:
+        return {"logs": f"Failed to read logs: {str(e)}"}
+
+
 class WebhookEvent(BaseModel):
     type: str = Field(min_length=1, max_length=128)
     payload: Dict[str, Any] = Field(default_factory=dict)

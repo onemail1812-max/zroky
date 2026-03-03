@@ -12,7 +12,8 @@ import {
     Settings,
     BookOpen,
     Archive,
-    PenSquare
+    PenSquare,
+    Terminal
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSystemStore } from "@/lib/aaliyah/store"
@@ -20,12 +21,14 @@ import { useSystemStore } from "@/lib/aaliyah/store"
 export function LeftSidebar({
     onOpenGuidelines,
     onOpenSettings,
+    onOpenDiagnostics,
     onNavigate,
     disabled,
     isConnected = true
 }: {
     onOpenGuidelines?: () => void;
     onOpenSettings?: () => void;
+    onOpenDiagnostics?: () => void;
     onNavigate?: (section: string) => void;
     disabled?: boolean;
     isConnected?: boolean;
@@ -119,6 +122,16 @@ export function LeftSidebar({
                 >
                     <Settings className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" strokeWidth={2.5} />
                     <span className="text-[13.5px] font-medium tracking-tight">Settings</span>
+                </button>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onOpenDiagnostics?.()
+                    }}
+                    className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-white transition-all duration-300 group hover:shadow-lg hover:shadow-zinc-900/10 hover:-translate-y-0.5 active:scale-95 text-left w-full"
+                >
+                    <Terminal className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" strokeWidth={2.5} />
+                    <span className="text-[13.5px] font-medium tracking-tight">Diagnostics</span>
                 </button>
             </div>
         </aside>

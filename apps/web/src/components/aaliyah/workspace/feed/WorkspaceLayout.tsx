@@ -264,6 +264,8 @@ function WorkspaceLayoutInner() {
     const [settingsOpen, setSettingsOpen] = React.useState(false)
     const [guidelinesOpen, setGuidelinesOpen] = React.useState(false)
     const [onboardingOpen, setOnboardingOpen] = React.useState(false)
+    const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false)
+    const [diagnosticsLogs, setDiagnosticsLogs] = React.useState<string>("Loading logs...")
     const [composeOpen, setComposeOpen] = React.useState(false) // Added composeOpen state
     const [activeAttachment, setActiveAttachment] = React.useState<any | null>(null)
     const [activeEmailId, setActiveEmailId] = React.useState<string | null>(null)
@@ -1342,6 +1344,44 @@ function WorkspaceLayoutInner() {
                                             content: `${firstName ? `Perfect, ${firstName}.` : `Perfect.`} Setup complete. I'm active and **ready to work**.\n\n**Here's what I'll do:**\n- Triage your inbox and surface what needs attention\n- Draft replies and follow-ups in your voice\n- Keep your calendar organized\n\nYou will see me in action as soon as you receive a new email. In the meantime, just ask me anything.`,
                                         }])
                                     }} />
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>,
+                    document.body
+                )
+            }
+
+            {/* Diagnostics Modal Overlay */}
+            {
+                isMounted && typeof document !== 'undefined' && createPortal(
+                    <AnimatePresence>
+                        {diagnosticsOpen && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-8 pointer-events-auto"
+                                onClick={() => setDiagnosticsOpen(false)}
+                            >
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="bg-[#1e1e1e] w-full max-w-5xl h-[80vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl ring-1 ring-white/10"
+                                >
+                                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 shrink-0 bg-neutral-900">
+                                        <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                                            Live Diagnostics
+                                        </h2>
+                                        <button onClick={() => setDiagnosticsOpen(false)} className="text-zinc-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-1.5 rounded-lg active:scale-95">
+                                            <X className="h-5 w-5" />
+                                        </button>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto p-6 bg-[#111111] font-mono text-[11px] leading-relaxed text-emerald-400/90 custom-scrollbar">
+                                        <pre className="whitespace-pre-wrap select-text">{diagnosticsLogs}</pre>
+                                    </div>
                                 </motion.div>
                             </motion.div>
                         )}
