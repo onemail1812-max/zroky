@@ -24,7 +24,7 @@ from app.agents.aaliyah.api import (
     booking_router,
     knowledge_router,
 )
-from app.routers import oauth
+from app.routers import oauth, auto_chat
 from app.routers import assist as assist_router
 from app.api.routes.inbox import router as inbox_router
 from app.api.routes.calendar import router as calendar_router
@@ -60,6 +60,7 @@ async def lifespan(application: FastAPI):
     from app.workers.local_sync import process_sync_provider, process_ai_triage, process_drafting, process_heartbeat
     from app.workers.followup_worker import process_auto_followup
     from app.workers.notetaker_worker import process_meeting_job
+    from app.workers.token_rotation_worker import start_token_rotation_worker
     handlers = {
         JobType.SYNC_PROVIDER.value: process_sync_provider,
         JobType.AI_TRIAGE.value: process_ai_triage,
@@ -71,6 +72,7 @@ async def lifespan(application: FastAPI):
 
     worker_task = asyncio.create_task(queue.worker_loop(handlers))
     scheduler_task = asyncio.create_task(queue.scheduler_loop())
+    token_rotation_task = asyncio.create_task(start_token_rotation_worker())
 
     logger.info("✅ Zroky API started (Event-Driven Local mode). Background async workers & scheduler running.")
 
@@ -80,7 +82,8 @@ async def lifespan(application: FastAPI):
     logger.info("Shutting down background workers...")
     worker_task.cancel()
     scheduler_task.cancel()
-    for task in (worker_task, scheduler_task):
+    token_rotation_task.cancel()
+    for task in (worker_task, scheduler_task, token_rotation_task):
         try:
             await task
         except asyncio.CancelledError:
@@ -183,6 +186,7 @@ app.include_router(meetings_router)
 from app.api.webhooks import router as webhooks_router
 app.include_router(webhooks_router)
 app.include_router(assist_router.router, prefix="/assist", tags=["assist"])
+app.include_router(auto_chat.router, prefix="/auto-chat", tags=["auto-chat"])
 
 
 # ── Core Endpoints ───────────────────────────────────────────────────────
