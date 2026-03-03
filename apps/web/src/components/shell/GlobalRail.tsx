@@ -59,6 +59,7 @@ export function GlobalRail() {
             <Link
               key={item.href}
               href={item.href}
+              title={item.name}
               className={cn(
                 "relative group flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-300",
                 isActive
@@ -108,6 +109,7 @@ export function GlobalRail() {
 
         <Link
           href="/profile"
+          title="Profile"
           className="h-10 w-10 rounded-full bg-zinc-50 border border-zinc-100 flex items-center justify-center text-zinc-400 hover:text-black hover:border-zinc-200 transition-all overflow-hidden"
         >
           <User className="h-5 w-5" strokeWidth={1.5} />

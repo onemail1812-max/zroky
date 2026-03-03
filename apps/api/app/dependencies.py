@@ -122,14 +122,7 @@ async def get_current_context(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback_str = traceback.format_exc()
-        try:
-            with open("last_error.txt", "w") as f:
-                f.write(f"Dependency Error: {traceback_str}")
-        except:
-            pass
-        print(f"Dependency Error: {str(e)}")
+        logger.error(f"Dependency Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Context Error: {str(e)}")
 
 

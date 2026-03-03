@@ -133,15 +133,20 @@ def _verify_clerk_token(token: str) -> dict:
     except JWTError as e:
         # If issuer/audience settings are misconfigured, retry with JWKS-only validation.
         # This keeps local development working while still verifying signature + expiry.
+        print(f"DEBUG CLERK JWT: Initial decode failed with error: {e}", flush=True)
         if settings.CLERK_JWT_ISS or settings.CLERK_JWT_AUD:
+            print(f"DEBUG CLERK JWT: Retrying without issuer/audience", flush=True)
             try:
                 return jwt.decode(
                     token,
                     jwks,
                     algorithms=["RS256"],
                 )
-            except JWTError:
+            except JWTError as inner_e:
+                print(f"DEBUG CLERK JWT: Inner decode failed: {inner_e}", flush=True)
                 pass
+        
+        print(f"DEBUG CLERK JWT: Raising 401 Invalid Token. Original error: {e}", flush=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

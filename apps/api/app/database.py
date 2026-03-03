@@ -76,14 +76,7 @@ def get_db():
         db = SessionLocal()
         yield db
     except Exception as e:
-        import traceback
-        err_msg = f"Database Connection Error: {str(e)}\n{traceback.format_exc()}"
-        logger.error(err_msg)
-        try:
-            with open("last_error.txt", "w") as f:
-                f.write(err_msg)
-        except:
-            pass
+        logger.error(f"Database Connection Error: {str(e)}", exc_info=True)
         raise
     finally:
         try:

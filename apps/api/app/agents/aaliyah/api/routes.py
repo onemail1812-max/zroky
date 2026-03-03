@@ -297,8 +297,6 @@ async def get_status(
         import traceback
         err_msg = f"Aaliyah Status Error: {str(e)}\n{traceback.format_exc()}"
         logger.error(err_msg)
-        with open("last_error.txt", "w") as f:
-            f.write(err_msg)
         raise HTTPException(status_code=500, detail=f"Status Error: {str(e)}")
 
 
@@ -370,13 +368,7 @@ async def get_onboarding_status(
         raise
     except Exception as e:
         import traceback
-        traceback_str = traceback.format_exc()
-        try:
-            with open("last_error.txt", "w") as f:
-                f.write(traceback_str)
-        except:
-            pass
-        logger.error(f"Onboarding Status Error: {str(e)}")
+        logger.error(f"Onboarding Status Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Onboarding Error: {str(e)}")
 
 
@@ -592,8 +584,6 @@ async def get_stats(
         import traceback
         err_msg = f"Aaliyah Stats Error: {str(e)}\n{traceback.format_exc()}"
         logger.error(err_msg)
-        with open("last_error.txt", "w") as f:
-            f.write(err_msg)
         raise HTTPException(status_code=500, detail=f"Stats Error: {str(e)}")
 
 
@@ -702,8 +692,6 @@ async def get_counts(
         import traceback
         err_msg = f"Aaliyah Counts Error: {str(e)}\n{traceback.format_exc()}"
         logger.error(err_msg)
-        with open("last_error.txt", "w") as f:
-            f.write(err_msg)
         raise HTTPException(status_code=500, detail=f"Counts Error: {str(e)}")
 
 
