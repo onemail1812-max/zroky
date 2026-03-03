@@ -155,9 +155,18 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
         try {
             abortRef.current = new AbortController();
 
+            // Get auth token dynamically for direct API calls
+            let authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+            if (typeof window !== "undefined" && (window as any).Clerk?.session) {
+                try {
+                    const token = await (window as any).Clerk.session.getToken();
+                    if (token) authHeaders["Authorization"] = `Bearer ${token}`;
+                } catch { /* fallback to cookie auth */ }
+            }
+
             const response = await fetch(apiUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: authHeaders,
                 body: JSON.stringify({
                     messages: allMessages,
                     thread_id: currentThreadId,

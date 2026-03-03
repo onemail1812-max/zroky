@@ -209,19 +209,15 @@ export const ChatMessage = React.memo(function ChatMessage({ role, content, type
         const handleSend = async () => {
             setIsSending(true);
             try {
-                const res = await fetch("/assist/compose", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    credentials: "include",
-                    body: JSON.stringify({
-                        to: to.split(",").map((s: string) => s.trim()).filter(Boolean),
-                        cc: [],
-                        bcc: [],
-                        subject,
-                        body
-                    })
+                const { composeEmail } = await import("@/lib/aaliyah/api");
+                const result = await composeEmail({
+                    to: to.split(",").map((s: string) => s.trim()).filter(Boolean),
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body,
                 });
-                if (res.ok) setIsSent(true);
+                if (result) setIsSent(true);
             } catch (e) {
                 console.error(e);
             } finally {

@@ -478,11 +478,9 @@ function WorkspaceLayoutInner() {
                             if (data.type === "followup_nudge") {
                                 const nudgeItem = {
                                     id: `nudge_${data.payload.thread_id}_${Date.now()}`,
-                                    type: "followup-nudge",
-                                    sender: data.payload.sender,
-                                    subject: data.payload.subject,
+                                    role: "assistant" as const,
+                                    content: `📌 **Follow-up needed**: "${data.payload.subject || 'No subject'}" from ${data.payload.sender || 'Unknown'} hasn't received a reply. Want me to draft a nudge?`,
                                     threadId: data.payload.thread_id,
-                                    timestamp: "Just now"
                                 }
                                 setMessages(prev => [...prev, nudgeItem])
                             }

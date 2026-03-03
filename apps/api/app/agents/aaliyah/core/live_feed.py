@@ -6,7 +6,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from pydantic import BaseModel, Field
 from app.logging_config import get_logger
