@@ -40,8 +40,8 @@ services:
       # Google OAuth
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      GOOGLE_REDIRECT_URI: "http://zroky.com:8000/oauth/google/callback"
-      MICROSOFT_REDIRECT_URI: "http://zroky.com:8000/oauth/microsoft/callback"
+      GOOGLE_REDIRECT_URI: "https://zroky.com/oauth/google/callback"
+      MICROSOFT_REDIRECT_URI: "https://zroky.com/oauth/microsoft/callback"
       # External URLs
       FRONTEND_BASE_URL: https://zroky.com
       PUBLIC_APP_URL: https://zroky.com
