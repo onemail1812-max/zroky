@@ -376,8 +376,6 @@ async def chat(
     import uuid
     import json
     
-    # Init DB and Repo
-    db = next(get_db())
     repo = ChatRepository(db, workspace_id)
     
     # 1. Save user message first if there's a new one
@@ -393,7 +391,7 @@ async def chat(
         )
 
     async def stream_generator():
-        current_db = next(get_db()) # Explicit session for generator context
+        current_db = db  # Reuse the injected session
         try:
             full_content = ""
             async for chunk in orchestrator.handle_chat_stream(
@@ -427,7 +425,7 @@ async def chat(
             logging.getLogger(__name__).error(f"Chat stream failed: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
         finally:
-            current_db.close()
+            pass  # Session managed by FastAPI Depends(get_db)
 
     return StreamingResponse(
         stream_generator(),
@@ -501,6 +499,7 @@ async def start_historical_sync(
 @router.get("/history")
 async def get_chat_history(
     thread_id: Optional[str] = None,
+    email_id: Optional[str] = None,
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db)
 ):
@@ -510,7 +509,7 @@ async def get_chat_history(
     try:
         from app.models.chat_message import ChatRepository
         repo = ChatRepository(db, context.workspace_id)
-        messages = repo.list_messages(thread_id=thread_id)
+        messages = repo.list_messages(thread_id=thread_id, email_id=email_id)
         
         return [
             {

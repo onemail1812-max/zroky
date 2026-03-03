@@ -1213,11 +1213,13 @@ function WorkspaceLayoutInner() {
                             onSubmit={(e, attachments) => sendMessage(undefined, attachments)}
                             isLoading={isLoading}
                             placeholder={
-                                syncProgress.phase !== "idle"
-                                    ? "Syncing..."
-                                    : connectionHealth !== null && !connectionHealth?.email_accessible
-                                        ? "Limited mode — ask me anything general..."
-                                        : "Ask Aaliyah anything..."
+                                threadSelection
+                                    ? (activeEmailId ? "Ask about this email..." : `Reply about "${threadSelection.subject?.slice(0, 40)}"...`)
+                                    : syncProgress.phase !== "idle"
+                                        ? "Syncing..."
+                                        : connectionHealth !== null && !connectionHealth?.email_accessible
+                                            ? "Limited mode — ask me anything general..."
+                                            : "Ask Aaliyah anything..."
                             }
                         />
                     </div>

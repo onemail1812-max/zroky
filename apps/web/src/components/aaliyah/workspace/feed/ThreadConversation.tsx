@@ -362,7 +362,7 @@ export function ThreadConversation({
                     </div>
 
                     {/* Typing Indicator */}
-                    <div className="pb-6 px-4 md:px-8 max-w-5xl mx-auto w-full shrink-0 mt-auto">
+                    <div className="pb-28 px-4 md:px-8 max-w-5xl mx-auto w-full shrink-0 mt-auto">
                         {isLoading && threadMessages.length > 0 && threadMessages[threadMessages.length - 1]?.role === 'user' && (
                             <ChatMessage
                                 role="assistant"

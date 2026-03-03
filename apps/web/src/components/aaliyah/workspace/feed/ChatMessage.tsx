@@ -209,16 +209,16 @@ export const ChatMessage = React.memo(function ChatMessage({ role, content, type
         const handleSend = async () => {
             setIsSending(true);
             try {
-                const res = await fetch("http://localhost:8000/assist/compose", {
+                const res = await fetch("/assist/compose", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
+                    credentials: "include",
                     body: JSON.stringify({
                         to: to.split(",").map((s: string) => s.trim()).filter(Boolean),
                         cc: [],
                         bcc: [],
                         subject,
-                        body,
-                        workspace_id: "wksp_123" // Fallback, backend usually infers from token/context
+                        body
                     })
                 });
                 if (res.ok) setIsSent(true);

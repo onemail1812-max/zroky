@@ -1,8 +1,8 @@
-"""Aaliyah orchestrator for Sprint 1 sensory foundation."""
-# [IDE FORCE RELOAD CACHE - FILE IS ALREADY FIXED]
+"""Aaliyah orchestrator — async-safe with non-blocking DB ops."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
@@ -115,55 +115,61 @@ class AaliyahOrchestrator:
         if event_type in ["assistant_message", "new_email_arrival", "draft_ready"]:
              from app.models.chat_message import ChatRepository
              import uuid
-             persist_db = SessionLocal()
-             try:
-                 repo = ChatRepository(persist_db, self.workspace_id)
-                 if event_type == "assistant_message":
-                     text = (payload or {}).get("text", message)
-                     repo.add_message(
-                        id=f"proactive_{uuid.uuid4().hex[:12]}",
-                        role="assistant",
-                        content=text,
-                        thread_id=(payload or {}).get("thread_id"),
-                        msg_type="text",
-                        payload=payload,
-                     )
-                 elif event_type == "new_email_arrival":
-                     p = payload or {}
-                     repo.add_message(
-                        id=f"arrival_{uuid.uuid4().hex[:12]}",
-                        role="assistant",
-                        content=None,
-                        thread_id=None,
-                        msg_type="email_action",
-                        payload={
-                            "sender": p.get("sender_name", p.get("sender", "Unknown")),
-                            "subject": p.get("subject", "No Subject"),
-                            "snippet": p.get("snippet", ""),
-                            "priority": "New",
-                            "actions": p.get("actions", []),
-                        },
-                     )
-                 elif event_type == "draft_ready":
-                     p = payload or {}
-                     repo.add_message(
-                        id=f"draft_{uuid.uuid4().hex[:12]}",
-                        role="assistant",
-                        content=None,
-                        thread_id=None,
-                        msg_type="email_action",
-                        payload={
-                            "action": "draft_ready",
-                            "sender": p.get("sender", ""),
-                            "subject": p.get("subject", ""),
-                            "snippet": p.get("snippet", ""),
-                            "draft": p.get("draft", {}),
-                        },
-                     )
-             except Exception as persist_err:
-                 logger.warning(f"Failed to persist {event_type} event: {persist_err}")
-             finally:
-                 persist_db.close()
+             ws_id = self.workspace_id
+             ev_type = event_type
+             ev_payload = payload
+             ev_message = message
+             def _persist_event():
+                 persist_db = SessionLocal()
+                 try:
+                     repo = ChatRepository(persist_db, ws_id)
+                     if ev_type == "assistant_message":
+                         text = (ev_payload or {}).get("text", ev_message)
+                         repo.add_message(
+                            id=f"proactive_{uuid.uuid4().hex[:12]}",
+                            role="assistant",
+                            content=text,
+                            thread_id=(ev_payload or {}).get("thread_id"),
+                            msg_type="text",
+                            payload=ev_payload,
+                         )
+                     elif ev_type == "new_email_arrival":
+                         p = ev_payload or {}
+                         repo.add_message(
+                            id=f"arrival_{uuid.uuid4().hex[:12]}",
+                            role="assistant",
+                            content=None,
+                            thread_id=None,
+                            msg_type="email_action",
+                            payload={
+                                "sender": p.get("sender_name", p.get("sender", "Unknown")),
+                                "subject": p.get("subject", "No Subject"),
+                                "snippet": p.get("snippet", ""),
+                                "priority": "New",
+                                "actions": p.get("actions", []),
+                            },
+                         )
+                     elif ev_type == "draft_ready":
+                         p = ev_payload or {}
+                         repo.add_message(
+                            id=f"draft_{uuid.uuid4().hex[:12]}",
+                            role="assistant",
+                            content=None,
+                            thread_id=None,
+                            msg_type="email_action",
+                            payload={
+                                "action": "draft_ready",
+                                "sender": p.get("sender", ""),
+                                "subject": p.get("subject", ""),
+                                "snippet": p.get("snippet", ""),
+                                "draft": p.get("draft", {}),
+                            },
+                         )
+                 except Exception as persist_err:
+                     logger.warning(f"Failed to persist {ev_type} event: {persist_err}")
+                 finally:
+                     persist_db.close()
+             await asyncio.to_thread(_persist_event)
 
         # CommEngine events
         state = self._get_state()
@@ -189,18 +195,23 @@ class AaliyahOrchestrator:
 
         # Flush CommEngine
         if event_type != "assistant_message":
-            db = None
             try:
-                db = SessionLocal()
-                workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-                preferences = workspace.settings_json if workspace and workspace.settings_json else {}
-                if isinstance(preferences, str):
-                    import json
+                ws_id = self.workspace_id
+                def _fetch_preferences():
+                    db = SessionLocal()
                     try:
-                        preferences = json.loads(preferences)
-                    except Exception:
-                        preferences = {}
-                        
+                        workspace = db.query(Workspace).filter(Workspace.id == ws_id).first()
+                        preferences = workspace.settings_json if workspace and workspace.settings_json else {}
+                        if isinstance(preferences, str):
+                            import json
+                            try:
+                                preferences = json.loads(preferences)
+                            except Exception:
+                                preferences = {}
+                        return preferences
+                    finally:
+                        db.close()
+                preferences = await asyncio.to_thread(_fetch_preferences)
                 user_name = preferences.get("user_name") or preferences.get("first_name") or "there"
                 
                 msg = await self.comm_engine.flush(state.communication, user_name=user_name, brain=self.brain, preferences=preferences)
@@ -208,27 +219,22 @@ class AaliyahOrchestrator:
                      await self._emit("assistant_message", msg, {"text": msg, "role": "assistant"})
             except Exception as e:
                 logger.error(f"CommEngine flush failed: {e}", exc_info=True)
-            finally:
-                if db: db.close()
 
     async def broadcast_updates(self, db: Session) -> None:
-        """Fetch and broadcast latest counts and stats."""
-        unread = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.is_read == False).count()
-        needs_reply = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.awaiting_reply == True).count()
-        followups = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.category == "followups").count()
-        drafts_count = db.query(TriagedEmail).filter(
-            TriagedEmail.workspace_id == self.workspace_id, 
-            cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
-        ).count()
-
-        payload = {
-            "unread": unread,
-            "needs_reply": needs_reply,
-            "followups": followups,
-            "drafts": drafts_count,
-            "timestamp": datetime.now(timezone.utc).timestamp()
-        }
-        await self._emit("counts_update", "Updated inbox counts", payload)
+        """Fetch and broadcast latest counts and stats (non-blocking)."""
+        ws_id = self.workspace_id
+        def _fetch_counts():
+            unread = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.is_read == False).count()
+            needs_reply = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.awaiting_reply == True).count()
+            followups = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.category == "followups").count()
+            drafts_count = db.query(TriagedEmail).filter(
+                TriagedEmail.workspace_id == ws_id, 
+                cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
+            ).count()
+            return {"unread": unread, "needs_reply": needs_reply, "followups": followups, "drafts": drafts_count}
+        counts = await asyncio.to_thread(_fetch_counts)
+        counts["timestamp"] = datetime.now(timezone.utc).timestamp()
+        await self._emit("counts_update", "Updated inbox counts", counts)
 
     async def _audit(self, db: Session, **kwargs: Any) -> None:
         try:

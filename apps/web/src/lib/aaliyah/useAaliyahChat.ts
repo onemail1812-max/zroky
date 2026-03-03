@@ -62,7 +62,7 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                 const emailParam = emailId ? `&email_id=${emailId}` : "";
                 const threadParam = threadId ? `thread_id=${threadId}` : "";
                 const url = `/assist/history?${threadParam}${emailParam}`;
-                const res = await fetch(url);
+                const res = await fetch(url, { credentials: "include" });
                 if (res.ok) {
                     const data = await res.json();
                     if (data && Array.isArray(data)) {
@@ -85,7 +85,7 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
         };
 
         fetchHistory();
-    }, [threadId]);
+    }, [threadId, emailId]);
 
     const setMessages = useCallback((updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
         setMessagesRaw(prev => {

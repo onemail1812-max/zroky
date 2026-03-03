@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import asdict
@@ -498,27 +499,31 @@ class ChatHandler(BaseHandler):
             prompt_context = f"{prompt_context}\n{attachment_info}"
 
         from app.models.integration import Integration, IntegrationStatus
-        try:
-            integrations = db.query(Integration).filter(Integration.workspace_id == self.workspace_id).all()
-            google_ok = any("google" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
-            outlook_ok = any("outlook" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
-            is_connected = google_ok or outlook_ok
-        except Exception as int_err:
-            logger.warning("Integration query failed: %s", int_err)
-            is_connected = False
+        def _check_integrations():
+            try:
+                integrations = db.query(Integration).filter(Integration.workspace_id == self.workspace_id).all()
+                google_ok = any("google" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+                outlook_ok = any("outlook" in str(i.provider).lower() and i.status == IntegrationStatus.CONNECTED and i.token_encrypted for i in integrations)
+                return google_ok or outlook_ok
+            except Exception as int_err:
+                logger.warning("Integration query failed: %s", int_err)
+                return False
+        is_connected = await asyncio.to_thread(_check_integrations)
         connection_status_msg = (
             "CONNECTED to inbox and calendar." if is_connected 
             else "DISCONNECTED. You cannot see emails or calendar events right now. Proactively inform the user they must connect in Settings if they ask for data you don't have."
         )
 
-        try:
-            workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-            ws_settings = workspace.settings_json or {} if workspace else {}
-            aaliyah_settings = ws_settings.get("aaliyah", {})
-            user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
-        except Exception as ws_err:
-            logger.warning("Workspace query failed: %s", ws_err)
-            user_name = "there"
+        def _get_workspace_settings():
+            try:
+                workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+                ws_settings = workspace.settings_json or {} if workspace else {}
+                aaliyah_settings = ws_settings.get("aaliyah", {})
+                return aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+            except Exception as ws_err:
+                logger.warning("Workspace query failed: %s", ws_err)
+                return "there"
+        user_name = await asyncio.to_thread(_get_workspace_settings)
 
         system_prompt = (
             f"You are Aaliyah, an elite AI Chief of Staff for {user_name}.\n"
@@ -536,31 +541,33 @@ class ChatHandler(BaseHandler):
         from app.core.queue import queue, JobType
         
         pending_email = None
-        try:
-            if thread_id:
-                pending_email = db.query(TriagedEmail).filter(
-                    TriagedEmail.thread_id == thread_id,
-                    TriagedEmail.workspace_id == self.workspace_id
-                ).first()
-            
-            # Always fetch recent emails for the needs_clarity scan
-            # regardless of whether pending_email was found by thread_id
-            recent_emails = db.query(TriagedEmail).filter(
-                TriagedEmail.workspace_id == self.workspace_id,
-            ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
+        def _find_pending_email():
+            pe = None
+            try:
+                if thread_id:
+                    pe = db.query(TriagedEmail).filter(
+                        TriagedEmail.thread_id == thread_id,
+                        TriagedEmail.workspace_id == self.workspace_id
+                    ).first()
+                
+                recent_emails = db.query(TriagedEmail).filter(
+                    TriagedEmail.workspace_id == self.workspace_id,
+                ).order_by(TriagedEmail.created_at.desc()).limit(10).all()
 
-            if not pending_email or not (pending_email.metadata_json or {}).get("needs_clarity"):
-                found = None
-                for pe in recent_emails:
-                    if pe is None: continue
-                    meta = pe.metadata_json or {}
-                    if meta.get("needs_clarity") and not meta.get("clarification_complete"):
-                        found = pe
-                        break
-                pending_email = found
-        except Exception as te_err:
-            logger.warning("TriagedEmail query failed: %s", te_err)
-            pending_email = None
+                if not pe or not (pe.metadata_json or {}).get("needs_clarity"):
+                    found = None
+                    for item in recent_emails:
+                        if item is None: continue
+                        meta = item.metadata_json or {}
+                        if meta.get("needs_clarity") and not meta.get("clarification_complete"):
+                            found = item
+                            break
+                    pe = found
+            except Exception as te_err:
+                logger.warning("TriagedEmail query failed: %s", te_err)
+                pe = None
+            return pe
+        pending_email = await asyncio.to_thread(_find_pending_email)
         
         if pending_email:
             meta = dict(pending_email.metadata_json or {})
@@ -709,7 +716,7 @@ class ChatHandler(BaseHandler):
             self._patch_state(status="idle", active_task=None)
             return
 
-        if gate.allow_llm and intent in {"SEARCH", "RESEARCH", "CONFLICT"}:
+        if intent in {"SEARCH", "RESEARCH", "CONFLICT"}:
             try:
                 await self._emit("thinking", f"Specialized agent '{intent}' thinking...")
                 result = await self.dispatcher.dispatch(db, intent, message, {"query": message})

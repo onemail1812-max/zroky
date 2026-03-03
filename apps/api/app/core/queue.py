@@ -36,39 +36,40 @@ class AdvancedSQLiteQueue:
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
 
     async def enqueue(self, job_type: str, payload: Dict[str, Any], dedupe_id: Optional[str] = None, run_at: Optional[datetime] = None) -> Optional[str]:
-        db = SessionLocal()
-        try:
-            # Check deduplication
-            if dedupe_id:
-                # Same dedupe_id and it is not FINISHED/DLQ -> skip
-                existing = db.query(Job).filter(
-                    Job.dedupe_id == dedupe_id,
-                    Job.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
-                ).first()
-                if existing:
-                    logger.debug(f"Skipping duplicate job {job_type} ({dedupe_id})")
-                    return existing.id
+        def _sync_enqueue():
+            db = SessionLocal()
+            try:
+                # Check deduplication
+                if dedupe_id:
+                    existing = db.query(Job).filter(
+                        Job.dedupe_id == dedupe_id,
+                        Job.status.in_([JobStatus.PENDING, JobStatus.RUNNING])
+                    ).first()
+                    if existing:
+                        logger.debug(f"Skipping duplicate job {job_type} ({dedupe_id})")
+                        return existing.id
 
-            job_id = str(uuid.uuid4())
-            new_job = Job(
-                id=job_id,
-                type=job_type,
-                workspace_id=payload.get("workspace_id"),
-                payload_json=json.dumps(payload, default=str),
-                dedupe_id=dedupe_id,
-                run_at=run_at or datetime.now(timezone.utc),
-                status=JobStatus.PENDING
-            )
-            db.add(new_job)
-            db.commit()
-            logger.info(f"Enqueued {job_type} job {job_id} in SQLiteQueue")
-            return job_id
-        except Exception as e:
-            logger.error(f"Failed to enqueue job: {e}")
-            db.rollback()
-            return None
-        finally:
-            db.close()
+                job_id = str(uuid.uuid4())
+                new_job = Job(
+                    id=job_id,
+                    type=job_type,
+                    workspace_id=payload.get("workspace_id"),
+                    payload_json=json.dumps(payload, default=str),
+                    dedupe_id=dedupe_id,
+                    run_at=run_at or datetime.now(timezone.utc),
+                    status=JobStatus.PENDING
+                )
+                db.add(new_job)
+                db.commit()
+                logger.info(f"Enqueued {job_type} job {job_id} in SQLiteQueue")
+                return job_id
+            except Exception as e:
+                logger.error(f"Failed to enqueue job: {e}")
+                db.rollback()
+                return None
+            finally:
+                db.close()
+        return await asyncio.to_thread(_sync_enqueue)
 
     def _acquire_job(self) -> Optional[Job]:
         """Atomic locking using SQLite."""
@@ -119,43 +120,42 @@ class AdvancedSQLiteQueue:
             # 1. Random Heartbeat Jitter (Enterprise Grade)
             # Prevents thundering herd when reclaiming jobs
             await asyncio.sleep(60 + random.randint(0, 30))
-            
-            db = SessionLocal()
-            try:
-                now = datetime.now(timezone.utc)
-                # Stale jobs: Running but locked more than 10 mins ago
-                stale_threshold = now - timedelta(minutes=10)
-                
-                zombies = db.query(Job).filter(
-                    Job.status == JobStatus.RUNNING,
-                    Job.locked_at < stale_threshold
-                ).all()
-                
-                if zombies:
-                    logger.warning(f"Watchdog found {len(zombies)} zombie jobs. Reclaiming...")
-                    for job in zombies:
-                         job.status = JobStatus.PENDING
-                         job.locked_at = None
-                         job.locked_by = None
-                         job.attempts += 1 # Count as a failed attempt due to crash
-                    db.commit()
-            except Exception as e:
-                logger.error(f"Watchdog error: {e}")
-                db.rollback()
-            finally:
-                db.close()
+
+            def _sync_watchdog():
+                db = SessionLocal()
+                try:
+                    now = datetime.now(timezone.utc)
+                    stale_threshold = now - timedelta(minutes=10)
+                    zombies = db.query(Job).filter(
+                        Job.status == JobStatus.RUNNING,
+                        Job.locked_at < stale_threshold
+                    ).all()
+                    if zombies:
+                        logger.warning(f"Watchdog found {len(zombies)} zombie jobs. Reclaiming...")
+                        for job in zombies:
+                             job.status = JobStatus.PENDING
+                             job.locked_at = None
+                             job.locked_by = None
+                             job.attempts += 1
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"Watchdog error: {e}")
+                    db.rollback()
+                finally:
+                    db.close()
+            await asyncio.to_thread(_sync_watchdog)
 
     async def worker_loop(self, handlers: Dict[str, Callable]):
         logger.info(f"Advanced Native Worker '{self.worker_id}' started listening to SQLiteQueue...")
         while True:
-            job = self._acquire_job()
+            # Non-blocking job acquisition via thread pool
+            job = await asyncio.to_thread(self._acquire_job)
             if not job:
                 await asyncio.sleep(2.0)  # Polling interval
                 continue
                 
             # We got a job!
             logger.info(f"Worker {self.worker_id} acquired job {job.id} ({job.type}, attempt {job.attempts + 1})")
-            db = SessionLocal()
             try:
                 # Parse payload
                 payload = json.loads(job.payload_json) if job.payload_json else {}
@@ -168,42 +168,48 @@ class AdvancedSQLiteQueue:
                 if asyncio.iscoroutinefunction(handler):
                     await handler(payload)
                 else:
-                    handler(payload)
+                    await asyncio.to_thread(handler, payload)
                 
-                # Success! Mark as done
-                db_job = db.get(Job, job.id)
-                db_job.status = JobStatus.DONE
-                db_job.updated_at = datetime.now(timezone.utc)
-                db.commit()
+                # Success! Mark as done (non-blocking)
+                def _mark_done():
+                    db = SessionLocal()
+                    try:
+                        db_job = db.get(Job, job.id)
+                        if db_job:
+                            db_job.status = JobStatus.DONE
+                            db_job.updated_at = datetime.now(timezone.utc)
+                            db.commit()
+                    finally:
+                        db.close()
+                await asyncio.to_thread(_mark_done)
                 logger.info(f"Job {job.id} completed successfully")
                 
             except Exception as e:
-                # Failure! Handle Retry or DLQ
-                db.rollback()
-                db_job = db.get(Job, job.id)
-                
-                db_job.attempts += 1
-                db_job.last_error = str(e)
-                db_job.traceback_data = traceback.format_exc()
-                
-                if db_job.attempts >= db_job.max_attempts:
-                    db_job.status = JobStatus.DLQ
-                    logger.error(f"Job {job.id} failed {db_job.attempts} times -> Dead Letter Queue")
-                else:
-                    db_job.status = JobStatus.PENDING
-                    # Exponential backoff: 2s, 4s, 8s, etc.
-                    backoff_secs = 2 ** db_job.attempts
-                    db_job.run_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_secs)
-                    
-                    # Also unlock
-                    db_job.locked_at = None
-                    db_job.locked_by = None
-                    
-                    logger.warning(f"Job {job.id} failed, retrying in {backoff_secs}s. Error: {e}")
-                    
-                db.commit()
-            finally:
-                db.close()
+                # Failure! Handle Retry or DLQ (non-blocking)
+                def _mark_failed(error: Exception):
+                    db = SessionLocal()
+                    try:
+                        db_job = db.get(Job, job.id)
+                        if not db_job:
+                            return
+                        db_job.attempts += 1
+                        db_job.last_error = str(error)
+                        db_job.traceback_data = traceback.format_exc()
+                        
+                        if db_job.attempts >= db_job.max_attempts:
+                            db_job.status = JobStatus.DLQ
+                            logger.error(f"Job {job.id} failed {db_job.attempts} times -> Dead Letter Queue")
+                        else:
+                            db_job.status = JobStatus.PENDING
+                            backoff_secs = 2 ** db_job.attempts
+                            db_job.run_at = datetime.now(timezone.utc) + timedelta(seconds=backoff_secs)
+                            db_job.locked_at = None
+                            db_job.locked_by = None
+                            logger.warning(f"Job {job.id} failed, retrying in {backoff_secs}s. Error: {error}")
+                        db.commit()
+                    finally:
+                        db.close()
+                await asyncio.to_thread(_mark_failed, e)
 
     async def scheduler_loop(self):
         """
@@ -215,40 +221,41 @@ class AdvancedSQLiteQueue:
         logger.info("Scheduler started. Running 24/7 background sync every 5 minutes...")
         while True:
             try:
-                db = SessionLocal()
-                try:
-                    # Find all unique workspace IDs that have a connected email provider
-                    integrations = db.query(Integration.workspace_id).filter(
-                        Integration.status == IntegrationStatus.CONNECTED,
-                        Integration.provider.in_(["google", "google_gmail", "GOOGLE_GMAIL", "microsoft", "outlook", "OUTLOOK"])
-                    ).distinct().all()
+                def _find_active_workspaces():
+                    db = SessionLocal()
+                    try:
+                        integrations = db.query(Integration.workspace_id).filter(
+                            Integration.status == IntegrationStatus.CONNECTED,
+                            Integration.provider.in_(["google", "google_gmail", "GOOGLE_GMAIL", "microsoft", "outlook", "OUTLOOK"])
+                        ).distinct().all()
+                        return [ws_id for (ws_id,) in integrations]
+                    finally:
+                        db.close()
+
+                workspace_ids = await asyncio.to_thread(_find_active_workspaces)
                     
-                    for (workspace_id,) in integrations:
-                        logger.debug(f"Scheduler auto-queueing sync for workspace: {workspace_id}")
-                        await self.enqueue(
-                            job_type=JobType.SYNC_PROVIDER.value,
-                            payload={
-                                 "workspace_id": workspace_id,
-                                 "provider": "all"
-                            },
-                            dedupe_id=f"auto_sync:{workspace_id}" 
-                        )
+                for workspace_id in workspace_ids:
+                    logger.debug(f"Scheduler auto-queueing sync for workspace: {workspace_id}")
+                    await self.enqueue(
+                        job_type=JobType.SYNC_PROVIDER.value,
+                        payload={
+                             "workspace_id": workspace_id,
+                             "provider": "all"
+                        },
+                        dedupe_id=f"auto_sync:{workspace_id}" 
+                    )
 
-                        # Queue Auto-Followup check (every 5 mins is fine, but it internally checks 48h logic)
-                        await self.enqueue(
-                            job_type=JobType.AUTO_FOLLOWUP.value,
-                            payload={"workspace_id": workspace_id},
-                            dedupe_id=f"auto_followup:{workspace_id}"
-                        )
+                    await self.enqueue(
+                        job_type=JobType.AUTO_FOLLOWUP.value,
+                        payload={"workspace_id": workspace_id},
+                        dedupe_id=f"auto_followup:{workspace_id}"
+                    )
 
-                        # Queue Orchestrator Heartbeat (Flush communication queues)
-                        await self.enqueue(
-                            job_type=JobType.HEARTBEAT.value,
-                            payload={"workspace_id": workspace_id},
-                            dedupe_id=f"heartbeat:{workspace_id}"
-                        )
-                finally:
-                    db.close()
+                    await self.enqueue(
+                        job_type=JobType.HEARTBEAT.value,
+                        payload={"workspace_id": workspace_id},
+                        dedupe_id=f"heartbeat:{workspace_id}"
+                    )
             except asyncio.CancelledError:
                 logger.info("Scheduler loop cancelled, shutting down cleanly")
                 break
