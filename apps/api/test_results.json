@@ -1,33 +1,11 @@
 {
   "/assist/history": {
-    "status_code": 200,
-    "response": []
+    "status_code": 500,
+    "response": "{\"error\":{\"code\":\"http_error\",\"message\":\"Context Error: (sqlite3.OperationalError) unable to open database file\\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\"}}"
   },
   "/health/providers": {
-    "status_code": 200,
-    "response": {
-      "status": "ok",
-      "data": {
-        "email_accessible": false,
-        "calendar_accessible": false,
-        "providers": {
-          "google_gmail": "NOT_CONNECTED",
-          "outlook": "NOT_CONNECTED"
-        },
-        "email_health": {
-          "connected": false,
-          "provider": null,
-          "status": "NO_TOKEN",
-          "error_code": "NO_INTEGRATION"
-        },
-        "calendar_health": {
-          "connected": false,
-          "provider": null,
-          "status": "NO_TOKEN",
-          "error_code": "NO_INTEGRATION"
-        }
-      }
-    }
+    "status_code": 500,
+    "response": "{\"error\":{\"code\":\"http_error\",\"message\":\"Context Error: (sqlite3.OperationalError) unable to open database file\\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\"}}"
   },
   "/aaliyah/status": {
     "status_code": 200,
@@ -39,22 +17,11 @@
         "gmail": null,
         "calendar": null
       },
-      "last_updated_at": "2026-03-02T12:05:19.735783+00:00"
+      "last_updated_at": "2026-03-03T21:33:33.441828+00:00"
     }
   },
   "/aaliyah/counts": {
-    "status_code": 200,
-    "response": {
-      "triaged_count": 0,
-      "queued_count": 0,
-      "pending_approvals": 0,
-      "escalations": 0,
-      "calendar_events": 0,
-      "calendar_conflicts": 0,
-      "priority_count": 0,
-      "needs_reply_count": 0,
-      "followups_count": 0,
-      "drafts_count": 0
-    }
+    "status_code": 500,
+    "response": "{\"error\":{\"code\":\"http_error\",\"message\":\"Context Error: (sqlite3.OperationalError) unable to open database file\\n(Background on this error at: https://sqlalche.me/e/20/e3q8)\"}}"
   }
 }
