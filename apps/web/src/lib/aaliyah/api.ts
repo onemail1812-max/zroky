@@ -12,8 +12,19 @@ export function readLocalStorage(keys: string[]): string | null {
   return null
 }
 
-function withAuth(config: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
-  const token = readLocalStorage(TOKEN_KEYS)
+async function withAuth(config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> {
+  let token = readLocalStorage(TOKEN_KEYS)
+
+  // Directly fetch fresh token from Clerk if available (Browser environment)
+  if (typeof window !== "undefined" && (window as any).Clerk?.session) {
+    try {
+      const freshToken = await (window as any).Clerk.session.getToken();
+      if (freshToken) token = freshToken;
+    } catch (e) {
+      console.warn("Failed to get fresh Clerk token from window.Clerk", e);
+    }
+  }
+
   const workspaceId = readLocalStorage(WORKSPACE_KEYS)
 
   if (!config.headers) {
