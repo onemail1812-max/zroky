@@ -1,0 +1,64 @@
+......FF....F.....................s............FF....................... [ 60%]
+.............................F..................                         [100%]
+================================== FAILURES ===================================
+______________ TestAvailabilityEngine.test_find_slots_empty_day _______________
+tests\test_availability_engine.py:24: in test_find_slots_empty_day
+    self.assertEqual(len(slots), 1)
+E   AssertionError: 0 != 1
+____________ TestAvailabilityEngine.test_find_slots_with_conflict _____________
+tests\test_availability_engine.py:44: in test_find_slots_with_conflict
+    self.assertEqual(len(slots), 2)
+E   AssertionError: 0 != 2
+_____________________________ test_cache_fallback _____________________________
+async def functions are not natively supported.
+You need to install a suitable plugin for your async framework, for example:
+  - anyio
+  - pytest-asyncio
+  - pytest-tornasync
+  - pytest-trio
+  - pytest-twisted
+_________________________ test_instructor_triage_real _________________________
+tests\test_instructor_extraction.py:7: in test_instructor_triage_real
+    if not settings.brain_api_key:
+           ^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\pydantic\main.py:1026: in __getattr__
+    raise AttributeError(f'{type(self).__name__!r} object has no attribute {item!r}')
+E   AttributeError: 'Settings' object has no attribute 'brain_api_key'
+---------------------------- Captured stdout setup ----------------------------
+{"timestamp": "2026-03-02T12:08:58.168725+00:00", "level": "DEBUG", "logger": "asyncio", "message": "Using proactor: IocpProactor", "module": "proactor_events", "func": "__init__", "line": 633}
+----------------------------- Captured log setup ------------------------------
+DEBUG    asyncio:proactor_events.py:633 Using proactor: IocpProactor
+__________ LabelingRulesTests.test_default_preferences_and_decision ___________
+tests\test_labeling_rules.py:35: in test_default_preferences_and_decision
+    CalendarEventSnapshot(
+<string>:4: in __init__
+    ???
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\state.py:596: in _initialize_instance
+    with util.safe_reraise():
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\langhelpers.py:224: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\state.py:594: in _initialize_instance
+    manager.original_init(*mixed[1:], **kwargs)
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\decl_base.py:2179: in _declarative_constructor
+    raise TypeError(
+E   TypeError: 'provider' is an invalid keyword argument for CalendarEventSnapshot
+_______________________ test_drafting_with_availability _______________________
+tests\test_scheduling_draft.py:86: in test_drafting_with_availability
+    draft = await agent.generate_draft(email)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\agents\aaliyah\core\drafting.py:173: in generate_draft
+    if owner and owner.email and "@" in owner.email:
+                 ^^^^^^^^^^^
+E   AttributeError: 'Workspace' object has no attribute 'email'
+---------------------------- Captured stdout setup ----------------------------
+{"timestamp": "2026-03-02T12:09:24.905351+00:00", "level": "DEBUG", "logger": "asyncio", "message": "Using proactor: IocpProactor", "module": "proactor_events", "func": "__init__", "line": 633}
+----------------------------- Captured log setup ------------------------------
+DEBUG    asyncio:proactor_events.py:633 Using proactor: IocpProactor
+=========================== short test summary info ===========================
+FAILED tests/test_availability_engine.py::TestAvailabilityEngine::test_find_slots_empty_day
+FAILED tests/test_availability_engine.py::TestAvailabilityEngine::test_find_slots_with_conflict
+FAILED tests/test_cache.py::test_cache_fallback - Failed: async def functions...
+FAILED tests/test_instructor_extraction.py::test_instructor_triage_real - Att...
+FAILED tests/test_labeling_rules.py::LabelingRulesTests::test_default_preferences_and_decision
+FAILED tests/test_scheduling_draft.py::test_drafting_with_availability - Attr...
+6 failed, 113 passed, 1 skipped in 117.31s (0:01:57)

@@ -1,0 +1,161 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\Zroky\apps\api
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.6, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests\test_email_connector_factory.py FF                                 [ 66%]
+tests\test_email_ingestor.py F                                           [100%]
+
+================================== FAILURES ===================================
+___ EmailConnectorFactoryTests.test_factory_rejects_cross_workspace_access ____
+
+self = <test_email_connector_factory.EmailConnectorFactoryTests testMethod=test_factory_rejects_cross_workspace_access>
+
+    async def test_factory_rejects_cross_workspace_access(self):
+        db = self.SessionLocal()
+        factory = EmailConnectorFactory(db, "workspace-1")
+>       with self.assertRaises(PermissionError):
+E       AssertionError: PermissionError not raised
+
+tests\test_email_connector_factory.py:53: AssertionError
+_ EmailConnectorFactoryTests.test_factory_returns_gmail_connector_when_authorized _
+
+self = <test_email_connector_factory.EmailConnectorFactoryTests testMethod=test_factory_returns_gmail_connector_when_authorized>
+
+    async def test_factory_returns_gmail_connector_when_authorized(self):
+        db = self.SessionLocal()
+        db.add(
+            Membership(
+                id="m1",
+                workspace_id="workspace-1",
+                user_id="user-1",
+                role=MembershipRole.ADMIN,
+            )
+        )
+        db.commit()
+    
+        factory = EmailConnectorFactory(db, "workspace-1")
+>       with patch(
+            "app.services.integrations.email_connector.IntegrationTokenManager.get_valid_token",
+            return_value={"access_token": "token"},
+        ), patch("app.services.integrations.email_connector.GmailService", new=FakeGmailService):
+
+tests\test_email_connector_factory.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <unittest.mock._patch object at 0x00000164C1147950>
+
+    def __enter__(self):
+        """Perform the patch."""
+        new, spec, spec_set = self.new, self.spec, self.spec_set
+        autospec, kwargs = self.autospec, self.kwargs
+        new_callable = self.new_callable
+>       self.target = self.getter()
+                      ^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:1430: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'app.services.integrations.email_connector.IntegrationTokenManager'
+
+    def resolve_name(name):
+        """
+        Resolve a name to an object.
+    
+        It is expected that `name` will be a string in one of the following
+        formats, where W is shorthand for a valid Python identifier and dot stands
+        for a literal period in these pseudo-regexes:
+    
+        W(.W)*
+        W(.W)*:(W(.W)*)?
+    
+        The first form is intended for backward compatibility only. It assumes that
+        some part of the dotted name is a package, and the rest is an object
+        somewhere within that package, possibly nested inside other objects.
+        Because the place where the package stops and the object hierarchy starts
+        can't be inferred by inspection, repeated attempts to import must be done
+        with this form.
+    
+        In the second form, the caller makes the division point clear through the
+        provision of a single colon: the dotted name to the left of the colon is a
+        package to be imported, and the dotted name to the right is the object
+        hierarchy within that package. Only one import is needed in this form. If
+        it ends with the colon, then a module object is returned.
+    
+        The function will return an object (which might be a module), or raise one
+        of the following exceptions:
+    
+        ValueError - if `name` isn't in a recognised format
+        ImportError - if an import failed when it shouldn't have
+        AttributeError - if a failure occurred when traversing the object hierarchy
+                         within the imported package to get to the desired object.
+        """
+        global _NAME_PATTERN
+        if _NAME_PATTERN is None:
+            # Lazy import to speedup Python startup time
+            import re
+            dotted_words = r'(?!\d)(\w+)(\.(?!\d)(\w+))*'
+            _NAME_PATTERN = re.compile(f'^(?P<pkg>{dotted_words})'
+                                       f'(?P<cln>:(?P<obj>{dotted_words})?)?$',
+                                       re.UNICODE)
+    
+        m = _NAME_PATTERN.match(name)
+        if not m:
+            raise ValueError(f'invalid format: {name!r}')
+        gd = m.groupdict()
+        if gd.get('cln'):
+            # there is a colon - a one-step import is all that's needed
+            mod = importlib.import_module(gd['pkg'])
+            parts = gd.get('obj')
+            parts = parts.split('.') if parts else []
+        else:
+            # no colon - have to iterate to find the package boundary
+            parts = name.split('.')
+            modname = parts.pop(0)
+            # first part *must* be a module/package.
+            mod = importlib.import_module(modname)
+            while parts:
+                p = parts[0]
+                s = f'{modname}.{p}'
+                try:
+                    mod = importlib.import_module(s)
+                    parts.pop(0)
+                    modname = s
+                except ImportError:
+                    break
+        # if we reach this point, mod is the module, already imported, and
+        # parts is the list of parts in the object hierarchy to be traversed, or
+        # an empty list if just the module is wanted.
+        result = mod
+        for p in parts:
+>           result = getattr(result, p)
+                     ^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'app.services.integrations.email_connector' has no attribute 'IntegrationTokenManager'
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\pkgutil.py:715: AttributeError
+______________ EmailIngestorTests.test_fetch_and_normalize_gmail ______________
+
+self = <test_email_ingestor.EmailIngestorTests testMethod=test_fetch_and_normalize_gmail>
+
+    async def test_fetch_and_normalize_gmail(self):
+        db = self.SessionLocal()
+        ingestor = EmailIngestor("w1", db)
+    
+        with patch(
+            "app.agents.aaliyah.core.ingestion.email_ingestor.IntegrationTokenManager.get_valid_token",
+            return_value={"access_token": "x"},
+        ), patch("app.agents.aaliyah.core.ingestion.email_ingestor.GmailService", new=FakeGmailService):
+            items = await ingestor.fetch_and_normalize(provider="google", max_results=5)
+    
+>       self.assertEqual(len(items), 1)
+E       AssertionError: 0 != 1
+
+tests\test_email_ingestor.py:55: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_email_connector_factory.py::EmailConnectorFactoryTests::test_factory_rejects_cross_workspace_access
+FAILED tests/test_email_connector_factory.py::EmailConnectorFactoryTests::test_factory_returns_gmail_connector_when_authorized
+FAILED tests/test_email_ingestor.py::EmailIngestorTests::test_fetch_and_normalize_gmail
+============================== 3 failed in 3.81s ==============================

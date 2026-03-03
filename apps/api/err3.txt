@@ -1,0 +1,2465 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\Zroky\apps\api
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.6, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+tests\test_e2e_pipeline.py F                                             [100%]
+
+================================== FAILURES ===================================
+______________________________ test_e2e_pipeline ______________________________
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+constructor = <bound method DefaultExecutionContext._init_compiled of <class 'sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext'>>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+args = (<sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>, [{'metadata_json': {'body': 'Could you..., <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>, [BindParameter('triaged_emails_id', None, type_=String())])
+kw = {'cache_hit': <CacheStats.CACHE_MISS: 1>}, yp = None
+conn = <sqlalchemy.pool.base._ConnectionFairy object at 0x00000224A7436570>
+
+    def _execute_context(
+        self,
+        dialect: Dialect,
+        constructor: Callable[..., ExecutionContext],
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+        execution_options: _ExecuteOptions,
+        *args: Any,
+        **kw: Any,
+    ) -> CursorResult[Any]:
+        """Create an :class:`.ExecutionContext` and execute, returning
+        a :class:`_engine.CursorResult`."""
+    
+        if execution_options:
+            yp = execution_options.get("yield_per", None)
+            if yp:
+                execution_options = execution_options.union(
+                    {"stream_results": True, "max_row_buffer": yp}
+                )
+        try:
+            conn = self._dbapi_connection
+            if conn is None:
+                conn = self._revalidate_connection()
+    
+>           context = constructor(
+                dialect, self, conn, execution_options, *args, **kw
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1815: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cls = <class 'sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext'>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+connection = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+dbapi_connection = <sqlalchemy.pool.base._ConnectionFairy object at 0x00000224A7436570>
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+compiled = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+invoked_statement = <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>
+extracted_parameters = [BindParameter('triaged_emails_id', None, type_=String())]
+cache_hit = <CacheStats.CACHE_MISS: 1>
+
+    @classmethod
+    def _init_compiled(
+        cls,
+        dialect: Dialect,
+        connection: Connection,
+        dbapi_connection: PoolProxiedConnection,
+        execution_options: _ExecuteOptions,
+        compiled: SQLCompiler,
+        parameters: _CoreMultiExecuteParams,
+        invoked_statement: Executable,
+        extracted_parameters: Optional[Sequence[BindParameter[Any]]],
+        cache_hit: CacheStats = CacheStats.CACHING_DISABLED,
+    ) -> ExecutionContext:
+        """Initialize execution context for a Compiled construct."""
+    
+        self = cls.__new__(cls)
+        self.root_connection = connection
+        self._dbapi_connection = dbapi_connection
+        self.dialect = connection.dialect
+        self.extracted_parameters = extracted_parameters
+        self.invoked_statement = invoked_statement
+        self.compiled = compiled
+        self.cache_hit = cache_hit
+    
+        self.execution_options = execution_options
+    
+        self.result_column_struct = (
+            compiled._result_columns,
+            compiled._ordered_columns,
+            compiled._textual_ordered_columns,
+            compiled._ad_hoc_textual,
+            compiled._loose_column_name_matching,
+        )
+    
+        self.isinsert = ii = compiled.isinsert
+        self.isupdate = iu = compiled.isupdate
+        self.isdelete = id_ = compiled.isdelete
+        self.is_text = compiled.isplaintext
+    
+        if ii or iu or id_:
+            dml_statement = compiled.compile_state.statement  # type: ignore
+            if TYPE_CHECKING:
+                assert isinstance(dml_statement, UpdateBase)
+            self.is_crud = True
+            self._is_explicit_returning = ier = bool(dml_statement._returning)
+            self._is_implicit_returning = iir = bool(
+                compiled.implicit_returning
+            )
+            if iir and dml_statement._supplemental_returning:
+                self._is_supplemental_returning = True
+    
+            # dont mix implicit and explicit returning
+            assert not (iir and ier)
+    
+            if (ier or iir) and compiled.for_executemany:
+                if ii and not self.dialect.insert_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "INSERT..RETURNING when executemany is used"
+                    )
+                elif (
+                    ii
+                    and dml_statement._sort_by_parameter_order
+                    and not self.dialect.insert_executemany_returning_sort_by_parameter_order  # noqa: E501
+                ):
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "INSERT..RETURNING with deterministic row ordering "
+                        "when executemany is used"
+                    )
+                elif (
+                    ii
+                    and self.dialect.use_insertmanyvalues
+                    and not compiled._insertmanyvalues
+                ):
+                    raise exc.InvalidRequestError(
+                        'Statement does not have "insertmanyvalues" '
+                        "enabled, can't use INSERT..RETURNING with "
+                        "executemany in this case."
+                    )
+                elif iu and not self.dialect.update_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "UPDATE..RETURNING when executemany is used"
+                    )
+                elif id_ and not self.dialect.delete_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "DELETE..RETURNING when executemany is used"
+                    )
+    
+        if not parameters:
+            self.compiled_parameters = [
+                compiled.construct_params(
+                    extracted_parameters=extracted_parameters,
+                    escape_names=False,
+                )
+            ]
+        else:
+            self.compiled_parameters = [
+                compiled.construct_params(
+                    m,
+                    escape_names=False,
+                    _group_number=grp,
+                    extracted_parameters=extracted_parameters,
+                )
+                for grp, m in enumerate(parameters)
+            ]
+    
+            if len(parameters) > 1:
+                if self.isinsert and compiled._insertmanyvalues:
+                    self.execute_style = ExecuteStyle.INSERTMANYVALUES
+    
+                    imv = compiled._insertmanyvalues
+                    if imv.sentinel_columns is not None:
+                        self._num_sentinel_cols = imv.num_sentinel_columns
+                else:
+                    self.execute_style = ExecuteStyle.EXECUTEMANY
+    
+        self.unicode_statement = compiled.string
+    
+        self.cursor = self.create_cursor()
+    
+        if self.compiled.insert_prefetch or self.compiled.update_prefetch:
+            self._process_execute_defaults()
+    
+        processors = compiled._bind_processors
+    
+        flattened_processors: Mapping[
+            str, _BindProcessorType[Any]
+        ] = processors  # type: ignore[assignment]
+    
+        if compiled.literal_execute_params or compiled.post_compile_params:
+            if self.executemany:
+                raise exc.InvalidRequestError(
+                    "'literal_execute' or 'expanding' parameters can't be "
+                    "used with executemany()"
+                )
+    
+            expanded_state = compiled._process_parameters_for_postcompile(
+                self.compiled_parameters[0]
+            )
+    
+            # re-assign self.unicode_statement
+            self.unicode_statement = expanded_state.statement
+    
+            self._expanded_parameters = expanded_state.parameter_expansion
+    
+            flattened_processors = dict(processors)  # type: ignore
+            flattened_processors.update(expanded_state.processors)
+            positiontup = expanded_state.positiontup
+        elif compiled.positional:
+            positiontup = self.compiled.positiontup
+        else:
+            positiontup = None
+    
+        if compiled.schema_translate_map:
+            schema_translate_map = self.execution_options.get(
+                "schema_translate_map", {}
+            )
+            rst = compiled.preparer._render_schema_translates
+            self.unicode_statement = rst(
+                self.unicode_statement, schema_translate_map
+            )
+    
+        # final self.unicode_statement is now assigned, encode if needed
+        # by dialect
+        self.statement = self.unicode_statement
+    
+        # Convert the dictionary of bind parameter values
+        # into a dict or list to be sent to the DBAPI's
+        # execute() or executemany() method.
+    
+        if compiled.positional:
+            core_positional_parameters: MutableSequence[Sequence[Any]] = []
+            assert positiontup is not None
+            for compiled_params in self.compiled_parameters:
+>               l_param: List[Any] = [
+                    (
+                        flattened_processors[key](compiled_params[key])
+                        if key in flattened_processors
+                        else compiled_params[key]
+                    )
+                    for key in positiontup
+                ]
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:1494: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+.0 = <list_iterator object at 0x00000224A74E2B30>
+
+    l_param: List[Any] = [
+        (
+>           flattened_processors[key](compiled_params[key])
+            if key in flattened_processors
+            else compiled_params[key]
+        )
+        for key in positiontup
+    ]
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:1496: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+
+    def process(value: Optional[_T]) -> Any:
+>       return fixed_process_param(value, dialect)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\sql\type_api.py:2110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = SafeJSON()
+value = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == 'postgresql':
+            return value
+>       return json.dumps(value)
+               ^^^^^^^^^^^^^^^^^
+
+app\db_types.py:54: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+obj = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+skipkeys = False, ensure_ascii = True, check_circular = True, allow_nan = True
+cls = None, indent = None, separators = None, default = None
+
+    def dumps(obj, *, skipkeys=False, ensure_ascii=True, check_circular=True,
+            allow_nan=True, cls=None, indent=None, separators=None,
+            default=None, sort_keys=False, **kw):
+        """Serialize ``obj`` to a JSON formatted ``str``.
+    
+        If ``skipkeys`` is true then ``dict`` keys that are not basic types
+        (``str``, ``int``, ``float``, ``bool``, ``None``) will be skipped
+        instead of raising a ``TypeError``.
+    
+        If ``ensure_ascii`` is false, then the return value can contain non-ASCII
+        characters if they appear in strings contained in ``obj``. Otherwise, all
+        such characters are escaped in JSON strings.
+    
+        If ``check_circular`` is false, then the circular reference check
+        for container types will be skipped and a circular reference will
+        result in an ``RecursionError`` (or worse).
+    
+        If ``allow_nan`` is false, then it will be a ``ValueError`` to
+        serialize out of range ``float`` values (``nan``, ``inf``, ``-inf``) in
+        strict compliance of the JSON specification, instead of using the
+        JavaScript equivalents (``NaN``, ``Infinity``, ``-Infinity``).
+    
+        If ``indent`` is a non-negative integer, then JSON array elements and
+        object members will be pretty-printed with that indent level. An indent
+        level of 0 will only insert newlines. ``None`` is the most compact
+        representation.
+    
+        If specified, ``separators`` should be an ``(item_separator, key_separator)``
+        tuple.  The default is ``(', ', ': ')`` if *indent* is ``None`` and
+        ``(',', ': ')`` otherwise.  To get the most compact JSON representation,
+        you should specify ``(',', ':')`` to eliminate whitespace.
+    
+        ``default(obj)`` is a function that should return a serializable version
+        of obj or raise TypeError. The default simply raises TypeError.
+    
+        If *sort_keys* is true (default: ``False``), then the output of
+        dictionaries will be sorted by key.
+    
+        To use a custom ``JSONEncoder`` subclass (e.g. one that overrides the
+        ``.default()`` method to serialize additional types), specify it with
+        the ``cls`` kwarg; otherwise ``JSONEncoder`` is used.
+    
+        """
+        # cached encoder
+        if (not skipkeys and ensure_ascii and
+            check_circular and allow_nan and
+            cls is None and indent is None and separators is None and
+            default is None and not sort_keys and not kw):
+>           return _default_encoder.encode(obj)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\__init__.py:231: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+
+    def encode(self, o):
+        """Return a JSON string representation of a Python data structure.
+    
+        >>> from json.encoder import JSONEncoder
+        >>> JSONEncoder().encode({"foo": ["bar", "baz"]})
+        '{"foo": ["bar", "baz"]}'
+    
+        """
+        # This is for extremely simple cases and benchmarks.
+        if isinstance(o, str):
+            if self.ensure_ascii:
+                return encode_basestring_ascii(o)
+            else:
+                return encode_basestring(o)
+        # This doesn't pass the iterator directly to ''.join() because the
+        # exceptions aren't as detailed.  The list call should be roughly
+        # equivalent to the PySequence_Fast that ''.join() would do.
+>       chunks = self.iterencode(o, _one_shot=True)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:200: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if (_one_shot and c_make_encoder is not None
+                and self.indent is None):
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, self.indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, self.indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:258: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = <MagicMock name='RelationshipManager().get_relationship_summary()' id='2356449769744'>
+
+    def default(self, o):
+        """Implement this method in a subclass such that it returns
+        a serializable object for ``o``, or calls the base implementation
+        (to raise a ``TypeError``).
+    
+        For example, to support arbitrary iterators, you could
+        implement default like this::
+    
+            def default(self, o):
+                try:
+                    iterable = iter(o)
+                except TypeError:
+                    pass
+                else:
+                    return list(iterable)
+                # Let the base class default method raise the TypeError
+                return super().default(o)
+    
+        """
+>       raise TypeError(f'Object of type {o.__class__.__name__} '
+                        f'is not JSON serializable')
+E       TypeError: Object of type MagicMock is not JSON serializable
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:180: TypeError
+
+The above exception was the direct cause of the following exception:
+
+db_session = <sqlalchemy.orm.session.Session object at 0x00000224A6D97FD0>
+
+    @pytest.mark.asyncio
+    async def test_e2e_pipeline(db_session):
+        """
+        Simulates the 3-stage background pipeline:
+        1. Discovery (process_sync_provider)
+        2. Triage (process_ai_triage)
+        3. Drafting (process_drafting)
+        """
+        workspace_id = "ws_e2e_test"
+        db_session.add(Workspace(id=workspace_id, owner_id="user_1", name="Test WS", slug="test-ws", settings_json={}))
+        db_session.commit()
+    
+        # ==========================================
+        # STAGE 1: Discovery
+        # ==========================================
+        mock_msg = NormalizedEmailMessage(
+            id="ext_msg_1",
+            workspace_id=workspace_id,
+            provider="gmail",
+            content="Could you send the Q3 report?",
+            created_at=datetime.now(timezone.utc),
+            metadata={
+                "thread_id": "thread_1",
+                "sender": "boss@company.com",
+                "subject": "Q3 Report",
+                "headers": {}
+            }
+        )
+    
+        with patch("app.workers.local_sync.EmailIngestor") as MockIngestor:
+            instance = MockIngestor.return_value
+            instance.fetch_incremental = AsyncMock(return_value=([mock_msg], []))
+    
+            # We also mock Orchestrator to prevent websocket emits during testing
+            with patch("app.workers.local_sync.AaliyahOrchestrator") as MockOrc:
+                MockOrc.return_value.emit_status = AsyncMock()
+                MockOrc.return_value.flush_communication = AsyncMock()
+                await process_sync_provider({"workspace_id": workspace_id, "provider": "gmail"})
+    
+        # Verify Discovery enqueued AI_TRIAGE
+        triage_job = db_session.query(Job).filter(Job.type == JobType.AI_TRIAGE.value).first()
+        assert triage_job is not None, "Discovery failed to enqueue AI_TRIAGE job"
+        assert triage_job.status == JobStatus.PENDING
+    
+        # ==========================================
+        # STAGE 2: AI Triage
+        # ==========================================
+        triage_payload = json.loads(triage_job.payload_json)
+    
+        with patch("app.workers.local_sync.SmartTriageClassifier") as MockClassifier:
+            classifier_instance = MockClassifier.return_value
+            classifier_instance.classify = AsyncMock(return_value=TriageResult(
+                category="Priority",
+                is_noise=False,
+                priority="High",
+                confidence=0.95,
+                reasoning="Important report request.",
+                language="en",
+                can_draft=True,
+                needs_clarity=False,
+                is_vip=True
+            ))
+    
+            with patch("app.workers.local_sync.AaliyahOrchestrator") as MockOrc:
+                MockOrc.return_value.emit_status = AsyncMock()
+                MockOrc.return_value.broadcast_updates = AsyncMock()
+                with patch("app.services.aaliyah.relationship_manager.RelationshipManager") as MockRM:
+                    MockRM.return_value.analyze_relationship = AsyncMock(return_value="Prior interactions were positive.")
+                    with patch("app.services.aaliyah.vision_service.VisionService") as MockVision:
+                        MockVision.return_value.analyze_attachment = AsyncMock(return_value="test analysis")
+                        with patch("app.agents.aaliyah.core.action_executor.ActionExecutor") as MockAction:
+                            MockAction.return_value.archive = AsyncMock()
+>                           await process_ai_triage(triage_payload)
+
+tests\test_e2e_pipeline.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+payload = {'message_raw': {'content': 'Could you send the Q3 report?', 'created_at': '2026-03-02 09:17:03.823006+00:00', 'has_at...': False, 'id': 'ext_msg_1', ...}, 'triaged_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1', 'workspace_id': 'ws_e2e_test'}
+
+    async def process_ai_triage(payload: Dict[str, Any]):
+        """
+        STAGE 2: Classification.
+        Categorizes the email and enqueues PROCESS_DRAFT if actionable.
+        """
+        workspace_id = payload.get("workspace_id")
+        triaged_id = payload.get("triaged_id")
+        msg_data = payload.get("message_raw")
+    
+        if not triaged_id or not msg_data:
+            return
+    
+        db = SessionLocal()
+        try:
+            msg = NormalizedEmailMessage(**msg_data)
+            classifier = SmartTriageClassifier(Brain())
+    
+            triage = await classifier.classify(msg)
+    
+            # Update DB
+            entry = db.get(TriagedEmail, triaged_id)
+            if not entry: return
+    
+            entry.category = triage.category
+            entry.priority = triage.priority
+            entry.is_noise = triage.is_noise
+            entry.confidence = triage.confidence
+            entry.reasoning = triage.reasoning
+            entry.can_draft = triage.can_draft
+    
+            # Checkpoint 6: VIP Escalation
+            if getattr(triage, "is_vip", False):
+                entry.priority = "High"
+                meta = dict(entry.metadata_json or {})
+                meta["is_vip"] = True
+                meta["labels"] = list(set((meta.get("labels") or []) + ["VIP Priority"]))
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+    
+            # Checkpoint 6: Exec Analytics (Time Saved)
+            # Heuristic: 5 mins for reply drafted, 2 mins for noise archived
+            time_saved = 0
+            if triage.can_draft:
+                time_saved += 5
+            elif triage.is_noise:
+                time_saved += 2
+    
+            if time_saved > 0:
+                workspace = db.get(Workspace, entry.workspace_id)
+                if workspace:
+                    settings = workspace.settings_json or {}
+                    analytics = settings.get("analytics", {})
+                    analytics["time_saved_minutes"] = analytics.get("time_saved_minutes", 0) + time_saved
+                    settings["analytics"] = analytics
+                    workspace.settings_json = settings
+                    db.add(workspace)
+    
+            meta = dict(entry.metadata_json or {})
+            meta["language"] = triage.language
+            entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
+    
+            db.commit()
+    
+            # STAGE 2.3: Relationship Intelligence (Knowledge Graph)
+            from app.services.aaliyah.relationship_manager import RelationshipManager
+            rm = RelationshipManager(db, workspace_id)
+            if entry.sender:
+                # Extract email from "Name <email@example.com>"
+                sender_email = entry.sender
+                if "<" in entry.sender and ">" in entry.sender:
+                    sender_email = entry.sender.split("<")[1].split(">")[0]
+                rm.record_interaction(sender_email, entry.external_message_id, direction="incoming")
+    
+                # Enrich metadata with relationship summary for subsequent stages
+                meta = dict(entry.metadata_json or {})
+                meta["relationship_summary"] = rm.get_relationship_summary(sender_email)
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+                db.commit()
+    
+            # STAGE 2.5: Vision Analysis (Multi-Modal Sensory Depth)
+            if msg.has_attachments:
+                from app.services.aaliyah.vision_service import VisionService
+                vision = VisionService(workspace_id)
+                for att in msg.metadata.attachments:
+                    # Analyze if it's a common document/image type
+                    if any(ext in att.filename.lower() for ext in [".pdf", ".jpg", ".jpeg", ".png", ".xlsx"]):
+                        logger.info(f"Triggering Vision Analysis for {att.filename} in message {msg.id}")
+                        analysis = await vision.analyze_attachment(
+                            message_id=msg.id,
+                            attachment_id=att.id,
+                            filename=att.filename,
+                            mime_type=att.mime_type
+                        )
+    
+                        # Store analysis in metadata
+                        meta = dict(entry.metadata_json or {})
+                        if "vision_analysis" not in meta:
+                            meta["vision_analysis"] = []
+                        meta["vision_analysis"].append({
+                            "filename": att.filename,
+                            "analysis": analysis
+                        })
+                        entry.metadata_json = meta
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(entry, "metadata_json")
+                        db.commit()
+    
+            db.commit()
+    
+            # STAGE 2.7: Noise Auto-Archive (Enterprise Feature)
+            # If email is classified as noise, auto-archive on provider
+            if triage.is_noise and entry.external_message_id:
+                try:
+                    from app.agents.aaliyah.core.action_executor import ActionExecutor
+                    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+                    if ws and ws.owner_id:
+                        executor = ActionExecutor(db)
+                        await executor.archive(
+                            user_id=ws.owner_id,
+                            workspace_id=workspace_id,
+                            provider=entry.provider or msg.provider,
+                            message_id=entry.external_message_id,
+                            explain_one_liner=f"Auto-archived noise: {entry.subject[:50]}"
+                        )
+                        logger.info(f"Noise auto-archived: {entry.subject[:50]} (provider={entry.provider})")
+                except Exception as archive_err:
+                    # Non-critical — log and continue
+                    logger.warning(f"Noise auto-archive failed (non-critical): {archive_err}")
+    
+            # Emit progress via Orchestrator (Conversation-triggering)
+            orc = AaliyahOrchestrator(workspace_id)
+            await orc.emit_status(
+                "thread_updated",
+                f"AI classified as {triage.category}",
+                {
+                    "id": triaged_id,
+                    "thread_id": msg.metadata.thread_id,
+                    "category": triage.category,
+                    "subject": msg.metadata.subject,
+                    "sender": msg.metadata.sender,
+                    "priority": triage.priority,
+                }
+            )
+    
+            # Enqueue STAGE 3 if applicable
+            if triage.needs_clarity and triage.clarification_questions:
+                # Store full clarification state for the conversational loop
+                meta = dict(entry.metadata_json or {})
+                meta["needs_clarity"] = True
+                meta["clarification_questions"] = triage.clarification_questions
+                meta["clarification_answers"] = []
+                meta["clarification_current_index"] = 0
+                meta["clarification_complete"] = False
+                meta["context_type"] = triage.context_type
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+                db.commit()
+    
+                # Build a natural conversational message with the FIRST question
+                subject_preview = msg.metadata.subject[:40] + "..." if len(msg.metadata.subject or "") > 40 else (msg.metadata.subject or "No Subject")
+                sender_name = msg.metadata.sender.split("<")[0].strip() if "<" in (msg.metadata.sender or "") else (msg.metadata.sender or "Unknown")
+    
+                # Fetch user name from Workspace owner settings
+                ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+                user_name = "there"
+                if ws:
+                    prefs = (getattr(ws, "settings_json", {}) or {}).get("aaliyah", {})
+                    user_name = prefs.get("user_name") or prefs.get("first_name") or "there"
+    
+                first_q = triage.clarification_questions[0]
+                clarification_msg = (
+                    f"{user_name}, there are a few things unclear in this email. Could you provide some context?\n\n"
+                    f"\U0001f4e9 From **{sender_name}**: *{subject_preview}*\\n\\n"
+                    f"**1. {first_q}**"
+                )
+    
+                await orc.emit_status(
+                    "assistant_message",
+                    clarification_msg,
+                    {
+                        "text": clarification_msg,
+                        "role": "assistant",
+                        "thread_id": msg.metadata.thread_id,
+                        "triaged_id": triaged_id,
+                        "clarification_pending": True,
+                    }
+                )
+                logger.info(f"Workflow [2/3] Triage finished. Asked {len(triage.clarification_questions)} clarification question(s) for {triaged_id}.")
+    
+            elif triage.needs_clarity:
+                # Fallback: needs_clarity but no specific questions generated
+                meta = dict(entry.metadata_json or {})
+                meta["needs_clarity"] = True
+                meta["context_type"] = triage.context_type
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+                db.commit()
+    
+                subject_preview = msg.metadata.subject[:30] + "..." if len(msg.metadata.subject or "") > 30 else (msg.metadata.subject or "No Subject")
+                question = f"Regarding the email '{subject_preview}', {triage.reasoning} How would you like me to handle this?"
+                await orc.emit_status(
+                    "assistant_message",
+                    question,
+                    {"text": question, "role": "assistant", "thread_id": msg.metadata.thread_id}
+                )
+                logger.info(f"Workflow [2/3] Triage finished. Asked user for clarity on {triaged_id}.")
+            elif triage.can_draft:
+                await queue.enqueue(
+                    job_type=JobType.PROCESS_DRAFT.value,
+                    payload={
+                        "workspace_id": workspace_id,
+                        "triaged_id": triaged_id,
+                        "message_raw": msg_data
+                    },
+                    dedupe_id=f"draft:{msg.id}"
+                )
+                logger.info(f"Workflow [2/3] Triage finished. Enqueued {triaged_id} for Drafting.")
+            else:
+                logger.info(f"Workflow [2/3] Triage finished. No draft needed for {triaged_id}.")
+    
+            # INSTANT COUNTS: Broadcast updated counts after classification
+            await orc.broadcast_updates(db)
+    
+        except Exception as e:
+            logger.error(f"Triage Stage failed: {e}")
+>           raise e
+
+app\workers\local_sync.py:409: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+payload = {'message_raw': {'content': 'Could you send the Q3 report?', 'created_at': '2026-03-02 09:17:03.823006+00:00', 'has_at...': False, 'id': 'ext_msg_1', ...}, 'triaged_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1', 'workspace_id': 'ws_e2e_test'}
+
+    async def process_ai_triage(payload: Dict[str, Any]):
+        """
+        STAGE 2: Classification.
+        Categorizes the email and enqueues PROCESS_DRAFT if actionable.
+        """
+        workspace_id = payload.get("workspace_id")
+        triaged_id = payload.get("triaged_id")
+        msg_data = payload.get("message_raw")
+    
+        if not triaged_id or not msg_data:
+            return
+    
+        db = SessionLocal()
+        try:
+            msg = NormalizedEmailMessage(**msg_data)
+            classifier = SmartTriageClassifier(Brain())
+    
+            triage = await classifier.classify(msg)
+    
+            # Update DB
+            entry = db.get(TriagedEmail, triaged_id)
+            if not entry: return
+    
+            entry.category = triage.category
+            entry.priority = triage.priority
+            entry.is_noise = triage.is_noise
+            entry.confidence = triage.confidence
+            entry.reasoning = triage.reasoning
+            entry.can_draft = triage.can_draft
+    
+            # Checkpoint 6: VIP Escalation
+            if getattr(triage, "is_vip", False):
+                entry.priority = "High"
+                meta = dict(entry.metadata_json or {})
+                meta["is_vip"] = True
+                meta["labels"] = list(set((meta.get("labels") or []) + ["VIP Priority"]))
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+    
+            # Checkpoint 6: Exec Analytics (Time Saved)
+            # Heuristic: 5 mins for reply drafted, 2 mins for noise archived
+            time_saved = 0
+            if triage.can_draft:
+                time_saved += 5
+            elif triage.is_noise:
+                time_saved += 2
+    
+            if time_saved > 0:
+                workspace = db.get(Workspace, entry.workspace_id)
+                if workspace:
+                    settings = workspace.settings_json or {}
+                    analytics = settings.get("analytics", {})
+                    analytics["time_saved_minutes"] = analytics.get("time_saved_minutes", 0) + time_saved
+                    settings["analytics"] = analytics
+                    workspace.settings_json = settings
+                    db.add(workspace)
+    
+            meta = dict(entry.metadata_json or {})
+            meta["language"] = triage.language
+            entry.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(entry, "metadata_json")
+    
+            db.commit()
+    
+            # STAGE 2.3: Relationship Intelligence (Knowledge Graph)
+            from app.services.aaliyah.relationship_manager import RelationshipManager
+            rm = RelationshipManager(db, workspace_id)
+            if entry.sender:
+                # Extract email from "Name <email@example.com>"
+                sender_email = entry.sender
+                if "<" in entry.sender and ">" in entry.sender:
+                    sender_email = entry.sender.split("<")[1].split(">")[0]
+                rm.record_interaction(sender_email, entry.external_message_id, direction="incoming")
+    
+                # Enrich metadata with relationship summary for subsequent stages
+                meta = dict(entry.metadata_json or {})
+                meta["relationship_summary"] = rm.get_relationship_summary(sender_email)
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+>               db.commit()
+
+app\workers\local_sync.py:259: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.Session object at 0x00000224A756E2D0>
+
+    def commit(self) -> None:
+        """Flush pending changes and commit the current transaction.
+    
+        When the COMMIT operation is complete, all objects are fully
+        :term:`expired`, erasing their internal contents, which will be
+        automatically re-loaded when the objects are next accessed. In the
+        interim, these objects are in an expired state and will not function if
+        they are :term:`detached` from the :class:`.Session`. Additionally,
+        this re-load operation is not supported when using asyncio-oriented
+        APIs. The :paramref:`.Session.expire_on_commit` parameter may be used
+        to disable this behavior.
+    
+        When there is no transaction in place for the :class:`.Session`,
+        indicating that no operations were invoked on this :class:`.Session`
+        since the previous call to :meth:`.Session.commit`, the method will
+        begin and commit an internal-only "logical" transaction, that does not
+        normally affect the database unless pending flush changes were
+        detected, but will still invoke event handlers and object expiration
+        rules.
+    
+        The outermost database transaction is committed unconditionally,
+        automatically releasing any SAVEPOINTs in effect.
+    
+        .. seealso::
+    
+            :ref:`session_committing`
+    
+            :ref:`unitofwork_transaction`
+    
+            :ref:`asyncio_orm_avoid_lazyloads`
+    
+        """
+        trans = self._transaction
+        if trans is None:
+            trans = self._autobegin_t()
+    
+>       trans.commit(_to_root=True)
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:2030: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+_to_root = True
+
+>   ???
+
+<string>:2: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fn = <function SessionTransaction.commit at 0x00000224A6707F60>
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+arg = (), kw = {'_to_root': True}
+current_state = <SessionTransactionState.ACTIVE: 1>
+next_state = <_StateChangeStates.ANY: 1>, existing_fn = None
+expect_state = <SessionTransactionState.CLOSED: 5>
+
+    @util.decorator
+    def _go(fn: _F, self: Any, *arg: Any, **kw: Any) -> Any:
+        current_state = self._state
+    
+        if (
+            has_prerequisite_states
+            and current_state not in prerequisite_state_collection
+        ):
+            self._raise_for_prerequisite_state(fn.__name__, current_state)
+    
+        next_state = self._next_state
+        existing_fn = self._current_fn
+        expect_state = moves_to if expect_state_change else current_state
+    
+        if (
+            # destination states are restricted
+            next_state is not _StateChangeStates.ANY
+            # method seeks to change state
+            and expect_state_change
+            # destination state incorrect
+            and next_state is not expect_state
+        ):
+            if existing_fn and next_state in (
+                _StateChangeStates.NO_CHANGE,
+                _StateChangeStates.CHANGE_IN_PROGRESS,
+            ):
+                raise sa_exc.IllegalStateChangeError(
+                    f"Method '{fn.__name__}()' can't be called here; "
+                    f"method '{existing_fn.__name__}()' is already "
+                    f"in progress and this would cause an unexpected "
+                    f"state change to {moves_to!r}",
+                    code="isce",
+                )
+            else:
+                raise sa_exc.IllegalStateChangeError(
+                    f"Can't run operation '{fn.__name__}()' here; "
+                    f"will move to state {moves_to!r} where we are "
+                    f"expecting {next_state!r}",
+                    code="isce",
+                )
+    
+        self._current_fn = fn
+        self._next_state = _StateChangeStates.CHANGE_IN_PROGRESS
+        try:
+>           ret_value = fn(self, *arg, **kw)
+                        ^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+_to_root = True
+
+    @_StateChange.declare_states(
+        (SessionTransactionState.ACTIVE, SessionTransactionState.PREPARED),
+        SessionTransactionState.CLOSED,
+    )
+    def commit(self, _to_root: bool = False) -> None:
+        if self._state is not SessionTransactionState.PREPARED:
+            with self._expect_state(SessionTransactionState.PREPARED):
+>               self._prepare_impl()
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:1311: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+
+>   ???
+
+<string>:2: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fn = <function SessionTransaction._prepare_impl at 0x00000224A6707D80>
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+arg = (), kw = {}, current_state = <SessionTransactionState.ACTIVE: 1>
+next_state = <SessionTransactionState.PREPARED: 2>
+existing_fn = <function SessionTransaction.commit at 0x00000224A6707F60>
+expect_state = <SessionTransactionState.PREPARED: 2>
+
+    @util.decorator
+    def _go(fn: _F, self: Any, *arg: Any, **kw: Any) -> Any:
+        current_state = self._state
+    
+        if (
+            has_prerequisite_states
+            and current_state not in prerequisite_state_collection
+        ):
+            self._raise_for_prerequisite_state(fn.__name__, current_state)
+    
+        next_state = self._next_state
+        existing_fn = self._current_fn
+        expect_state = moves_to if expect_state_change else current_state
+    
+        if (
+            # destination states are restricted
+            next_state is not _StateChangeStates.ANY
+            # method seeks to change state
+            and expect_state_change
+            # destination state incorrect
+            and next_state is not expect_state
+        ):
+            if existing_fn and next_state in (
+                _StateChangeStates.NO_CHANGE,
+                _StateChangeStates.CHANGE_IN_PROGRESS,
+            ):
+                raise sa_exc.IllegalStateChangeError(
+                    f"Method '{fn.__name__}()' can't be called here; "
+                    f"method '{existing_fn.__name__}()' is already "
+                    f"in progress and this would cause an unexpected "
+                    f"state change to {moves_to!r}",
+                    code="isce",
+                )
+            else:
+                raise sa_exc.IllegalStateChangeError(
+                    f"Can't run operation '{fn.__name__}()' here; "
+                    f"will move to state {moves_to!r} where we are "
+                    f"expecting {next_state!r}",
+                    code="isce",
+                )
+    
+        self._current_fn = fn
+        self._next_state = _StateChangeStates.CHANGE_IN_PROGRESS
+        try:
+>           ret_value = fn(self, *arg, **kw)
+                        ^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\state_changes.py:137: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.SessionTransaction object at 0x00000224A73A6850>
+
+    @_StateChange.declare_states(
+        (SessionTransactionState.ACTIVE,), SessionTransactionState.PREPARED
+    )
+    def _prepare_impl(self) -> None:
+        if self._parent is None or self.nested:
+            self.session.dispatch.before_commit(self.session)
+    
+        stx = self.session._transaction
+        assert stx is not None
+        if stx is not self:
+            for subtransaction in stx._iterate_self_and_parents(upto=self):
+                subtransaction.commit()
+    
+        if not self.session._flushing:
+            for _flush_guard in range(100):
+                if self.session._is_clean():
+                    break
+>               self.session.flush()
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:1286: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.Session object at 0x00000224A756E2D0>
+objects = None
+
+    def flush(self, objects: Optional[Sequence[Any]] = None) -> None:
+        """Flush all the object changes to the database.
+    
+        Writes out all pending object creations, deletions and modifications
+        to the database as INSERTs, DELETEs, UPDATEs, etc.  Operations are
+        automatically ordered by the Session's unit of work dependency
+        solver.
+    
+        Database operations will be issued in the current transactional
+        context and do not affect the state of the transaction, unless an
+        error occurs, in which case the entire transaction is rolled back.
+        You may flush() as often as you like within a transaction to move
+        changes from Python to the database's transaction buffer.
+    
+        :param objects: Optional; restricts the flush operation to operate
+          only on elements that are in the given collection.
+    
+          This feature is for an extremely narrow set of use cases where
+          particular objects may need to be operated upon before the
+          full flush() occurs.  It is not intended for general use.
+    
+        """
+    
+        if self._flushing:
+            raise sa_exc.InvalidRequestError("Session is already flushing")
+    
+        if self._is_clean():
+            return
+        try:
+            self._flushing = True
+>           self._flush(objects)
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4331: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.Session object at 0x00000224A756E2D0>
+objects = None
+
+    def _flush(self, objects: Optional[Sequence[object]] = None) -> None:
+        dirty = self._dirty_states
+        if not dirty and not self._deleted and not self._new:
+            self.identity_map._modified.clear()
+            return
+    
+        flush_context = UOWTransaction(self)
+    
+        if self.dispatch.before_flush:
+            self.dispatch.before_flush(self, flush_context, objects)
+            # re-establish "dirty states" in case the listeners
+            # added
+            dirty = self._dirty_states
+    
+        deleted = set(self._deleted)
+        new = set(self._new)
+    
+        dirty = set(dirty).difference(deleted)
+    
+        # create the set of all objects we want to operate upon
+        if objects:
+            # specific list passed in
+            objset = set()
+            for o in objects:
+                try:
+                    state = attributes.instance_state(o)
+    
+                except exc.NO_STATE as err:
+                    raise exc.UnmappedInstanceError(o) from err
+                objset.add(state)
+        else:
+            objset = None
+    
+        # store objects whose fate has been decided
+        processed = set()
+    
+        # put all saves/updates into the flush context.  detect top-level
+        # orphans and throw them into deleted.
+        if objset:
+            proc = new.union(dirty).intersection(objset).difference(deleted)
+        else:
+            proc = new.union(dirty).difference(deleted)
+    
+        for state in proc:
+            is_orphan = _state_mapper(state)._is_orphan(state)
+    
+            is_persistent_orphan = is_orphan and state.has_identity
+    
+            if (
+                is_orphan
+                and not is_persistent_orphan
+                and state._orphaned_outside_of_session
+            ):
+                self._expunge_states([state])
+            else:
+                _reg = flush_context.register_object(
+                    state, isdelete=is_persistent_orphan
+                )
+                assert _reg, "Failed to add object to the flush context!"
+                processed.add(state)
+    
+        # put all remaining deletes into the flush context.
+        if objset:
+            proc = deleted.intersection(objset).difference(processed)
+        else:
+            proc = deleted.difference(processed)
+        for state in proc:
+            _reg = flush_context.register_object(state, isdelete=True)
+            assert _reg, "Failed to add object to the flush context!"
+    
+        if not flush_context.has_work:
+            return
+    
+        flush_context.transaction = transaction = self._autobegin_t()._begin()
+        try:
+            self._warn_on_events = True
+            try:
+                flush_context.execute()
+            finally:
+                self._warn_on_events = False
+    
+            self.dispatch.after_flush(self, flush_context)
+    
+            flush_context.finalize_flush_changes()
+    
+            if not objects and self.identity_map._modified:
+                len_ = len(self.identity_map._modified)
+    
+                statelib.InstanceState._commit_all_states(
+                    [
+                        (state, state.dict)
+                        for state in self.identity_map._modified
+                    ],
+                    instance_dict=self.identity_map,
+                )
+                util.warn(
+                    "Attribute history events accumulated on %d "
+                    "previously clean instances "
+                    "within inner-flush event handlers have been "
+                    "reset, and will not result in database updates. "
+                    "Consider using set_committed_value() within "
+                    "inner-flush event handlers to avoid this warning." % len_
+                )
+    
+            # useful assertions:
+            # if not objects:
+            #    assert not self.identity_map._modified
+            # else:
+            #    assert self.identity_map._modified == \
+            #            self.identity_map._modified.difference(objects)
+    
+            self.dispatch.after_flush_postexec(self, flush_context)
+    
+            transaction.commit()
+    
+        except:
+>           with util.safe_reraise():
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4466: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.util.langhelpers.safe_reraise object at 0x00000224A7513A90>
+type_ = None, value = None, traceback = None
+
+    def __exit__(
+        self,
+        type_: Optional[Type[BaseException]],
+        value: Optional[BaseException],
+        traceback: Optional[types.TracebackType],
+    ) -> NoReturn:
+        assert self._exc_info is not None
+        # see #2703 for notes
+        if type_ is None:
+            exc_type, exc_value, exc_tb = self._exc_info
+            assert exc_value is not None
+            self._exc_info = None  # remove potential circular references
+>           raise exc_value.with_traceback(exc_tb)
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\util\langhelpers.py:224: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.session.Session object at 0x00000224A756E2D0>
+objects = None
+
+    def _flush(self, objects: Optional[Sequence[object]] = None) -> None:
+        dirty = self._dirty_states
+        if not dirty and not self._deleted and not self._new:
+            self.identity_map._modified.clear()
+            return
+    
+        flush_context = UOWTransaction(self)
+    
+        if self.dispatch.before_flush:
+            self.dispatch.before_flush(self, flush_context, objects)
+            # re-establish "dirty states" in case the listeners
+            # added
+            dirty = self._dirty_states
+    
+        deleted = set(self._deleted)
+        new = set(self._new)
+    
+        dirty = set(dirty).difference(deleted)
+    
+        # create the set of all objects we want to operate upon
+        if objects:
+            # specific list passed in
+            objset = set()
+            for o in objects:
+                try:
+                    state = attributes.instance_state(o)
+    
+                except exc.NO_STATE as err:
+                    raise exc.UnmappedInstanceError(o) from err
+                objset.add(state)
+        else:
+            objset = None
+    
+        # store objects whose fate has been decided
+        processed = set()
+    
+        # put all saves/updates into the flush context.  detect top-level
+        # orphans and throw them into deleted.
+        if objset:
+            proc = new.union(dirty).intersection(objset).difference(deleted)
+        else:
+            proc = new.union(dirty).difference(deleted)
+    
+        for state in proc:
+            is_orphan = _state_mapper(state)._is_orphan(state)
+    
+            is_persistent_orphan = is_orphan and state.has_identity
+    
+            if (
+                is_orphan
+                and not is_persistent_orphan
+                and state._orphaned_outside_of_session
+            ):
+                self._expunge_states([state])
+            else:
+                _reg = flush_context.register_object(
+                    state, isdelete=is_persistent_orphan
+                )
+                assert _reg, "Failed to add object to the flush context!"
+                processed.add(state)
+    
+        # put all remaining deletes into the flush context.
+        if objset:
+            proc = deleted.intersection(objset).difference(processed)
+        else:
+            proc = deleted.difference(processed)
+        for state in proc:
+            _reg = flush_context.register_object(state, isdelete=True)
+            assert _reg, "Failed to add object to the flush context!"
+    
+        if not flush_context.has_work:
+            return
+    
+        flush_context.transaction = transaction = self._autobegin_t()._begin()
+        try:
+            self._warn_on_events = True
+            try:
+>               flush_context.execute()
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\session.py:4427: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.orm.unitofwork.UOWTransaction object at 0x00000224A759A210>
+
+    def execute(self) -> None:
+        postsort_actions = self._generate_actions()
+    
+        postsort_actions = sorted(
+            postsort_actions,
+            key=lambda item: item.sort_key,
+        )
+        # sort = topological.sort(self.dependencies, postsort_actions)
+        # print "--------------"
+        # print "\ndependencies:", self.dependencies
+        # print "\ncycles:", self.cycles
+        # print "\nsort:", list(sort)
+        # print "\nCOUNT OF POSTSORT ACTIONS", len(postsort_actions)
+    
+        # execute
+        if self.cycles:
+            for subset in topological.sort_as_subsets(
+                self.dependencies, postsort_actions
+            ):
+                set_ = set(subset)
+                while set_:
+                    n = set_.pop()
+                    n.execute_aggregate(self, set_)
+        else:
+            for rec in topological.sort(self.dependencies, postsort_actions):
+>               rec.execute(self)
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\unitofwork.py:466: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = SaveUpdateAll(Mapper[TriagedEmail(triaged_emails)])
+uow = <sqlalchemy.orm.unitofwork.UOWTransaction object at 0x00000224A759A210>
+
+    @util.preload_module("sqlalchemy.orm.persistence")
+    def execute(self, uow):
+>       util.preloaded.orm_persistence.save_obj(
+            self.mapper,
+            uow.states_for_mapper_hierarchy(self.mapper, False, False),
+            uow,
+        )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\unitofwork.py:642: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+base_mapper = <Mapper at 0x224a6af9c90; TriagedEmail>
+states = <generator object UOWTransaction.states_for_mapper_hierarchy at 0x00000224A7586640>
+uowtransaction = <sqlalchemy.orm.unitofwork.UOWTransaction object at 0x00000224A759A210>
+single = False
+
+    def save_obj(base_mapper, states, uowtransaction, single=False):
+        """Issue ``INSERT`` and/or ``UPDATE`` statements for a list
+        of objects.
+    
+        This is called within the context of a UOWTransaction during a
+        flush operation, given a list of states to be flushed.  The
+        base mapper in an inheritance hierarchy handles the inserts/
+        updates for all descendant mappers.
+    
+        """
+    
+        # if batch=false, call _save_obj separately for each object
+        if not single and not base_mapper.batch:
+            for state in _sort_states(base_mapper, states):
+                save_obj(base_mapper, [state], uowtransaction, single=True)
+            return
+    
+        states_to_update = []
+        states_to_insert = []
+    
+        for (
+            state,
+            dict_,
+            mapper,
+            connection,
+            has_identity,
+            row_switch,
+            update_version_id,
+        ) in _organize_states_for_save(base_mapper, states, uowtransaction):
+            if has_identity or row_switch:
+                states_to_update.append(
+                    (state, dict_, mapper, connection, update_version_id)
+                )
+            else:
+                states_to_insert.append((state, dict_, mapper, connection))
+    
+        for table, mapper in base_mapper._sorted_tables.items():
+            if table not in mapper._pks_by_table:
+                continue
+            insert = _collect_insert_commands(table, states_to_insert)
+    
+            update = _collect_update_commands(
+                uowtransaction, table, states_to_update
+            )
+    
+>           _emit_update_statements(
+                base_mapper,
+                uowtransaction,
+                mapper,
+                table,
+                update,
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\persistence.py:85: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+base_mapper = <Mapper at 0x224a6af9c90; TriagedEmail>
+uowtransaction = <sqlalchemy.orm.unitofwork.UOWTransaction object at 0x00000224A759A210>
+mapper = <Mapper at 0x224a6af9c90; TriagedEmail>
+table = Table('triaged_emails', MetaData(), Column('id', String(), table=<triaged_emails>, primary_key=True, nullable=False), ...at 0x00000224A6AEA160>), default=CallableColumnDefault(<function datetime.utcnow at 0x00000224A6AEA0C0>)), schema=None)
+update = <generator object _collect_update_commands at 0x00000224A6E1A200>
+
+    def _emit_update_statements(
+        base_mapper,
+        uowtransaction,
+        mapper,
+        table,
+        update,
+        *,
+        bookkeeping=True,
+        use_orm_update_stmt=None,
+        enable_check_rowcount=True,
+    ):
+        """Emit UPDATE statements corresponding to value lists collected
+        by _collect_update_commands()."""
+    
+        needs_version_id = (
+            mapper.version_id_col is not None
+            and mapper.version_id_col in mapper._cols_by_table[table]
+        )
+    
+        execution_options = {"compiled_cache": base_mapper._compiled_cache}
+    
+        def update_stmt(existing_stmt=None):
+            clauses = BooleanClauseList._construct_raw(operators.and_)
+    
+            for col in mapper._pks_by_table[table]:
+                clauses._append_inplace(
+                    col == sql.bindparam(col._label, type_=col.type)
+                )
+    
+            if needs_version_id:
+                clauses._append_inplace(
+                    mapper.version_id_col
+                    == sql.bindparam(
+                        mapper.version_id_col._label,
+                        type_=mapper.version_id_col.type,
+                    )
+                )
+    
+            if existing_stmt is not None:
+                stmt = existing_stmt.where(clauses)
+            else:
+                stmt = table.update().where(clauses)
+            return stmt
+    
+        if use_orm_update_stmt is not None:
+            cached_stmt = update_stmt(use_orm_update_stmt)
+    
+        else:
+            cached_stmt = base_mapper._memo(("update", table), update_stmt)
+    
+        for (
+            (connection, paramkeys, hasvalue, has_all_defaults, has_all_pks),
+            records,
+        ) in groupby(
+            update,
+            lambda rec: (
+                rec[4],  # connection
+                set(rec[2]),  # set of parameter keys
+                bool(rec[5]),  # whether or not we have "value" parameters
+                rec[6],  # has_all_defaults
+                rec[7],  # has all pks
+            ),
+        ):
+            rows = 0
+            records = list(records)
+    
+            statement = cached_stmt
+    
+            if use_orm_update_stmt is not None:
+                statement = statement._annotate(
+                    {
+                        "_emit_update_table": table,
+                        "_emit_update_mapper": mapper,
+                    }
+                )
+    
+            return_defaults = False
+    
+            if not has_all_pks:
+                statement = statement.return_defaults(*mapper._pks_by_table[table])
+                return_defaults = True
+    
+            if (
+                bookkeeping
+                and not has_all_defaults
+                and mapper.base_mapper.eager_defaults is True
+                # change as of #8889 - if RETURNING is not going to be used anyway,
+                # (applies to MySQL, MariaDB which lack UPDATE RETURNING) ensure
+                # we can do an executemany UPDATE which is more efficient
+                and table.implicit_returning
+                and connection.dialect.update_returning
+            ):
+                statement = statement.return_defaults(
+                    *mapper._server_onupdate_default_cols[table]
+                )
+                return_defaults = True
+    
+            if mapper._version_id_has_server_side_value:
+                statement = statement.return_defaults(mapper.version_id_col)
+                return_defaults = True
+    
+            assert_singlerow = connection.dialect.supports_sane_rowcount
+    
+            assert_multirow = (
+                assert_singlerow
+                and connection.dialect.supports_sane_multi_rowcount
+            )
+    
+            # change as of #8889 - if RETURNING is not going to be used anyway,
+            # (applies to MySQL, MariaDB which lack UPDATE RETURNING) ensure
+            # we can do an executemany UPDATE which is more efficient
+            allow_executemany = not return_defaults and not needs_version_id
+    
+            if hasvalue:
+                for (
+                    state,
+                    state_dict,
+                    params,
+                    mapper,
+                    connection,
+                    value_params,
+                    has_all_defaults,
+                    has_all_pks,
+                ) in records:
+                    c = connection.execute(
+                        statement.values(value_params),
+                        params,
+                        execution_options=execution_options,
+                    )
+                    if bookkeeping:
+                        _postfetch(
+                            mapper,
+                            uowtransaction,
+                            table,
+                            state,
+                            state_dict,
+                            c,
+                            c.context.compiled_parameters[0],
+                            value_params,
+                            True,
+                            c.returned_defaults,
+                        )
+                    rows += c.rowcount
+                    check_rowcount = enable_check_rowcount and assert_singlerow
+            else:
+                if not allow_executemany:
+                    check_rowcount = enable_check_rowcount and assert_singlerow
+                    for (
+                        state,
+                        state_dict,
+                        params,
+                        mapper,
+                        connection,
+                        value_params,
+                        has_all_defaults,
+                        has_all_pks,
+                    ) in records:
+                        c = connection.execute(
+                            statement, params, execution_options=execution_options
+                        )
+    
+                        # TODO: why with bookkeeping=False?
+                        if bookkeeping:
+                            _postfetch(
+                                mapper,
+                                uowtransaction,
+                                table,
+                                state,
+                                state_dict,
+                                c,
+                                c.context.compiled_parameters[0],
+                                value_params,
+                                True,
+                                c.returned_defaults,
+                            )
+                        rows += c.rowcount
+                else:
+                    multiparams = [rec[2] for rec in records]
+    
+                    check_rowcount = enable_check_rowcount and (
+                        assert_multirow
+                        or (assert_singlerow and len(multiparams) == 1)
+                    )
+    
+>                   c = connection.execute(
+                        statement, multiparams, execution_options=execution_options
+                    )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\orm\persistence.py:912: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+statement = <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+
+    def execute(
+        self,
+        statement: Executable,
+        parameters: Optional[_CoreAnyExecuteParams] = None,
+        *,
+        execution_options: Optional[CoreExecuteOptionsParameter] = None,
+    ) -> CursorResult[Any]:
+        r"""Executes a SQL statement construct and returns a
+        :class:`_engine.CursorResult`.
+    
+        :param statement: The statement to be executed.  This is always
+         an object that is in both the :class:`_expression.ClauseElement` and
+         :class:`_expression.Executable` hierarchies, including:
+    
+         * :class:`_expression.Select`
+         * :class:`_expression.Insert`, :class:`_expression.Update`,
+           :class:`_expression.Delete`
+         * :class:`_expression.TextClause` and
+           :class:`_expression.TextualSelect`
+         * :class:`_schema.DDL` and objects which inherit from
+           :class:`_schema.ExecutableDDLElement`
+    
+        :param parameters: parameters which will be bound into the statement.
+         This may be either a dictionary of parameter names to values,
+         or a mutable sequence (e.g. a list) of dictionaries.  When a
+         list of dictionaries is passed, the underlying statement execution
+         will make use of the DBAPI ``cursor.executemany()`` method.
+         When a single dictionary is passed, the DBAPI ``cursor.execute()``
+         method will be used.
+    
+        :param execution_options: optional dictionary of execution options,
+         which will be associated with the statement execution.  This
+         dictionary can provide a subset of the options that are accepted
+         by :meth:`_engine.Connection.execution_options`.
+    
+        :return: a :class:`_engine.Result` object.
+    
+        """
+        distilled_parameters = _distill_params_20(parameters)
+        try:
+            meth = statement._execute_on_connection
+        except AttributeError as err:
+            raise exc.ObjectNotExecutableError(statement) from err
+        else:
+>           return meth(
+                self,
+                distilled_parameters,
+                execution_options or NO_OPTIONS,
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1419: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>
+connection = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+distilled_params = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+execution_options = {'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>}
+
+    def _execute_on_connection(
+        self,
+        connection: Connection,
+        distilled_params: _CoreMultiExecuteParams,
+        execution_options: CoreExecuteOptionsParameter,
+    ) -> Result[Any]:
+        if self.supports_execution:
+            if TYPE_CHECKING:
+                assert isinstance(self, Executable)
+>           return connection._execute_clauseelement(
+                self, distilled_params, execution_options
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\sql\elements.py:527: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+elem = <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>
+distilled_parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+
+    def _execute_clauseelement(
+        self,
+        elem: Executable,
+        distilled_parameters: _CoreMultiExecuteParams,
+        execution_options: CoreExecuteOptionsParameter,
+    ) -> CursorResult[Any]:
+        """Execute a sql.ClauseElement object."""
+    
+        execution_options = elem._execution_options.merge_with(
+            self._execution_options, execution_options
+        )
+    
+        has_events = self._has_events or self.engine._has_events
+        if has_events:
+            (
+                elem,
+                distilled_parameters,
+                event_multiparams,
+                event_params,
+            ) = self._invoke_before_exec_event(
+                elem, distilled_parameters, execution_options
+            )
+    
+        if distilled_parameters:
+            # ensure we don't retain a link to the view object for keys()
+            # which links to the values, which we don't want to cache
+            keys = sorted(distilled_parameters[0])
+            for_executemany = len(distilled_parameters) > 1
+        else:
+            keys = []
+            for_executemany = False
+    
+        dialect = self.dialect
+    
+        schema_translate_map = execution_options.get(
+            "schema_translate_map", None
+        )
+    
+        compiled_cache: Optional[CompiledCacheType] = execution_options.get(
+            "compiled_cache", self.engine._compiled_cache
+        )
+    
+        compiled_sql, extracted_params, cache_hit = elem._compile_w_cache(
+            dialect=dialect,
+            compiled_cache=compiled_cache,
+            column_keys=keys,
+            for_executemany=for_executemany,
+            schema_translate_map=schema_translate_map,
+            linting=self.dialect.compiler_linting | compiler.WARN_LINTING,
+        )
+>       ret = self._execute_context(
+            dialect,
+            dialect.execution_ctx_cls._init_compiled,
+            compiled_sql,
+            distilled_parameters,
+            execution_options,
+            compiled_sql,
+            distilled_parameters,
+            elem,
+            extracted_params,
+            cache_hit=cache_hit,
+        )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1641: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+constructor = <bound method DefaultExecutionContext._init_compiled of <class 'sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext'>>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+args = (<sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>, [{'metadata_json': {'body': 'Could you..., <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>, [BindParameter('triaged_emails_id', None, type_=String())])
+kw = {'cache_hit': <CacheStats.CACHE_MISS: 1>}, yp = None
+conn = <sqlalchemy.pool.base._ConnectionFairy object at 0x00000224A7436570>
+
+    def _execute_context(
+        self,
+        dialect: Dialect,
+        constructor: Callable[..., ExecutionContext],
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+        execution_options: _ExecuteOptions,
+        *args: Any,
+        **kw: Any,
+    ) -> CursorResult[Any]:
+        """Create an :class:`.ExecutionContext` and execute, returning
+        a :class:`_engine.CursorResult`."""
+    
+        if execution_options:
+            yp = execution_options.get("yield_per", None)
+            if yp:
+                execution_options = execution_options.union(
+                    {"stream_results": True, "max_row_buffer": yp}
+                )
+        try:
+            conn = self._dbapi_connection
+            if conn is None:
+                conn = self._revalidate_connection()
+    
+            context = constructor(
+                dialect, self, conn, execution_options, *args, **kw
+            )
+        except (exc.PendingRollbackError, exc.ResourceClosedError):
+            raise
+        except BaseException as e:
+>           self._handle_dbapi_exception(
+                e, str(statement), parameters, None, None
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1821: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+e = TypeError('Object of type MagicMock is not JSON serializable')
+statement = 'UPDATE triaged_emails SET metadata_json=?, updated_at=? WHERE triaged_emails.id = ?'
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+cursor = None, context = None, is_sub_exec = False
+
+    def _handle_dbapi_exception(
+        self,
+        e: BaseException,
+        statement: Optional[str],
+        parameters: Optional[_AnyExecuteParams],
+        cursor: Optional[DBAPICursor],
+        context: Optional[ExecutionContext],
+        is_sub_exec: bool = False,
+    ) -> NoReturn:
+        exc_info = sys.exc_info()
+    
+        is_exit_exception = util.is_exit_exception(e)
+    
+        if not self._is_disconnect:
+            self._is_disconnect = (
+                isinstance(e, self.dialect.loaded_dbapi.Error)
+                and not self.closed
+                and self.dialect.is_disconnect(
+                    e,
+                    self._dbapi_connection if not self.invalidated else None,
+                    cursor,
+                )
+            ) or (is_exit_exception and not self.closed)
+    
+        invalidate_pool_on_disconnect = not is_exit_exception
+    
+        ismulti: bool = (
+            not is_sub_exec and context.executemany
+            if context is not None
+            else False
+        )
+        if self._reentrant_error:
+            raise exc.DBAPIError.instance(
+                statement,
+                parameters,
+                e,
+                self.dialect.loaded_dbapi.Error,
+                hide_parameters=self.engine.hide_parameters,
+                dialect=self.dialect,
+                ismulti=ismulti,
+            ).with_traceback(exc_info[2]) from e
+        self._reentrant_error = True
+        try:
+            # non-DBAPI error - if we already got a context,
+            # or there's no string statement, don't wrap it
+            should_wrap = isinstance(e, self.dialect.loaded_dbapi.Error) or (
+                statement is not None
+                and context is None
+                and not is_exit_exception
+            )
+    
+            if should_wrap:
+                sqlalchemy_exception = exc.DBAPIError.instance(
+                    statement,
+                    parameters,
+                    cast(Exception, e),
+                    self.dialect.loaded_dbapi.Error,
+                    hide_parameters=self.engine.hide_parameters,
+                    connection_invalidated=self._is_disconnect,
+                    dialect=self.dialect,
+                    ismulti=ismulti,
+                )
+            else:
+                sqlalchemy_exception = None
+    
+            newraise = None
+    
+            if (self.dialect._has_events) and not self._execution_options.get(
+                "skip_user_error_events", False
+            ):
+                ctx = ExceptionContextImpl(
+                    e,
+                    sqlalchemy_exception,
+                    self.engine,
+                    self.dialect,
+                    self,
+                    cursor,
+                    statement,
+                    parameters,
+                    context,
+                    self._is_disconnect,
+                    invalidate_pool_on_disconnect,
+                    False,
+                )
+    
+                for fn in self.dialect.dispatch.handle_error:
+                    try:
+                        # handler returns an exception;
+                        # call next handler in a chain
+                        per_fn = fn(ctx)
+                        if per_fn is not None:
+                            ctx.chained_exception = newraise = per_fn
+                    except Exception as _raised:
+                        # handler raises an exception - stop processing
+                        newraise = _raised
+                        break
+    
+                if self._is_disconnect != ctx.is_disconnect:
+                    self._is_disconnect = ctx.is_disconnect
+                    if sqlalchemy_exception:
+                        sqlalchemy_exception.connection_invalidated = (
+                            ctx.is_disconnect
+                        )
+    
+                # set up potentially user-defined value for
+                # invalidate pool.
+                invalidate_pool_on_disconnect = (
+                    ctx.invalidate_pool_on_disconnect
+                )
+    
+            if should_wrap and context:
+                context.handle_dbapi_exception(e)
+    
+            if not self._is_disconnect:
+                if cursor:
+                    self._safe_close_cursor(cursor)
+                # "autorollback" was mostly relevant in 1.x series.
+                # It's very unlikely to reach here, as the connection
+                # does autobegin so when we are here, we are usually
+                # in an explicit / semi-explicit transaction.
+                # however we have a test which manufactures this
+                # scenario in any case using an event handler.
+                # test/engine/test_execute.py-> test_actual_autorollback
+                if not self.in_transaction():
+                    self._rollback_impl()
+    
+            if newraise:
+                raise newraise.with_traceback(exc_info[2]) from e
+            elif should_wrap:
+                assert sqlalchemy_exception is not None
+>               raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:2363: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+constructor = <bound method DefaultExecutionContext._init_compiled of <class 'sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext'>>
+statement = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+args = (<sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>, [{'metadata_json': {'body': 'Could you..., <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>, [BindParameter('triaged_emails_id', None, type_=String())])
+kw = {'cache_hit': <CacheStats.CACHE_MISS: 1>}, yp = None
+conn = <sqlalchemy.pool.base._ConnectionFairy object at 0x00000224A7436570>
+
+    def _execute_context(
+        self,
+        dialect: Dialect,
+        constructor: Callable[..., ExecutionContext],
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+        execution_options: _ExecuteOptions,
+        *args: Any,
+        **kw: Any,
+    ) -> CursorResult[Any]:
+        """Create an :class:`.ExecutionContext` and execute, returning
+        a :class:`_engine.CursorResult`."""
+    
+        if execution_options:
+            yp = execution_options.get("yield_per", None)
+            if yp:
+                execution_options = execution_options.union(
+                    {"stream_results": True, "max_row_buffer": yp}
+                )
+        try:
+            conn = self._dbapi_connection
+            if conn is None:
+                conn = self._revalidate_connection()
+    
+>           context = constructor(
+                dialect, self, conn, execution_options, *args, **kw
+            )
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\base.py:1815: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+cls = <class 'sqlalchemy.dialects.sqlite.base.SQLiteExecutionContext'>
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+connection = <sqlalchemy.engine.base.Connection object at 0x00000224A759A410>
+dbapi_connection = <sqlalchemy.pool.base._ConnectionFairy object at 0x00000224A7436570>
+execution_options = immutabledict({'compiled_cache': <sqlalchemy.util._collections.LRUCache object at 0x00000224A73F0590>})
+compiled = <sqlalchemy.dialects.sqlite.base.SQLiteCompiler object at 0x00000224A759A590>
+parameters = [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]
+invoked_statement = <sqlalchemy.sql.dml.Update object at 0x00000224A7518250>
+extracted_parameters = [BindParameter('triaged_emails_id', None, type_=String())]
+cache_hit = <CacheStats.CACHE_MISS: 1>
+
+    @classmethod
+    def _init_compiled(
+        cls,
+        dialect: Dialect,
+        connection: Connection,
+        dbapi_connection: PoolProxiedConnection,
+        execution_options: _ExecuteOptions,
+        compiled: SQLCompiler,
+        parameters: _CoreMultiExecuteParams,
+        invoked_statement: Executable,
+        extracted_parameters: Optional[Sequence[BindParameter[Any]]],
+        cache_hit: CacheStats = CacheStats.CACHING_DISABLED,
+    ) -> ExecutionContext:
+        """Initialize execution context for a Compiled construct."""
+    
+        self = cls.__new__(cls)
+        self.root_connection = connection
+        self._dbapi_connection = dbapi_connection
+        self.dialect = connection.dialect
+        self.extracted_parameters = extracted_parameters
+        self.invoked_statement = invoked_statement
+        self.compiled = compiled
+        self.cache_hit = cache_hit
+    
+        self.execution_options = execution_options
+    
+        self.result_column_struct = (
+            compiled._result_columns,
+            compiled._ordered_columns,
+            compiled._textual_ordered_columns,
+            compiled._ad_hoc_textual,
+            compiled._loose_column_name_matching,
+        )
+    
+        self.isinsert = ii = compiled.isinsert
+        self.isupdate = iu = compiled.isupdate
+        self.isdelete = id_ = compiled.isdelete
+        self.is_text = compiled.isplaintext
+    
+        if ii or iu or id_:
+            dml_statement = compiled.compile_state.statement  # type: ignore
+            if TYPE_CHECKING:
+                assert isinstance(dml_statement, UpdateBase)
+            self.is_crud = True
+            self._is_explicit_returning = ier = bool(dml_statement._returning)
+            self._is_implicit_returning = iir = bool(
+                compiled.implicit_returning
+            )
+            if iir and dml_statement._supplemental_returning:
+                self._is_supplemental_returning = True
+    
+            # dont mix implicit and explicit returning
+            assert not (iir and ier)
+    
+            if (ier or iir) and compiled.for_executemany:
+                if ii and not self.dialect.insert_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "INSERT..RETURNING when executemany is used"
+                    )
+                elif (
+                    ii
+                    and dml_statement._sort_by_parameter_order
+                    and not self.dialect.insert_executemany_returning_sort_by_parameter_order  # noqa: E501
+                ):
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "INSERT..RETURNING with deterministic row ordering "
+                        "when executemany is used"
+                    )
+                elif (
+                    ii
+                    and self.dialect.use_insertmanyvalues
+                    and not compiled._insertmanyvalues
+                ):
+                    raise exc.InvalidRequestError(
+                        'Statement does not have "insertmanyvalues" '
+                        "enabled, can't use INSERT..RETURNING with "
+                        "executemany in this case."
+                    )
+                elif iu and not self.dialect.update_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "UPDATE..RETURNING when executemany is used"
+                    )
+                elif id_ and not self.dialect.delete_executemany_returning:
+                    raise exc.InvalidRequestError(
+                        f"Dialect {self.dialect.dialect_description} with "
+                        f"current server capabilities does not support "
+                        "DELETE..RETURNING when executemany is used"
+                    )
+    
+        if not parameters:
+            self.compiled_parameters = [
+                compiled.construct_params(
+                    extracted_parameters=extracted_parameters,
+                    escape_names=False,
+                )
+            ]
+        else:
+            self.compiled_parameters = [
+                compiled.construct_params(
+                    m,
+                    escape_names=False,
+                    _group_number=grp,
+                    extracted_parameters=extracted_parameters,
+                )
+                for grp, m in enumerate(parameters)
+            ]
+    
+            if len(parameters) > 1:
+                if self.isinsert and compiled._insertmanyvalues:
+                    self.execute_style = ExecuteStyle.INSERTMANYVALUES
+    
+                    imv = compiled._insertmanyvalues
+                    if imv.sentinel_columns is not None:
+                        self._num_sentinel_cols = imv.num_sentinel_columns
+                else:
+                    self.execute_style = ExecuteStyle.EXECUTEMANY
+    
+        self.unicode_statement = compiled.string
+    
+        self.cursor = self.create_cursor()
+    
+        if self.compiled.insert_prefetch or self.compiled.update_prefetch:
+            self._process_execute_defaults()
+    
+        processors = compiled._bind_processors
+    
+        flattened_processors: Mapping[
+            str, _BindProcessorType[Any]
+        ] = processors  # type: ignore[assignment]
+    
+        if compiled.literal_execute_params or compiled.post_compile_params:
+            if self.executemany:
+                raise exc.InvalidRequestError(
+                    "'literal_execute' or 'expanding' parameters can't be "
+                    "used with executemany()"
+                )
+    
+            expanded_state = compiled._process_parameters_for_postcompile(
+                self.compiled_parameters[0]
+            )
+    
+            # re-assign self.unicode_statement
+            self.unicode_statement = expanded_state.statement
+    
+            self._expanded_parameters = expanded_state.parameter_expansion
+    
+            flattened_processors = dict(processors)  # type: ignore
+            flattened_processors.update(expanded_state.processors)
+            positiontup = expanded_state.positiontup
+        elif compiled.positional:
+            positiontup = self.compiled.positiontup
+        else:
+            positiontup = None
+    
+        if compiled.schema_translate_map:
+            schema_translate_map = self.execution_options.get(
+                "schema_translate_map", {}
+            )
+            rst = compiled.preparer._render_schema_translates
+            self.unicode_statement = rst(
+                self.unicode_statement, schema_translate_map
+            )
+    
+        # final self.unicode_statement is now assigned, encode if needed
+        # by dialect
+        self.statement = self.unicode_statement
+    
+        # Convert the dictionary of bind parameter values
+        # into a dict or list to be sent to the DBAPI's
+        # execute() or executemany() method.
+    
+        if compiled.positional:
+            core_positional_parameters: MutableSequence[Sequence[Any]] = []
+            assert positiontup is not None
+            for compiled_params in self.compiled_parameters:
+>               l_param: List[Any] = [
+                    (
+                        flattened_processors[key](compiled_params[key])
+                        if key in flattened_processors
+                        else compiled_params[key]
+                    )
+                    for key in positiontup
+                ]
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:1494: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+.0 = <list_iterator object at 0x00000224A74E2B30>
+
+    l_param: List[Any] = [
+        (
+>           flattened_processors[key](compiled_params[key])
+            if key in flattened_processors
+            else compiled_params[key]
+        )
+        for key in positiontup
+    ]
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\engine\default.py:1496: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+value = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+
+    def process(value: Optional[_T]) -> Any:
+>       return fixed_process_param(value, dialect)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\site-packages\sqlalchemy\sql\type_api.py:2110: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = SafeJSON()
+value = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+dialect = <sqlalchemy.dialects.sqlite.pysqlite.SQLiteDialect_pysqlite object at 0x00000224A736B0D0>
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == 'postgresql':
+            return value
+>       return json.dumps(value)
+               ^^^^^^^^^^^^^^^^^
+
+app\db_types.py:54: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+obj = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+skipkeys = False, ensure_ascii = True, check_circular = True, allow_nan = True
+cls = None, indent = None, separators = None, default = None
+
+    def dumps(obj, *, skipkeys=False, ensure_ascii=True, check_circular=True,
+            allow_nan=True, cls=None, indent=None, separators=None,
+            default=None, sort_keys=False, **kw):
+        """Serialize ``obj`` to a JSON formatted ``str``.
+    
+        If ``skipkeys`` is true then ``dict`` keys that are not basic types
+        (``str``, ``int``, ``float``, ``bool``, ``None``) will be skipped
+        instead of raising a ``TypeError``.
+    
+        If ``ensure_ascii`` is false, then the return value can contain non-ASCII
+        characters if they appear in strings contained in ``obj``. Otherwise, all
+        such characters are escaped in JSON strings.
+    
+        If ``check_circular`` is false, then the circular reference check
+        for container types will be skipped and a circular reference will
+        result in an ``RecursionError`` (or worse).
+    
+        If ``allow_nan`` is false, then it will be a ``ValueError`` to
+        serialize out of range ``float`` values (``nan``, ``inf``, ``-inf``) in
+        strict compliance of the JSON specification, instead of using the
+        JavaScript equivalents (``NaN``, ``Infinity``, ``-Infinity``).
+    
+        If ``indent`` is a non-negative integer, then JSON array elements and
+        object members will be pretty-printed with that indent level. An indent
+        level of 0 will only insert newlines. ``None`` is the most compact
+        representation.
+    
+        If specified, ``separators`` should be an ``(item_separator, key_separator)``
+        tuple.  The default is ``(', ', ': ')`` if *indent* is ``None`` and
+        ``(',', ': ')`` otherwise.  To get the most compact JSON representation,
+        you should specify ``(',', ':')`` to eliminate whitespace.
+    
+        ``default(obj)`` is a function that should return a serializable version
+        of obj or raise TypeError. The default simply raises TypeError.
+    
+        If *sort_keys* is true (default: ``False``), then the output of
+        dictionaries will be sorted by key.
+    
+        To use a custom ``JSONEncoder`` subclass (e.g. one that overrides the
+        ``.default()`` method to serialize additional types), specify it with
+        the ``cls`` kwarg; otherwise ``JSONEncoder`` is used.
+    
+        """
+        # cached encoder
+        if (not skipkeys and ensure_ascii and
+            check_circular and allow_nan and
+            cls is None and indent is None and separators is None and
+            default is None and not sort_keys and not kw):
+>           return _default_encoder.encode(obj)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\__init__.py:231: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+
+    def encode(self, o):
+        """Return a JSON string representation of a Python data structure.
+    
+        >>> from json.encoder import JSONEncoder
+        >>> JSONEncoder().encode({"foo": ["bar", "baz"]})
+        '{"foo": ["bar", "baz"]}'
+    
+        """
+        # This is for extremely simple cases and benchmarks.
+        if isinstance(o, str):
+            if self.ensure_ascii:
+                return encode_basestring_ascii(o)
+            else:
+                return encode_basestring(o)
+        # This doesn't pass the iterator directly to ''.join() because the
+        # exceptions aren't as detailed.  The list call should be roughly
+        # equivalent to the PySequence_Fast that ''.join() would do.
+>       chunks = self.iterencode(o, _one_shot=True)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:200: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', ...}
+_one_shot = True
+
+    def iterencode(self, o, _one_shot=False):
+        """Encode the given object and yield each string
+        representation as available.
+    
+        For example::
+    
+            for chunk in JSONEncoder().iterencode(bigobject):
+                mysocket.write(chunk)
+    
+        """
+        if self.check_circular:
+            markers = {}
+        else:
+            markers = None
+        if self.ensure_ascii:
+            _encoder = encode_basestring_ascii
+        else:
+            _encoder = encode_basestring
+    
+        def floatstr(o, allow_nan=self.allow_nan,
+                _repr=float.__repr__, _inf=INFINITY, _neginf=-INFINITY):
+            # Check for specials.  Note that this type of test is processor
+            # and/or platform-specific, so do tests which don't depend on the
+            # internals.
+    
+            if o != o:
+                text = 'NaN'
+            elif o == _inf:
+                text = 'Infinity'
+            elif o == _neginf:
+                text = '-Infinity'
+            else:
+                return _repr(o)
+    
+            if not allow_nan:
+                raise ValueError(
+                    "Out of range float values are not JSON compliant: " +
+                    repr(o))
+    
+            return text
+    
+    
+        if (_one_shot and c_make_encoder is not None
+                and self.indent is None):
+            _iterencode = c_make_encoder(
+                markers, self.default, _encoder, self.indent,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, self.allow_nan)
+        else:
+            _iterencode = _make_iterencode(
+                markers, self.default, _encoder, self.indent, floatstr,
+                self.key_separator, self.item_separator, self.sort_keys,
+                self.skipkeys, _one_shot)
+>       return _iterencode(o, 0)
+               ^^^^^^^^^^^^^^^^^
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:258: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <json.encoder.JSONEncoder object at 0x00000224A16B2110>
+o = <MagicMock name='RelationshipManager().get_relationship_summary()' id='2356449769744'>
+
+    def default(self, o):
+        """Implement this method in a subclass such that it returns
+        a serializable object for ``o``, or calls the base implementation
+        (to raise a ``TypeError``).
+    
+        For example, to support arbitrary iterators, you could
+        implement default like this::
+    
+            def default(self, o):
+                try:
+                    iterable = iter(o)
+                except TypeError:
+                    pass
+                else:
+                    return list(iterable)
+                # Let the base class default method raise the TypeError
+                return super().default(o)
+    
+        """
+>       raise TypeError(f'Object of type {o.__class__.__name__} '
+                        f'is not JSON serializable')
+E       sqlalchemy.exc.StatementError: (builtins.TypeError) Object of type MagicMock is not JSON serializable
+E       [SQL: UPDATE triaged_emails SET metadata_json=?, updated_at=? WHERE triaged_emails.id = ?]
+E       [parameters: [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', 'relationship_summary': <MagicMock name='RelationshipManager().get_relationship_summary()' id='2356449769744'>}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]]
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\json\encoder.py:180: StatementError
+------------------------------ Captured log call ------------------------------
+ERROR    app.workers.local_sync:local_sync.py:408 Triage Stage failed: (builtins.TypeError) Object of type MagicMock is not JSON serializable
+[SQL: UPDATE triaged_emails SET metadata_json=?, updated_at=? WHERE triaged_emails.id = ?]
+[parameters: [{'metadata_json': {'body': 'Could you send the Q3 report?', 'is_vip': True, 'labels': ['VIP Priority'], 'language': 'en', 'relationship_summary': <MagicMock name='RelationshipManager().get_relationship_summary()' id='2356449769744'>}, 'triaged_emails_id': '5114f9e1-2687-4283-975a-bc9dae7e0fc1'}]]
+=========================== short test summary info ===========================
+FAILED tests/test_e2e_pipeline.py::test_e2e_pipeline - sqlalchemy.exc.Stateme...
+============================= 1 failed in 10.19s ==============================

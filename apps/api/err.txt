@@ -1,0 +1,156 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\user\AppData\Local\Programs\Python\Python311\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Zroky\apps\api
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.7.6, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/test_draft_engine.py::DraftEngineTests::test_draft_includes_rationale_and_intent FAILED [ 50%]
+tests/test_draft_engine.py::DraftEngineTests::test_style_ladder_thresholds FAILED [100%]
+
+================================== FAILURES ===================================
+__________ DraftEngineTests.test_draft_includes_rationale_and_intent __________
+
+self = <test_draft_engine.DraftEngineTests testMethod=test_draft_includes_rationale_and_intent>
+MockCritic = <MagicMock name='CriticAgent' id='1485397950096'>
+
+    @patch("app.agents.aaliyah.core.drafting.CriticAgent")
+    async def test_draft_includes_rationale_and_intent(self, MockCritic):
+        agent = DraftingAgent(self.db, "w3")
+    
+        # Mock Critic
+        mock_critic_instance = MockCritic.return_value
+        mock_critic_instance.review_draft = AsyncMock()
+        mock_critic_instance.review_draft.return_value.status = "approved"
+        mock_critic_instance.review_draft.return_value.rewritten_body = None
+    
+        # Mock brain
+        agent.brain.think = AsyncMock(return_value=MagicMock(content='''{
+            "action": "reply",
+            "intent": "info request",
+            "subject": "Re: Pricing Query",
+            "body": "I'll check on the pricing and get back to you.",
+            "risk_labels": ["Money"],
+            "missing_info": "Specific pricing for Project X",
+            "rationale": "Replying to info request while checking internal facts."
+        }'''))
+    
+        email = TriagedEmail(
+            id="e1", workspace_id="w3", provider="google",
+            external_message_id="ext-1", sender="client@test.com",
+            subject="Pricing Query", snippet="How much for the package?",
+            category="FYI", priority="Low"
+        )
+        self.db.add(email)
+        self.db.commit()
+    
+>       draft = await agent.generate_draft(email)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_draft_engine.py:55: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <app.agents.aaliyah.core.drafting.DraftingAgent object at 0x00000159D8A116D0>
+email = <TriagedEmail(id=e1, category=FYI, priority=Low)>, is_followup = False
+
+    async def generate_draft(self, email: TriagedEmail, is_followup: bool = False) -> Optional[DraftResponse]:
+        """
+        Generate a reply draft using LLM and context.
+        Enforces "No Hallucination" and "Style Learning".
+        """
+        # 0. Skip if already drafted and sent. If not sent, clear old draft and re-draft.
+        if email.metadata_json and "draft" in email.metadata_json:
+            if email.metadata_json["draft"].get("status") == "sent":
+                return None
+            # Clear stale draft so re-generation starts clean
+            meta = dict(email.metadata_json)
+            meta.pop("draft", None)
+            email.metadata_json = meta
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(email, "metadata_json")
+            self.db.flush()
+    
+        # 1. Extract and Sanitize Latest Reply Only
+        # Prefer full body from metadata_json over truncated snippet
+        raw_body = (email.metadata_json or {}).get("body") or email.snippet or ""
+        clean_full_body = sanitize_email_body(raw_body)
+        latest_content = extract_latest_reply(clean_full_body)
+        if not latest_content:
+             latest_content = clean_full_body or ""
+    
+        # 2. Gather Context
+        history = self.label_engine.list_recent_thread_history(
+            thread_id=email.thread_id,
+            sender=email.sender,
+            limit=5
+        )
+    
+        thread_context = ""
+        for msg in reversed(history):
+            if msg.id == email.id:
+                continue
+            thread_context += f"From: {msg.sender}\nBody: {msg.snippet[:500]}\n---\n"
+    
+        sender_query = email.sender or ""
+        kg_context = self.kg.summarize_for_prompt(query=sender_query)
+    
+        # New: Relationship Summary from triage
+        rel_summary = (email.metadata_json or {}).get("relationship_summary", "")
+        if rel_summary:
+            kg_context += f"\n\n**Interaction History:**\n{rel_summary}"
+    
+        # New: Vision Analysis from triage
+        vision_context = ""
+        vision_data = (email.metadata_json or {}).get("vision_analysis", [])
+        if vision_data:
+            vision_context = "**AI Vision Analysis of Attachments:**\n"
+            for v in vision_data:
+                vision_context += f"- File: {v.get('filename')}\n  Analysis: {json.dumps(v.get('analysis'))}\n"
+    
+        from app.models.user import User
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        owner = self.db.query(User).filter(User.id == workspace.owner_id).first() if workspace else None
+    
+>       aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+                            ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'settings_json'
+
+app\agents\aaliyah\core\drafting.py:169: AttributeError
+------------------------------ Captured log call ------------------------------
+WARNING  app.services.cache:cache.py:49 Cache: Redis connection failed (Error 10061 connecting to localhost:6379. No connection could be made because the target machine actively refused it.) — using in-memory fallback
+WARNING  asyncio:base_events.py:1931 Executing <Task finished name='Task-2' coro=<DraftEngineTests.test_draft_includes_rationale_and_intent() done, defined at C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:1390> exception=AttributeError("'NoneType' object has no attribute 'settings_json'") created at C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py:100> took 4.297 seconds
+________________ DraftEngineTests.test_style_ladder_thresholds ________________
+
+self = <test_draft_engine.DraftEngineTests testMethod=test_style_ladder_thresholds>
+
+    async def test_style_ladder_thresholds(self):
+        agent = DraftingAgent(self.db, "w3")
+    
+        # 0 sends
+>       context0 = await agent._get_style_context()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_draft_engine.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <app.agents.aaliyah.core.drafting.DraftingAgent object at 0x00000159D95C8C10>
+
+    async def _get_style_context(self) -> str:
+        """
+        Implements Style Learning Trust Ladder:
+        - Incorporate user-provided examples from settings.
+        - Learn from approved sent emails (draft status == "sent").
+        - Progress through accuracy levels based on volume.
+        """
+        workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+>       aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+                            ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'settings_json'
+
+app\agents\aaliyah\core\drafting.py:62: AttributeError
+=========================== short test summary info ===========================
+FAILED tests/test_draft_engine.py::DraftEngineTests::test_draft_includes_rationale_and_intent
+FAILED tests/test_draft_engine.py::DraftEngineTests::test_style_ladder_thresholds
+============================== 2 failed in 5.39s ==============================

@@ -1,0 +1,119 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______________________ test_drafting_with_availability _______________________
+
+    @pytest.mark.asyncio
+    async def test_drafting_with_availability():
+        db = MagicMock()
+        workspace_id = "ws_test"
+    
+        # Mock Settings
+        ws = Workspace(id=workspace_id, settings_json={"aaliyah": {"signature": "- Aaliyah"}})
+        mock_user = MagicMock(email="test@user.com")
+    
+        def mock_query(model):
+            m = MagicMock()
+            if getattr(model, "__name__", "") == "Workspace":
+                m.filter.return_value.first.return_value = ws
+            elif getattr(model, "__name__", "") == "User":
+                m.filter.return_value.first.return_value = mock_user
+            else:
+                m.filter.return_value.all.return_value = []
+            return m
+    
+        db.query.side_effect = mock_query
+    
+        # Mock Labels
+        mock_lre = MagicMock()
+        mock_lre.list_recent_thread_history.return_value = []
+    
+        # Mock Availability
+        mock_availability = MagicMock()
+        # Return 2 fake slots
+        now = datetime.now(timezone.utc)
+        slot1 = TimeSlot(
+            start=now + timedelta(days=1, hours=2),
+            end=now + timedelta(days=1, hours=3),
+            duration_minutes=60
+        )
+        slot2 = TimeSlot(
+            start=now + timedelta(days=1, hours=4),
+            end=now + timedelta(days=1, hours=5),
+            duration_minutes=60
+        )
+        mock_availability.find_slots.return_value = [slot1, slot2]
+    
+        # Mock KG
+        mock_kg = MagicMock()
+        mock_kg.summarize_for_prompt.return_value = "User is important."
+    
+        # Mock Brain to return placeholder
+        mock_brain = MagicMock()
+        mock_brain.think = AsyncMock()
+        mock_brain.think.return_value = MagicMock(
+            content='{"action": "reply", "subject": "Re: Meeting", "body": "I am free at 2pm. [BOOKING_LINK]", "rationale": "Scheduling"}'
+        )
+    
+        with patch("app.agents.aaliyah.core.drafting.LabelingRulesEngine", return_value=mock_lre), \
+             patch("app.agents.aaliyah.core.drafting.KnowledgeGraphService", return_value=mock_kg), \
+             patch("app.agents.aaliyah.core.drafting.AvailabilityEngine", return_value=mock_availability), \
+             patch("app.agents.aaliyah.core.drafting.Brain", return_value=mock_brain), \
+             patch("app.agents.aaliyah.core.drafting.BookingManager") as MockBookingManager:
+    
+            # Mock BookingManager instance
+            mock_bm_instance = MockBookingManager.return_value
+            mock_link = MagicMock()
+            mock_link.slug = "slug_123"
+            mock_bm_instance.create_link.return_value = mock_link
+    
+            agent = DraftingAgent(db, workspace_id)
+    
+            # Manually force the mocks we created since "patch" only mocks the class constructor
+            agent.availability = mock_availability
+            agent.brain = mock_brain
+            agent.kg = mock_kg # ensure consistency
+    
+            # Case 1: Scheduling Intent
+            email = TriagedEmail(
+                id="1",
+                sender="bob@example.com",
+                subject="Meeting?",
+                snippet="Can we meet?",
+                category="Meeting", # Trigger
+                priority="High",
+                metadata_json={"labels": ["Meeting"]}
+            )
+    
+            draft = await agent.generate_draft(email)
+    
+            # Verify find_slots called
+>           mock_availability.find_slots.assert_called_once()
+
+tests\test_scheduling_draft.py:98: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <MagicMock name='mock.find_slots' id='2783684302352'>
+
+    def assert_called_once(self):
+        """assert that the mock was called only once.
+        """
+        if not self.call_count == 1:
+            msg = ("Expected '%s' to have been called once. Called %s times.%s"
+                   % (self._mock_name or 'mock',
+                      self.call_count,
+                      self._calls_repr()))
+>           raise AssertionError(msg)
+E           AssertionError: Expected 'find_slots' to have been called once. Called 0 times.
+
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:918: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  app.services.brain.providers.openrouter:openrouter.py:116 OpenRouter error status=404 body="{\"error\":{\"message\":\"No endpoints found for deepseek/deepseek-r1:free.\",\"code\":404},\"user_id\":\"user_3AAwgUN5XcdRCj1XMoIWMp0icXq\"}"
+WARNING  app.services.brain.core:core.py:181 Brain call retrying attempt=1 model=deepseek/deepseek-r1:free wait_s=0.62 prompt_fp=aa50f0cde173 reason=brain_provider_error
+WARNING  app.services.brain.providers.openrouter:openrouter.py:116 OpenRouter error status=404 body="{\"error\":{\"message\":\"No endpoints found for deepseek/deepseek-r1:free.\",\"code\":404},\"user_id\":\"user_3AAwgUN5XcdRCj1XMoIWMp0icXq\"}"
+WARNING  app.services.brain.core:core.py:181 Brain call retrying attempt=2 model=deepseek/deepseek-r1:free wait_s=1.19 prompt_fp=aa50f0cde173 reason=brain_provider_error
+WARNING  app.services.brain.providers.openrouter:openrouter.py:116 OpenRouter error status=404 body="{\"error\":{\"message\":\"No endpoints found for google/gemini-flash-1.5.\",\"code\":404},\"user_id\":\"user_3AAwgUN5XcdRCj1XMoIWMp0icXq\"}"
+ERROR    app.services.brain.core:core.py:215 Brain call failed code=brain_provider_error latency_ms=2191 prompt_fp=aa50f0cde173 context=None
+ERROR    app.agents.aaliyah.core.critic_agent:critic_agent.py:74 Critic Agent failed to review draft: OpenRouter returned status 404
+=========================== short test summary info ===========================
+FAILED tests/test_scheduling_draft.py::test_drafting_with_availability - Asse...
+1 failed in 4.63s

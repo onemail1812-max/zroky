@@ -1,0 +1,28 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______________________ test_drafting_with_availability _______________________
+app\agents\aaliyah\core\drafting.py:61: in _get_style_context
+    workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:1124: in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:1128: in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python311\Lib\unittest\mock.py:1185: in _execute_mock_call
+    result = next(effect)
+             ^^^^^^^^^^^^
+E   StopIteration
+
+The above exception was the direct cause of the following exception:
+tests\test_scheduling_draft.py:86: in test_drafting_with_availability
+    draft = await agent.generate_draft(email)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\agents\aaliyah\core\drafting.py:195: in generate_draft
+    style_context = await self._get_style_context()
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   RuntimeError: coroutine raised StopIteration
+=========================== short test summary info ===========================
+FAILED tests/test_scheduling_draft.py::test_drafting_with_availability - Runt...
+1 failed in 2.64s

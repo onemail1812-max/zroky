@@ -253,15 +253,23 @@ class AaliyahOrchestrator:
         }
 
     def get_stats(self, db: Optional[Session] = None) -> dict[str, Any]:
-        state = self._get_state()
-        stats = {
-            "triaged_count": state.triaged_count,
-            "queued_count": state.queued_count,
-            "pending_approvals": state.pending_approvals,
-            "escalations": state.escalations,
-            "calendar_events": state.calendar_events,
-            "calendar_conflicts": state.calendar_conflicts,
-        }
+        try:
+            state = self._get_state()
+            stats = {
+                "triaged_count": state.triaged_count,
+                "queued_count": state.queued_count,
+                "pending_approvals": state.pending_approvals,
+                "escalations": state.escalations,
+                "calendar_events": state.calendar_events,
+                "calendar_conflicts": state.calendar_conflicts,
+            }
+        except Exception as state_err:
+            logger.error(f"Failed to get_state in get_stats: {state_err}")
+            stats = {
+                "triaged_count": 0, "queued_count": 0, "pending_approvals": 0,
+                "escalations": 0, "calendar_events": 0, "calendar_conflicts": 0,
+            }
+            
         if db:
             try:
                 stats["priority_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.priority == "High").count()
@@ -272,7 +280,12 @@ class AaliyahOrchestrator:
                     cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
                 ).count()
             except Exception as e:
-                logger.error(f"Failed to fetch realtime stats: {e}")
+                logger.error(f"Failed to fetch realtime stats from db: {e}")
+                # Provide safe defaults if DB queries fail (e.g. table not found in this environment)
+                stats["priority_count"] = 0
+                stats["needs_reply_count"] = 0
+                stats["followups_count"] = 0
+                stats["drafts_count"] = 0
         return stats
 
     # --- DELEGATED HANDLERS ---

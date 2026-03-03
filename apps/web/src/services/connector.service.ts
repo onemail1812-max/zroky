@@ -7,6 +7,8 @@
 // Connector API base URL.
 // Use empty string to route through Next.js proxy (avoids CORS issues).
 // The Next.js rewrites in next.config.ts handle /api/v1/* → backend.
+import { readLocalStorage } from "@/lib/aaliyah/api";
+
 const CONNECTOR_API_URL = '';
 
 export type Provider = 'google' | 'microsoft';
@@ -60,12 +62,22 @@ class ConnectorService {
         this.baseUrl = CONNECTOR_API_URL;
     }
 
-    private getAuthHeaders(): Record<string, string> {
-        const token =
-            localStorage.getItem('auth_token') ||
-            localStorage.getItem('clerk_token') ||
-            localStorage.getItem('__session') ||
-            '';
+    private async getAuthHeaders(): Promise<Record<string, string>> {
+        let token = null;
+        if (typeof window !== "undefined" && (window as any).Clerk?.session) {
+            try {
+                token = await (window as any).Clerk.session.getToken();
+            } catch (e) {
+                console.warn("ConnectorService: Failed to get fresh Clerk token", e);
+            }
+        }
+
+        if (!token) {
+            token = localStorage.getItem('auth_token') ||
+                localStorage.getItem('clerk_token') ||
+                localStorage.getItem('__session') ||
+                '';
+        }
 
         const headers: Record<string, string> = {
             'x-workspace-id': this.getWorkspaceId(),
@@ -122,7 +134,7 @@ class ConnectorService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...this.getAuthHeaders(),
+                    ...await this.getAuthHeaders(),
                 },
                 body: JSON.stringify({
                     returnUrl: redirectUri || `${window.location.origin}/oauth/callback`,
@@ -185,7 +197,7 @@ class ConnectorService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...this.getAuthHeaders(),
+                    ...await this.getAuthHeaders(),
                 },
                 body: JSON.stringify({
                     code,
@@ -219,7 +231,7 @@ class ConnectorService {
     async listAccounts(): Promise<ConnectedAccount[]> {
         try {
             const response = await fetch(`${this.baseUrl}/api/v1/connectors/accounts`, {
-                headers: this.getAuthHeaders(),
+                headers: await this.getAuthHeaders(),
                 cache: 'no-store'
             });
 
@@ -231,7 +243,7 @@ class ConnectorService {
 
                 // Retry once without token
                 const retry = await fetch(`${this.baseUrl}/api/v1/connectors/accounts`, {
-                    headers: this.getAuthHeaders(),
+                    headers: await this.getAuthHeaders(),
                     cache: 'no-store'
                 });
                 if (retry.ok) {
@@ -259,7 +271,7 @@ class ConnectorService {
         try {
             const response = await fetch(`${this.baseUrl}/api/v1/connectors/accounts/${accountId}/revoke`, {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers: await this.getAuthHeaders()
             });
             return response.ok;
         } catch (error) {
@@ -287,7 +299,7 @@ class ConnectorService {
     async getHealth(): Promise<ConnectionHealthResponse | null> {
         try {
             const response = await fetch(`${this.baseUrl}/health/providers`, {
-                headers: this.getAuthHeaders(),
+                headers: await this.getAuthHeaders(),
                 cache: 'no-store'
             });
 
@@ -300,7 +312,7 @@ class ConnectorService {
     }
 
     private getWorkspaceId(): string {
-        return localStorage.getItem('workspace_id') || localStorage.getItem('tenant_id') || 'default';
+        return readLocalStorage(['workspace_id', 'tenant_id', 'x_workspace_id']) || 'default';
     }
 
     /**
@@ -312,7 +324,7 @@ class ConnectorService {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...this.getAuthHeaders()
+                    ...await this.getAuthHeaders()
                 },
                 body: JSON.stringify({ provider })
             });
