@@ -1,6 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 
-const TOKEN_KEYS = ["auth_token", "clerk_token", "__session"]
 export const WORKSPACE_KEYS = ["workspace_id", "tenant_id", "x_workspace_id"]
 
 export function readLocalStorage(keys: string[]): string | null {
@@ -13,16 +12,21 @@ export function readLocalStorage(keys: string[]): string | null {
 }
 
 async function withAuth(config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> {
-  let token = readLocalStorage(TOKEN_KEYS)
-
-  // Directly fetch fresh token from Clerk if available (Browser environment)
+  // 1. DYNAMICALLY FETCH TOKEN (Enterprise Fix)
+  // We no longer rely on a brittle 50s sync loop. We ask Clerk directly for a fresh token
+  // right before every single request. Clerk handles its own memory cache, short-circuit, and refresh logic natively.
+  let token = null;
   if (typeof window !== "undefined" && (window as any).Clerk?.session) {
     try {
-      const freshToken = await (window as any).Clerk.session.getToken();
-      if (freshToken) token = freshToken;
+      token = await (window as any).Clerk.session.getToken();
     } catch (e) {
-      console.warn("Failed to get fresh Clerk token from window.Clerk", e);
+      console.warn("API: Failed to get fresh Clerk token", e);
     }
+  }
+
+  // Fallback for dev/SSR if absolutely needed, though Clerk session above takes precedence
+  if (!token) {
+    token = readLocalStorage(["auth_token", "clerk_token", "__session"]);
   }
 
   const workspaceId = readLocalStorage(WORKSPACE_KEYS)
@@ -48,9 +52,21 @@ async function withAuth(config: InternalAxiosRequestConfig): Promise<InternalAxi
   return config
 }
 
+function handleResponseError(error: any) {
+  if (error?.response?.status === 401) {
+    // Global 401 Handler: The session was revoked or corrupted.
+    // Redirect hard to the sign-in page to heal the session state.
+    if (typeof window !== "undefined") {
+      console.warn("API 401: Enterprise Revoke. Forcing redirect to /sign-in.");
+      window.location.href = "/sign-in";
+    }
+  }
+  return Promise.reject(error);
+}
+
 function toApiError(error: unknown): Error {
   if (error instanceof AxiosError) {
-    const detail = error.response?.data?.error?.message
+    const detail = error.response?.data?.error?.message ?? error.response?.data?.detail
     if (typeof detail === "string" && detail.length > 0) return new Error(detail)
     if (typeof error.message === "string" && error.message.length > 0) return new Error(error.message)
   }
@@ -66,7 +82,8 @@ export const aaliyahApi = axios.create({
   timeout: 60000,
 })
 
-aaliyahApi.interceptors.request.use((config) => withAuth(config))
+aaliyahApi.interceptors.request.use(withAuth)
+aaliyahApi.interceptors.response.use((res) => res, handleResponseError)
 
 export const assistApi = axios.create({
   baseURL: "/assist",
@@ -76,7 +93,8 @@ export const assistApi = axios.create({
   timeout: 60000,
 })
 
-assistApi.interceptors.request.use((config) => withAuth(config))
+assistApi.interceptors.request.use(withAuth)
+assistApi.interceptors.response.use((res) => res, handleResponseError)
 
 export async function sendChat(message: string, threadId?: string, workspaceId?: string, emailId?: string) {
   try {

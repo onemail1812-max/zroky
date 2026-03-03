@@ -11,35 +11,18 @@ import { useEffect, useRef } from "react"
  * Refreshes the token every 50 seconds (Clerk tokens expire in ~60s).
  */
 export function ClerkAuthSync() {
-    const { getToken, isSignedIn } = useAuth()
-    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    const { isSignedIn } = useAuth()
 
     useEffect(() => {
-        async function syncToken() {
-            if (!isSignedIn) {
-                localStorage.removeItem("clerk_token")
-                return
-            }
-            try {
-                const token = await getToken()
-                if (token) {
-                    localStorage.setItem("clerk_token", token)
-                }
-            } catch {
-                // Token fetch failed — Clerk will handle re-auth
-            }
+        // We no longer interval-sync tokens to localStorage here!
+        // The API interceptors dynamically await window.Clerk.session.getToken()
+        // right before EVERY request. This completely eliminates the 60s
+        // expiry mismatch bug.
+
+        if (!isSignedIn) {
+            localStorage.removeItem("clerk_token")
         }
+    }, [isSignedIn])
 
-        // Sync immediately
-        syncToken()
-
-        // Refresh every 50 seconds (Clerk tokens expire in ~60s)
-        intervalRef.current = setInterval(syncToken, 50_000)
-
-        return () => {
-            if (intervalRef.current) clearInterval(intervalRef.current)
-        }
-    }, [getToken, isSignedIn])
-
-    return null // Invisible component — just syncs the token
+    return null
 }
