@@ -45,9 +45,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=zroky_default"
-      - "traefik.http.routers.api.rule=Host(`zroky.com`) && PathPrefix(`/api/v1`, `/aaliyah`, `/assist`, `/oauth`, `/health`, `/me`)"
+      - "traefik.http.routers.api.rule=Host(`zroky.com`) && PathPrefix(`/api/v1`, `/aaliyah/`, `/assist`, `/oauth`, `/health`, `/me`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.api.priority=100"
       - "traefik.http.services.api.loadbalancer.server.port=8000"
     networks:
       - aaliyah-net
