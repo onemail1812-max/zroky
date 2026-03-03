@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     SERVER_PORT: int = 8000
     
     # Database
-    DATABASE_URL: str = "sqlite:///./zroky.db"
+    DATABASE_URL: str = "sqlite:////app/zroky.db"
     
     # Security (MUST BE SET IN PROD)
     SECRET_KEY: str = Field(default="dev-secret-key-change-me", min_length=16)
