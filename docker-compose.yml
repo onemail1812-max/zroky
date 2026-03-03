@@ -17,8 +17,15 @@ services:
       - API_URL=http://api:8000
       - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`zroky.com`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
     networks:
       - aaliyah-net
+      - default
 
   api:
     build:
@@ -33,9 +40,19 @@ services:
     volumes:
       - ./data:/app/data
       - ./zroky.db:/app/zroky.db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`zroky.com`) && PathPrefix(`/api/v1`, `/aaliyah`, `/assist`, `/oauth`, `/health`, `/me`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
     networks:
       - aaliyah-net
+      - default
 
 networks:
   aaliyah-net:
     driver: bridge
+  default:
+    external: true
+    name: zroky_default
