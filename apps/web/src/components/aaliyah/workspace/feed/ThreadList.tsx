@@ -83,7 +83,7 @@ function EmptyState() {
     );
 }
 
-export function ThreadList({
+export const ThreadList = React.memo(function ThreadList({
     onSelect,
     selectedId,
     filter,
@@ -227,4 +227,4 @@ export function ThreadList({
             })}
         </div>
     )
-}
+})

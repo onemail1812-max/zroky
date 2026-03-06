@@ -14,7 +14,7 @@ export function useHealthQuery(enabled = true) {
     const fetchHealth = useSystemStore((s) => s.fetchHealth)
     return useQuery({
         queryKey: ["aaliyah", "health"],
-        queryFn: () => fetchHealth(),
+        queryFn: ({ signal }) => fetchHealth(signal),
         enabled,
         staleTime: 60_000,       // 1 minute
         refetchInterval: 120_000, // 2 minutes
@@ -24,8 +24,11 @@ export function useHealthQuery(enabled = true) {
 export function useStatusQuery(enabled = true) {
     return useQuery({
         queryKey: ["aaliyah", "status"],
-        queryFn: async () => {
-            const [status, counts] = await Promise.all([getStatus(), getCounts()])
+        queryFn: async ({ signal }) => {
+            const [status, counts] = await Promise.all([
+                getStatus(undefined, signal),
+                getCounts(signal)
+            ])
             return { status, counts }
         },
         enabled,
@@ -38,7 +41,7 @@ export function useInboxQuery(queue?: string, enabled = true) {
     const fetchInbox = useSystemStore((s) => s.fetchInbox)
     return useQuery({
         queryKey: ["aaliyah", "inbox", queue ?? "all"],
-        queryFn: () => fetchInbox(queue),
+        queryFn: ({ signal }) => fetchInbox(queue, signal),
         enabled,
         staleTime: 30_000,       // 30 seconds
         refetchInterval: 120_000, // 2 minutes

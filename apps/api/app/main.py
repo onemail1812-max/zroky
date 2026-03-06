@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.middleware.rate_limiter import RateLimiterMiddleware
+from app.middleware.csrf import CSRFMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from app.core.limiter import limiter
@@ -45,15 +46,36 @@ async def lifespan(application: FastAPI):
     import app.models  # noqa: F401  — ensure all models registered
     import asyncio
 
-    # PROVISION MISSING TABLES: auto-create missing tables on boot.
-    # Safe to run on Postgres/SQLite, only creates completely missing tables (e.g. drafts) without dropping existing ones.
+    # SCHEMA MANAGEMENT: Dialect-aware startup
+    # - Development (SQLite): Use create_all for convenience
+    # - Production (PostgreSQL): NEVER use create_all — rely on Alembic migrations
+    if settings.ENV != "production":
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("✅ Database schema validated (dev: create_all).")
+        except Exception as e:
+            logger.warning(f"Note: Auto-provisioning skipped: {e}")
+    else:
+        logger.info("🔒 Production mode: Skipping create_all (Alembic migrations required).")
+
+    # SCHEMA DRIFT DETECTION: Compare models against live DB
+    # Runs on every startup in every environment to catch drift early
     try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("✅ Database schema validated and missing tables provisioned.")
+        from app.database import check_schema_drift
+        drift_warnings = check_schema_drift()
+        if drift_warnings:
+            logger.warning("⚠️ SCHEMA DRIFT DETECTED (%d issues):", len(drift_warnings))
+            for w in drift_warnings:
+                logger.warning("  → %s", w)
+            if settings.ENV == "production":
+                logger.critical(
+                    "‼️ Schema drift in PRODUCTION. Run 'alembic upgrade head' "
+                    "or generate a new migration with 'alembic revision --autogenerate'."
+                )
+        else:
+            logger.info("✅ Schema drift check passed — models match database.")
     except Exception as e:
-        # Postgres throws UniqueViolation for internal types (like ENUMs) if they already exist.
-        # This is expected and safe to ignore since Alembic handles actual migrations.
-        logger.warning(f"Note: Auto-provisioning skipped due to existing schema constraints. {e}")
+        logger.warning("Schema drift check skipped: %s", e)
 
     # Start the async background worker loop
     from app.core.queue import queue, JobType
@@ -173,6 +195,9 @@ app.add_middleware(
     allow_headers=settings.CORS_HEADERS,
 )
 
+# CSRF protection for state-changing endpoints
+app.add_middleware(CSRFMiddleware)
+
 # Removed Global RateLimiterMiddleware (120 req/min) in favor of slowapi per-endpoint limits
 
 
@@ -182,14 +207,14 @@ app.include_router(aaliyah_router)
 app.include_router(oauth.router)
 app.include_router(connectors_router)
 app.include_router(booking_router)
-app.include_router(knowledge_router, prefix="/aaliyah", tags=["knowledge"])
+app.include_router(knowledge_router, prefix="/api/v1/aaliyah", tags=["knowledge"])
 app.include_router(inbox_router)
 app.include_router(calendar_router)
 app.include_router(meetings_router)
 from app.api.webhooks import router as webhooks_router
 app.include_router(webhooks_router)
-app.include_router(assist_router.router, prefix="/assist", tags=["assist"])
-app.include_router(auto_chat.router, prefix="/auto-chat", tags=["auto-chat"])
+app.include_router(assist_router.router, prefix="/api/v1/assist", tags=["assist"])
+app.include_router(auto_chat.router, prefix="/api/v1/auto-chat", tags=["auto-chat"])
 
 
 # ── Core Endpoints ───────────────────────────────────────────────────────
@@ -344,6 +369,7 @@ async def get_current_user_profile(
 
     user = db.query(User).filter(User.id == user_id).first()
     
+    must_commit = False
     # Auto-provision user if missing
     if not user:
         user = User(
@@ -355,7 +381,7 @@ async def get_current_user_profile(
             is_active=True,
         )
         db.add(user)
-        db.commit()
+        must_commit = True
 
     workspace_id = token_payload.get("workspace_id")
     if workspace_id == "default":
@@ -402,7 +428,6 @@ async def get_current_user_profile(
             owner_id=user_id,
         )
         db.add(workspace)
-        db.commit()
 
         membership = Membership(
             id=str(uuid.uuid4()),
@@ -411,7 +436,12 @@ async def get_current_user_profile(
             role=MembershipRole.ADMIN,
         )
         db.add(membership)
+        must_commit = True
+
+    if must_commit:
         db.commit()
+        db.refresh(user)
+        db.refresh(membership)
 
     return {
         "user_id": user.id,

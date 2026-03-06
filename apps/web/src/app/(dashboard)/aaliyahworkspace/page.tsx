@@ -1,5 +1,10 @@
 import { WorkspaceLayout } from "@/components/aaliyah/workspace/feed/WorkspaceLayout"
+import * as React from "react"
 
 export default function WorkspacePage() {
-  return <WorkspaceLayout />
+  return (
+    <React.Suspense fallback={<div />}>
+      <WorkspaceLayout />
+    </React.Suspense>
+  )
 }

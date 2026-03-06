@@ -26,7 +26,7 @@ export function SheetPreview({ document }: { document: ActiveDocument }) {
                         </div>
                         {/* Note: In a real implementation we'd shift padding-left dynamically or use a different structure, but keeping it simple for now */}
                     </div>
-                    <button className="h-12 w-12 rounded-xl text-white bg-emerald-500 hover:bg-emerald-600 active:scale-95 transition-all shadow-md flex items-center justify-center shrink-0 border border-emerald-600/20">
+                    <button aria-label="Submit analysis request" className="h-12 w-12 rounded-xl text-white bg-emerald-500 hover:bg-emerald-600 active:scale-95 transition-all shadow-md flex items-center justify-center shrink-0 border border-emerald-600/20">
                         <Send className="h-4 w-4 ml-0.5" />
                     </button>
                 </div>

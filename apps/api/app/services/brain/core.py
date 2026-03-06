@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, Type, TypeVar, Union
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.brain.errors import BrainError, BrainProviderError, BrainValidationError
+from app.services.brain.errors import BrainError, BrainProviderError, BrainValidationError, BrainTimeoutError
 from app.services.brain.guardrails import (
     detect_prompt_injection,
     fingerprint,
@@ -240,7 +240,7 @@ class Brain:
     ):
         """
         Streaming LLM entrypoint. Yields text chunks as they arrive.
-        Used by the chat handler for real-time streamed responses.
+        Ensures bounded execution with both chunk-level and stream-level timeouts.
         """
         # MOCK FALLBACK — only when API key is missing or placeholder
         _key = str(settings.OPENROUTER_API_KEY or "")
@@ -259,18 +259,36 @@ class Brain:
         model = model_override or self.config.model
         temperature = temperature_override if temperature_override is not None else self.config.temperature
 
+        start_time = time.time()
+        timeout = float(self.config.stream_timeout_seconds)
+
         try:
-            async for chunk in self.provider.generate_stream(
+            # Wrap the entire generator to enforce a total timeout
+            gen = self.provider.generate_stream(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 model=model,
                 temperature=temperature,
+                timeout_seconds=self.config.timeout_seconds,
+                chunk_timeout_seconds=self.config.chunk_timeout_seconds,
                 images=images,
-            ):
-                yield chunk
+            )
+
+            async with asyncio.timeout(timeout):
+                async for chunk in gen:
+                    yield chunk
+                    
+                    # Sanity check: if we've passed the total timeout, stop
+                    if time.time() - start_time > timeout:
+                         logger.error("Brain stream reached absolute hard timeout of %ss", timeout)
+                         break
+
+        except (asyncio.TimeoutError, TimeoutError, BrainTimeoutError):
+             logger.error("Brain stream timeout (total or chunk) after %ss", timeout)
+             yield "\n\n[System: Response timed out. Please try a shorter request.]"
         except Exception as exc:
             logger.error("Brain streaming failed: %s", exc, exc_info=True)
-            yield "I encountered an issue processing your request. Please try again."
+            yield "\n\nI encountered an issue processing your request. Please try again."
 
     async def reason(self, task: str, context: Dict[str, Any]) -> BrainResponse:
         """Reasoning wrapper with strict explicit instructions."""
@@ -290,46 +308,40 @@ class Brain:
         temperature_override: Optional[float] = 0.0,
     ) -> T:
         """
-        Enforce structured JSON output using a Pydantic model.
-        Uses a single pass and manual parsing for provider compatibility.
+        Enforce structured output using a Pydantic model via instructor.
         """
-        schema = response_model.model_json_schema()
-        json_system_prompt = (
-            f"{system_prompt}\n"
-            "STRICT RULES:\n"
-            "1. RETURN JSON ONLY.\n"
-            "2. NO EXPLANATIONS or MARKDOWN outside the JSON block.\n"
-            f"3. FOLLOW THIS SCHEMA: {json.dumps(schema)}"
-        )
+        import instructor
         
-        # Use a retry loop for parsing
-        for _ in range(2):
-            response = await self.think(
-                prompt=prompt,
-                system_prompt=json_system_prompt,
-                context=context,
-                model_override=model_override,
-                temperature_override=temperature_override
+        # Get the underlying OpenAI client from the provider
+        client, actual_model = await self.provider._get_client(model_override)
+        
+        # Patch with instructor for structured output
+        # Use mode=instructor.Mode.JSON so it works across most providers (OpenRouter, Groq)
+        instructor_client = instructor.patch(client, mode=instructor.Mode.JSON)
+        
+        prompt_fp = fingerprint(prompt)
+        start = time.time()
+
+        try:
+            return await instructor_client.chat.completions.create(
+                model=actual_model,
+                response_model=response_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"{prompt}\n\nContext: {json.dumps(context)}" if context else prompt},
+                ],
+                temperature=temperature_override,
+                timeout=float(self.config.timeout_seconds),
+                max_retries=2,
             )
-            
-            content = response.content.strip()
-            # Basic cleanup if model includes markdown
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-            
-            try:
-                # Extract first { and last } if there's noise
-                if not content.startswith("{"):
-                    match = re.search(r"(\{.*\})", content, re.DOTALL)
-                    if match:
-                        content = match.group(1)
-                
-                return response_model.model_validate_json(content)
-            except Exception as exc:
-                logger.warning("Structured output parsing failed, retrying... err=%s", exc)
-                continue
-        
-        raise BrainError(f"Failed to produce valid structured output for {response_model.__name__}")
+        except Exception as exc:
+            logger.error(
+                "Brain think_json failed model=%s latency_ms=%s prompt_fp=%s err=%s",
+                actual_model,
+                int((time.time() - start) * 1000),
+                prompt_fp,
+                exc,
+            )
+            # Fallback to manual parsing if instructor fails unexpectedly (unlikely with instructor, but for safety)
+            raise BrainError(f"Failed to produce structured output for {response_model.__name__}: {exc}")
 

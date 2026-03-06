@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 
-from app.dependencies import get_current_context, get_current_user
+from app.dependencies import get_current_context, get_current_user, enforce_superuser
 from app.database import get_db
 from app.core.limiter import limiter
 from sqlalchemy.orm import Session
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.agents.aaliyah.core.auto_chat_service import AutoChatService, ConversationTrigger
 from app.models.triaged_email import TriagedEmail
 
-router = APIRouter(prefix="/auto-chat", tags=["auto-chat"])
+router = APIRouter(tags=["auto-chat"])
 
 
 class TriggerAutoChatRequest(BaseModel):
@@ -113,8 +113,14 @@ async def trigger_auto_chat(
             details=result
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to trigger auto-chat for workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to trigger auto-chat at this time"
+        )
 
 
 @router.post("/execute-action")
@@ -152,8 +158,14 @@ async def auto_execute_action(
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Action execution failed for workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to execute autonomous action"
+        )
 
 
 @router.get("/status/{email_id}")
@@ -183,8 +195,14 @@ async def get_auto_chat_status(
             "metadata": meta
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Auto-chat status check failed for email {email_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to retrieve auto-chat status"
+        )
 
 
 @router.put("/settings")
@@ -243,8 +261,14 @@ async def update_auto_chat_settings(
             "settings": auto_chat
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to update auto-chat settings for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Settings update failed"
+        )
 
 
 @router.get("/settings")
@@ -282,19 +306,29 @@ async def get_auto_chat_settings(
             }
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to retrieve auto-chat settings for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch settings"
+        )
 
 
 @router.post("/demo/simulate-urgent-email")
 async def demo_trigger_urgent_email(
-    context = Depends(get_current_context),
+    context = Depends(enforce_superuser),
     db: Session = Depends(get_db)
 ):
     """
     DEMO: Simulate receiving an urgent email and trigger auto-chat.
     Creates a fake urgent email and shows what auto-chat would do.
     """
+    from app.config import settings
+    if settings.ENV == "production":
+        raise HTTPException(status_code=403, detail="Demo endpoints are disabled in production environment.")
+        
     from app.models.triaged_email import TriagedEmail
     import uuid
     
@@ -308,8 +342,8 @@ async def demo_trigger_urgent_email(
             body="This is a demo email showing how Aaliyah auto-chats about urgent emails.",
             snippet="This is a demo email showing...",
             priority="Critical",
-            category="PRIORITY",
-            status="unread"
+            category="Priority",
+            is_read=False
         )
         db.add(fake_email)
         db.commit()
@@ -329,5 +363,11 @@ async def demo_trigger_urgent_email(
             "preview": result
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Demo simulation failed for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to run demo simulation"
+        )

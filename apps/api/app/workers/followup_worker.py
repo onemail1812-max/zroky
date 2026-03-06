@@ -3,7 +3,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.triaged_email import TriagedEmail
+from app.models.workspace import Workspace
+from app.models.user import User
 from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+from app.services.brain.core import Brain
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +36,25 @@ async def process_auto_followup(payload: dict):
         if not forgotten_threads:
             return
 
-        orc = AaliyahOrchestrator(workspace_id)
+        orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
         
-        from app.models.workspace import Workspace
         workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        owner = db.query(User).filter(User.id == workspace.owner_id, User.is_active == True).first() if workspace else None
+        
+        if not owner:
+            logger.warning(f"No active owner found for workspace {workspace_id}. Skipping follow-ups.")
+            return
+
+        user_name = owner.full_name.split(" ")[0] if owner.full_name else "there"
         aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
-        user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
+        # Note: user_name can still be overridden by settings if explicitly set
+        user_name = aaliyah_settings.get("user_name") or user_name
 
         # Initialize Brain for intelligent nudging
-        from app.services.brain.core import Brain
         brain = Brain()
+
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.services.brain.schemas.models import ModelType
 
         for thread in forgotten_threads:
             # Check if we already nudged in the last 24h to avoid spam
@@ -74,7 +86,7 @@ async def process_auto_followup(payload: dict):
                 response = await brain.think(
                     prompt=prompt,
                     system_prompt=f"You are Aaliyah, {user_name}'s proactive Executive Assistant. Help them stay on top of their inbox with friendly nudges.",
-                    model_override="google/gemini-flash-1.5" # Efficient for quick nudges
+                    model_override=ModelType.FAST.value # Efficient for quick nudges
                 )
                 msg = response.content.strip()
             except Exception:
@@ -106,6 +118,7 @@ async def process_auto_followup(payload: dict):
             meta["last_nudge_at"] = now.isoformat()
             meta["followup_pending_confirmation"] = True
             thread.metadata_json = dict(meta)
+            flag_modified(thread, "metadata_json")
             
             logger.info(f"Nudge emitted for thread {thread.thread_id} in workspace {workspace_id}")
 

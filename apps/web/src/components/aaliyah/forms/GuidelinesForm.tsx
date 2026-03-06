@@ -192,6 +192,8 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
+                            aria-label={`Switch to ${tab.label} tab`}
+                            aria-current={activeTab === tab.id ? "true" : "false"}
                             className={cn(
                                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300",
                                 activeTab === tab.id
@@ -225,7 +227,11 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                 <div className="h-20 px-10 flex items-center justify-between border-b border-slate-100 bg-white shrink-0">
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">{tabs.find(t => t.id === activeTab)?.label}</h2>
                     {onClose && (
-                        <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-2.5 bg-slate-50 rounded-full text-slate-500 hover:text-black transition-colors border border-slate-200 hover:bg-slate-100">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onClose(); }}
+                            aria-label="Close guidelines"
+                            className="p-2.5 bg-slate-50 rounded-full text-slate-500 hover:text-black transition-colors border border-slate-200 hover:bg-slate-100"
+                        >
                             <X className="h-4 w-4" />
                         </button>
                     )}
@@ -249,7 +255,12 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                                                 <h3 className="font-bold text-slate-900">Organize Inbox</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Automatically label incoming emails.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, organizeInbox: !c.organizeInbox }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.organizeInbox ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, organizeInbox: !c.organizeInbox }))}
+                                                aria-label="Toggle Organize Inbox"
+                                                aria-pressed={config.organizeInbox}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.organizeInbox ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.organizeInbox ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -258,7 +269,12 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                                                 <h3 className="font-bold text-slate-900">Draft Replies</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Write suggested replies for important emails.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, draftReplies: !c.draftReplies }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftReplies ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, draftReplies: !c.draftReplies }))}
+                                                aria-label="Toggle Draft Replies"
+                                                aria-pressed={config.draftReplies}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftReplies ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.draftReplies ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -267,7 +283,12 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                                                 <h3 className="font-bold text-slate-900">Manage Calendar</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Help schedule and propose meeting times.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, manageCalendar: !c.manageCalendar }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.manageCalendar ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, manageCalendar: !c.manageCalendar }))}
+                                                aria-label="Toggle Manage Calendar"
+                                                aria-pressed={config.manageCalendar}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.manageCalendar ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.manageCalendar ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -291,7 +312,11 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                                                     <p className="font-bold text-slate-900 group-hover:text-black transition-colors">Use Emojis</p>
                                                     <p className="text-sm text-slate-500 mt-1">Allow emojis in drafts</p>
                                                 </div>
-                                                <button className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.emojiUsage ? "active" : "")}>
+                                                <button
+                                                    aria-label="Toggle Emoji Usage"
+                                                    aria-pressed={config.emojiUsage}
+                                                    className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.emojiUsage ? "active" : "")}
+                                                >
                                                     <div className={cn("knob w-4 h-4 rounded-full", config.emojiUsage ? "translate-x-6" : "")} />
                                                 </button>
                                             </div>
@@ -300,7 +325,11 @@ export default function GuidelinesForm({ onClose }: GuidelinesFormProps) {
                                                     <p className="font-bold text-slate-900 group-hover:text-black transition-colors">AI Disclosure</p>
                                                     <p className="text-sm text-slate-500 mt-1">Add an "AI drafted" signature at the bottom</p>
                                                 </div>
-                                                <button className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftDisclosure ? "active" : "")}>
+                                                <button
+                                                    aria-label="Toggle AI Disclosure"
+                                                    aria-pressed={config.draftDisclosure}
+                                                    className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftDisclosure ? "active" : "")}
+                                                >
                                                     <div className={cn("knob w-4 h-4 rounded-full", config.draftDisclosure ? "translate-x-6" : "")} />
                                                 </button>
                                             </div>

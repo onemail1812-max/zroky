@@ -19,6 +19,7 @@ class TriagedEmail(Base):
     sender = Column(String, nullable=True)
     subject = Column(String, nullable=True)
     snippet = Column(Text, nullable=True)
+    body = Column(Text, nullable=True)
     received_at = Column(DateTime, nullable=True)
     
     # AI Triage Data

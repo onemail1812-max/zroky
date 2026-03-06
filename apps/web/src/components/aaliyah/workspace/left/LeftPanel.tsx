@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils"
 import type { PresenceState } from "@/components/aaliyah/workspace/left/PresenceBadge"
 import { PresenceBadge } from "@/components/aaliyah/workspace/left/PresenceBadge"
 import { useSystemStore } from "@/lib/aaliyah/store"
-import { Sun, Flame, Clock, Info, Activity, Archive, Plus } from "lucide-react"
+import { Sun, Flame, Clock, Info, Activity, Archive, Plus, Bell } from "lucide-react"
+import { NotificationCenter } from "@/components/aaliyah/workspace/NotificationCenter"
 
 export function LeftPanel({
   presence,
@@ -32,15 +33,19 @@ export function LeftPanel({
   const followupCount = inboxItems.filter(i => (i.category === "fyi" || i.category === "followup") && !i.is_read).length
 
   return (
-    <aside className="h-full w-full bg-zinc-50/50 backdrop-blur-3xl border-r border-zinc-200/60 p-5 overflow-hidden flex flex-col relative antialiased">
+    <aside className="h-full w-full bg-zinc-50/50 backdrop-blur-2xl border-r border-zinc-200/60 p-5 overflow-hidden flex flex-col relative antialiased">
       {/* Soft Top Glow */}
       <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-white to-transparent pointer-events-none z-0" />
 
       <div className="relative z-10 shrink-0 mb-6 px-1 flex flex-col gap-6">
-        <PresenceBadge state={presence} />
+        <div className="flex items-center justify-between gap-4">
+          <PresenceBadge state={presence} />
+          <NotificationCenter />
+        </div>
 
         <button
           onClick={() => useSystemStore.getState().openCompose()}
+          aria-label="Compose new email"
           className="w-full h-12 rounded-2xl bg-textPrimary text-surface font-bold text-[14px] flex items-center justify-center gap-2 shadow-lg shadow-zinc-200/50 hover:bg-black hover:scale-[1.02] active:scale-95 transition-all"
         >
           <Plus className="h-4 w-4" strokeWidth={3} />
@@ -60,76 +65,86 @@ export function LeftPanel({
           </div>
 
           <div className="space-y-2">
-            <StreamCard
-              id="all"
-              label="All Mail"
-              icon={Activity}
-              iconColor="text-zinc-500"
-              iconBg="bg-zinc-100/50"
-              selected={activeTriageQueue === "all"}
-              onClick={() => setActiveTriageQueue("all")}
-              badge={null}
-            />
+            {loading ? (
+              <>
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="w-full h-12 rounded-2xl bg-zinc-50 animate-pulse border border-zinc-100" />
+                ))}
+              </>
+            ) : (
+              <>
+                <StreamCard
+                  id="all"
+                  label="All Mail"
+                  icon={Activity}
+                  iconColor="text-zinc-500"
+                  iconBg="bg-zinc-100/50"
+                  selected={activeTriageQueue === "all"}
+                  onClick={() => setActiveTriageQueue("all")}
+                  badge={null}
+                />
 
-            <StreamCard
-              id="priority"
-              label="Priority ✨"
-              icon={Flame}
-              iconColor="text-rose-500"
-              iconBg="bg-rose-100/50"
-              selected={activeTriageQueue === "priority"}
-              onClick={() => setActiveTriageQueue("priority")}
-              badge={priorityCount > 0 ? (
-                <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 border border-rose-200/50">
-                  {priorityCount}
-                </span>
-              ) : null}
-            />
+                <StreamCard
+                  id="priority"
+                  label="Priority ✨"
+                  icon={Flame}
+                  iconColor="text-rose-500"
+                  iconBg="bg-rose-100/50"
+                  selected={activeTriageQueue === "priority"}
+                  onClick={() => setActiveTriageQueue("priority")}
+                  badge={priorityCount > 0 ? (
+                    <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 border border-rose-200/50">
+                      {priorityCount}
+                    </span>
+                  ) : null}
+                />
 
-            <StreamCard
-              id="needs_reply"
-              label="Needs Reply"
-              icon={Clock}
-              iconColor="text-amber-500"
-              iconBg="bg-amber-100/50"
-              selected={activeTriageQueue === "needs_reply"}
-              onClick={() => setActiveTriageQueue("needs_reply")}
-              badge={replyCount > 0 ? (
-                <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200/50">
-                  {replyCount}
-                </span>
-              ) : null}
-            />
+                <StreamCard
+                  id="needs_reply"
+                  label="Needs Reply"
+                  icon={Clock}
+                  iconColor="text-amber-500"
+                  iconBg="bg-amber-100/50"
+                  selected={activeTriageQueue === "needs_reply"}
+                  onClick={() => setActiveTriageQueue("needs_reply")}
+                  badge={replyCount > 0 ? (
+                    <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-amber-100 text-amber-600 border border-amber-200/50">
+                      {replyCount}
+                    </span>
+                  ) : null}
+                />
 
-            <StreamCard
-              id="approvals"
-              label="Approvals"
-              icon={Sun}
-              iconColor="text-indigo-500"
-              iconBg="bg-indigo-100/50"
-              selected={activeTriageQueue === "approvals"}
-              onClick={() => setActiveTriageQueue("approvals")}
-              badge={approvalCount > 0 ? (
-                <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600 border border-indigo-200/50">
-                  {approvalCount}
-                </span>
-              ) : null}
-            />
+                <StreamCard
+                  id="approvals"
+                  label="Approvals"
+                  icon={Sun}
+                  iconColor="text-indigo-500"
+                  iconBg="bg-indigo-100/50"
+                  selected={activeTriageQueue === "approvals"}
+                  onClick={() => setActiveTriageQueue("approvals")}
+                  badge={approvalCount > 0 ? (
+                    <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-600 border border-indigo-200/50">
+                      {approvalCount}
+                    </span>
+                  ) : null}
+                />
 
-            <StreamCard
-              id="follow_ups"
-              label="Followup"
-              icon={Info}
-              iconColor="text-emerald-500"
-              iconBg="bg-emerald-100/50"
-              selected={activeTriageQueue === "follow_ups"}
-              onClick={() => setActiveTriageQueue("follow_ups")}
-              badge={followupCount > 0 ? (
-                <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200/50">
-                  {followupCount}
-                </span>
-              ) : null}
-            />
+                <StreamCard
+                  id="follow_ups"
+                  label="Followup"
+                  icon={Info}
+                  iconColor="text-emerald-500"
+                  iconBg="bg-emerald-100/50"
+                  selected={activeTriageQueue === "follow_ups"}
+                  onClick={() => setActiveTriageQueue("follow_ups")}
+                  badge={followupCount > 0 ? (
+                    <span className="text-[10px] font-bold tabular-nums px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200/50">
+                      {followupCount}
+                    </span>
+                  ) : null}
+                />
+              </>
+            )}
           </div>
         </section>
 
@@ -221,6 +236,8 @@ function StreamCard({
   return (
     <button
       onClick={onClick}
+      aria-label={`${label} stream`}
+      aria-current={selected ? "page" : undefined}
       className={cn(
         "w-full flex items-center justify-between p-3 rounded-2xl text-[13px] font-semibold transition-all group outline-none",
         selected

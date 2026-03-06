@@ -113,3 +113,165 @@ class RedisCache:
             except Exception:
                 pass
         _inmemory_store.pop(full_key, None)
+
+    def delete_pattern(self, pattern: str) -> int:
+        """Delete all keys matching a pattern. Returns count of deleted keys."""
+        full_pattern = self._make_key(pattern)
+        deleted = 0
+
+        # Redis: use SCAN + DELETE (safe for production, no KEYS command)
+        if self._redis:
+            try:
+                cursor = 0
+                while True:
+                    cursor, keys = self._redis.scan(cursor, match=full_pattern, count=100)
+                    if keys:
+                        self._redis.delete(*keys)
+                        deleted += len(keys)
+                    if cursor == 0:
+                        break
+            except Exception as exc:
+                logger.warning("Cache.delete_pattern redis error: %s", exc)
+
+        # In-memory fallback: filter matching keys
+        import fnmatch
+        to_remove = [k for k in _inmemory_store if fnmatch.fnmatch(k, full_pattern)]
+        for k in to_remove:
+            _inmemory_store.pop(k, None)
+            deleted += 1
+
+        return deleted
+
+
+# ── Global cache instance ─────────────────────────────────────────────
+response_cache = RedisCache(namespace="response")
+
+
+# ── Response Caching Decorator ────────────────────────────────────────
+
+import hashlib
+import functools
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+
+def cached_response(
+    ttl_seconds: int = 60,
+    prefix: str = "",
+    vary_on_query: bool = True,
+    vary_on_workspace: bool = True,
+):
+    """
+    Decorator for FastAPI endpoint functions that caches JSON responses.
+
+    Args:
+        ttl_seconds: Cache TTL in seconds (default: 60)
+        prefix: Cache key prefix (default: derived from function name)
+        vary_on_query: Include query params in cache key (default: True)
+        vary_on_workspace: Include workspace_id in cache key (default: True)
+
+    Usage:
+        @router.get("/counts")
+        @cached_response(ttl_seconds=30, prefix="inbox_counts")
+        async def get_inbox_counts(request: Request, ...):
+            ...
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Extract request from kwargs (FastAPI injects it)
+            request: Optional[Request] = kwargs.get("request")
+            if request is None:
+                # Try positional args — some endpoints have request as first arg
+                for arg in args:
+                    if isinstance(arg, Request):
+                        request = arg
+                        break
+
+            if request is None:
+                # Can't cache without request context — pass through
+                return await func(*args, **kwargs)
+
+            # Build cache key
+            key_prefix = prefix or func.__name__
+            key_parts = [key_prefix]
+
+            if vary_on_workspace:
+                # Get workspace from header or context
+                ws_id = request.headers.get("x-workspace-id", "default")
+                key_parts.append(f"ws:{ws_id}")
+
+            # varying by path to ensure path parameters (like IDs) create distinct cache keys
+            key_parts.append(f"p:{hashlib.md5(request.url.path.encode()).hexdigest()[:8]}")
+
+            if vary_on_query:
+                # Sort query params for deterministic keys
+                sorted_params = sorted(request.query_params.items())
+                if sorted_params:
+                    param_str = "&".join(f"{k}={v}" for k, v in sorted_params)
+                    key_parts.append(f"q:{hashlib.md5(param_str.encode()).hexdigest()[:12]}")
+
+            cache_key = ":".join(key_parts)
+
+            # Try cache hit
+            cached = response_cache.get_json(cache_key)
+            if cached is not None:
+                return JSONResponse(
+                    content=cached["body"],
+                    status_code=cached.get("status", 200),
+                    headers={"X-Cache": "HIT"},
+                )
+
+            # Execute endpoint
+            result = await func(*args, **kwargs)
+
+            # Cache the response
+            # Handle both dict returns and JSONResponse objects
+            if isinstance(result, JSONResponse):
+                try:
+                    body = json.loads(result.body.decode())
+                    response_cache.set_json(
+                        cache_key,
+                        {"body": body, "status": result.status_code},
+                        ttl_seconds=ttl_seconds,
+                    )
+                except Exception:
+                    pass  # Don't break the response on cache failures
+            elif isinstance(result, dict):
+                response_cache.set_json(
+                    cache_key,
+                    {"body": result, "status": 200},
+                    ttl_seconds=ttl_seconds,
+                )
+                # Return with cache header
+                return JSONResponse(content=result, headers={"X-Cache": "MISS"})
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+def invalidate_cache(prefix: str, workspace_id: Optional[str] = None) -> int:
+    """
+    Invalidate cached responses by prefix and optional workspace.
+
+    Args:
+        prefix: The cache prefix used in @cached_response
+        workspace_id: If provided, only invalidate for this workspace
+
+    Returns:
+        Number of cache entries deleted
+
+    Usage:
+        # After sending an email:
+        invalidate_cache("inbox_counts", workspace_id=context.workspace_id)
+        invalidate_cache("inbox_threads", workspace_id=context.workspace_id)
+    """
+    if workspace_id:
+        pattern = f"{prefix}:ws:{workspace_id}:*"
+    else:
+        pattern = f"{prefix}:*"
+    return response_cache.delete_pattern(pattern)

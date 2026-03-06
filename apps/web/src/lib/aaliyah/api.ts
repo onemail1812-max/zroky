@@ -52,15 +52,55 @@ async function withAuth(config: InternalAxiosRequestConfig): Promise<InternalAxi
   return config
 }
 
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  initialDelay: 1000,
+  maxDelay: 5000,
+  statusCodesToRetry: [429, 502, 503, 504],
+};
+
+/**
+ * Global 401 Unauthorized handler.
+ * Triggers the AuthErrorOverlay via the system store.
+ */
+export function handleUnauthorized() {
+  if (typeof window !== "undefined") {
+    console.warn("API 401: Unauthorized. Triggering Auth Error Overlay.");
+    // Late-bind store to avoid circular refs
+    const { useSystemStore } = require("./store");
+    useSystemStore.getState().setAuthError(true);
+  }
+}
+
 function handleResponseError(error: any) {
-  if (error?.response?.status === 401) {
-    // Global 401 Handler: The session was revoked or corrupted.
-    // Redirect hard to the sign-in page to heal the session state.
-    if (typeof window !== "undefined") {
-      console.warn("API 401: Enterprise Revoke. Forcing redirect to /sign-in.");
-      window.location.href = "/sign-in";
+  const { config, response } = error;
+
+  // 1. Global 401 Handler
+  if (response?.status === 401) {
+    handleUnauthorized();
+    return Promise.reject(error);
+  }
+
+  // 2. Exponential Backoff Retry Logic
+  if (config && RETRY_CONFIG.statusCodesToRetry.includes(response?.status)) {
+    config.__retryCount = config.__retryCount || 0;
+
+    if (config.__retryCount < RETRY_CONFIG.maxRetries) {
+      config.__retryCount += 1;
+
+      const delay = Math.min(
+        RETRY_CONFIG.initialDelay * Math.pow(2, config.__retryCount - 1),
+        RETRY_CONFIG.maxDelay
+      );
+
+      console.warn(`API Error ${response.status}: Retrying in ${delay}ms (Attempt ${config.__retryCount}/${RETRY_CONFIG.maxRetries})...`);
+
+      return new Promise((resolve) => {
+        setTimeout(() => resolve(axios(config)), delay);
+      });
     }
   }
+
   return Promise.reject(error);
 }
 
@@ -75,7 +115,7 @@ function toApiError(error: unknown): Error {
 }
 
 export const aaliyahApi = axios.create({
-  baseURL: "/aaliyah",
+  baseURL: "/api/v1/aaliyah",
   headers: {
     "Content-Type": "application/json",
   },
@@ -86,7 +126,7 @@ aaliyahApi.interceptors.request.use(withAuth)
 aaliyahApi.interceptors.response.use((res) => res, handleResponseError)
 
 export const assistApi = axios.create({
-  baseURL: "/assist",
+  baseURL: "/api/v1/assist",
   headers: {
     "Content-Type": "application/json",
   },
@@ -96,133 +136,82 @@ export const assistApi = axios.create({
 assistApi.interceptors.request.use(withAuth)
 assistApi.interceptors.response.use((res) => res, handleResponseError)
 
-export async function sendChat(message: string, threadId?: string, workspaceId?: string, emailId?: string) {
+export async function sendChat(message: string, threadId?: string, workspaceId?: string, emailId?: string, signal?: AbortSignal) {
   try {
     const response = await assistApi.post("/chat", {
       messages: [{ role: "user", content: message }],
       thread_id: threadId,
       workspace_id: workspaceId,
       email_id: emailId,
-    })
+    }, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getChatMessages(threadId?: string, emailId?: string, limit = 50) {
+export async function getChatMessages(threadId?: string, emailId?: string, limit = 50, signal?: AbortSignal) {
   try {
     const response = await assistApi.get("/messages", {
-      params: { thread_id: threadId, email_id: emailId, limit }
+      params: { thread_id: threadId, email_id: emailId, limit },
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-/**
- * Streams the chat response using Native SSE from DeepSeek-R1 via Aaliyah Orchestrator
- */
-export async function sendChatStream(
-  message: string,
-  workspaceId: string | undefined,
-  emailId: string | undefined,
-  onChunk: (chunk: any) => void,
-  onDone: () => void,
-  onError: (error: any) => void
-) {
-  try {
-    const response = await assistApi.post("/answer/stream",
-      { message, workspace_id: workspaceId, email_id: emailId },
-      {
-        responseType: "stream",
-        adapter: "fetch" // Required for streaming in axios with browser
-      }
-    );
-
-    // If using fetch adapter, response.data is a ReadableStream
-    if (response.data instanceof ReadableStream) {
-      const reader = response.data.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
-            if (dataStr === '[DONE]') {
-              onDone();
-              return;
-            }
-            if (dataStr) {
-              try {
-                const parsed = JSON.parse(dataStr);
-                onChunk(parsed);
-              } catch (e) {
-                console.warn("Could not parse SSE JSON:", dataStr);
-              }
-            }
-          }
-        }
-      }
-      onDone();
-    } else {
-      // Fallback if not readable stream (e.g. testing environment)
-      console.warn("Response data is not a ReadableStream, falling back to simple resolve");
-      onDone();
-    }
-
-  } catch (error) {
-    onError(toApiError(error));
-  }
-}
-
-export async function getThreadDetails(threadId: string, provider: string) {
+export async function getThreadDetails(threadId: string, provider: string, signal?: AbortSignal) {
   try {
     const response = await assistApi.get(`/thread/${threadId}`, {
-      params: { provider }
+      params: { provider },
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getEventDetails(eventId: string, provider: string) {
+export async function getEventDetails(eventId: string, provider: string, signal?: AbortSignal) {
   try {
     const response = await assistApi.get(`/event/${eventId}`, {
-      params: { provider }
+      params: { provider },
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getEventPrep(eventId: string, force: boolean = false) {
+export async function getEventPrep(eventId: string, force: boolean = false, signal?: AbortSignal) {
   try {
-    const response = await assistApi.get(`/calendar/events/${eventId}/prep`, {
-      params: { force }
+    const response = await aaliyahApi.get(`/calendar/events/${eventId}/prep`, {
+      params: { force },
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getStatus(workspaceId?: string) {
+export async function getStatus(workspaceId?: string, signal?: AbortSignal) {
   try {
     const response = await aaliyahApi.get("/status", {
       params: workspaceId ? { workspace_id: workspaceId } : undefined,
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -264,77 +253,86 @@ export interface OnboardingCompletePayload {
 }
 
 
-export async function getOnboardingStatus(): Promise<OnboardingStatusResponse> {
+export async function getOnboardingStatus(signal?: AbortSignal): Promise<OnboardingStatusResponse> {
   try {
-    const response = await aaliyahApi.get("/onboarding/status", { params: { t: Date.now() } })
+    const response = await aaliyahApi.get("/onboarding/status", { params: { t: Date.now() }, signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function completeOnboarding(payload: OnboardingCompletePayload) {
+export async function completeOnboarding(payload: OnboardingCompletePayload, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/onboarding/complete", payload)
+    const response = await aaliyahApi.post("/onboarding/complete", payload, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getStats(workspaceId?: string) {
+export async function getStats(workspaceId?: string, signal?: AbortSignal) {
   try {
     const response = await aaliyahApi.get("/stats", {
       params: workspaceId ? { workspace_id: workspaceId } : undefined,
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function runPreflight() {
+export async function runPreflight(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/preflight/run")
+    const response = await aaliyahApi.post("/preflight/run", {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
 
-export async function triggerHistoricalSync(days = 180) {
+export async function triggerHistoricalSync(days = 180, signal?: AbortSignal) {
   try {
-    const response = await assistApi.post("/historical-sync", { days })
+    const response = await assistApi.post("/historical-sync", { days }, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getCounts() {
+export async function getCounts(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/counts")
+    const response = await aaliyahApi.get("/counts", { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getThreads(queue?: string, limit = 50) {
+export async function getThreads(queue?: string, limit = 50, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/threads", { params: { queue, limit } })
+    const response = await aaliyahApi.get("/threads", { params: { queue, limit }, signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getThreadItem(threadId: string) {
+export async function getThreadItem(threadId: string, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get(`/threads/${threadId}`)
+    const response = await aaliyahApi.get(`/threads/${threadId}`, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -344,58 +342,67 @@ export async function getInbox(params?: {
   category?: string
   priority?: string
   include_noise?: boolean
+  signal?: AbortSignal
 }) {
   try {
-    const response = await aaliyahApi.get("/inbox", { params })
+    const { signal, ...restParams } = params || {};
+    const response = await aaliyahApi.get("/inbox", { params: restParams, signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getCalendarConflicts(limit = 50) {
+export async function getCalendarConflicts(limit = 50, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/calendar/conflicts", { params: { limit } })
+    const response = await aaliyahApi.get("/calendar/conflicts", { params: { limit }, signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function syncInbox(payload?: { provider?: string; max_results?: number }) {
+export async function syncInbox(payload?: { provider?: string; max_results?: number }, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/sync/inbox", payload || {})
+    const response = await aaliyahApi.post("/sync/inbox", payload || {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function syncCalendar(payload?: { provider?: string; window_days?: number; buffer_minutes?: number }) {
+export async function syncCalendar(payload?: { provider?: string; window_days?: number; buffer_minutes?: number }, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/sync/calendar", payload || {})
+    const response = await aaliyahApi.post("/sync/calendar", payload || {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
-export async function getUpcomingMeetings(limit = 10, lookaheadHours = 24) {
+export async function getUpcomingMeetings(limit = 10, lookaheadHours = 24, signal?: AbortSignal) {
   try {
     const response = await aaliyahApi.get("/calendar/upcoming", {
-      params: { limit, lookahead_hours: lookaheadHours }
+      params: { limit, lookahead_hours: lookaheadHours },
+      signal
     })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
-export async function getLiveToken() {
+export async function getLiveToken(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/live/token", { params: { t: Date.now() } })
+    const response = await aaliyahApi.get("/live/token", { params: { t: Date.now() }, signal })
     const token = response.data?.stream_token
     if (typeof token !== "string" || !token) throw new Error("Missing live stream token")
     return token
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -409,20 +416,22 @@ export interface LabelingPreferencesPayload {
   auto_sync_interval_seconds?: number
 }
 
-export async function getLabelingPreferences() {
+export async function getLabelingPreferences(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/labeling/preferences")
+    const response = await aaliyahApi.get("/labeling/preferences", { signal })
     return response.data.preferences
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function updateLabelingPreferences(payload: LabelingPreferencesPayload) {
+export async function updateLabelingPreferences(payload: LabelingPreferencesPayload, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.put("/labeling/preferences", payload)
+    const response = await aaliyahApi.put("/labeling/preferences", payload, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -433,41 +442,58 @@ export async function setLabelingOverride(payload: {
   disable_auto?: boolean
   labels?: string[]
   mode?: "replace" | "add"
-}) {
+}, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/labeling/override", payload)
+    const response = await aaliyahApi.post("/labeling/override", payload, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function undoLabelingAction(auditId: string) {
+export async function undoLabelingAction(auditId: string, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post(`/labeling/undo/${encodeURIComponent(auditId)}`)
+    const response = await aaliyahApi.post(`/labeling/undo/${encodeURIComponent(auditId)}`, {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function sendDraft(workspaceId: string, emailId: string) {
+export async function sendDraft(workspaceId: string, emailId: string, signal?: AbortSignal) {
   try {
     const response = await aaliyahApi.post("/drafts/send", {
       workspace_id: workspaceId,
       email_id: emailId,
-    })
+      is_explicit_approval: true,
+    }, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function updateDraft(emailId: string, payload: { to?: string; subject?: string; body: string; attachments?: unknown[] }) {
+export async function archiveEmail(emailId: string, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.put(`/inbox/${emailId}/draft`, payload)
+    // Attempting to match the backend pattern used in inboxService
+    // If /aaliyah base is used, it might be /aaliyah/inbox/id/archive
+    const response = await aaliyahApi.post(`/inbox/${emailId}/archive`, {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
+    throw toApiError(error)
+  }
+}
+
+export async function updateDraft(emailId: string, payload: { to?: string; subject?: string; body: string; attachments?: unknown[] }, signal?: AbortSignal) {
+  try {
+    const response = await aaliyahApi.put(`/inbox/${emailId}/draft`, payload, { signal })
+    return response.data
+  } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -528,20 +554,22 @@ export interface AaliyahSettings {
 }
 
 
-export async function getAaliyahSettings() {
+export async function getAaliyahSettings(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/settings")
+    const response = await aaliyahApi.get("/settings", { signal })
     return response.data.settings as AaliyahSettings
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function updateAaliyahSettings(settings: AaliyahSettings) {
+export async function updateAaliyahSettings(settings: AaliyahSettings, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.put("/settings", settings)
+    const response = await aaliyahApi.put("/settings", settings, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -554,29 +582,32 @@ export interface Template {
   updated_at: string
 }
 
-export async function getTemplates() {
+export async function getTemplates(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/templates")
+    const response = await aaliyahApi.get("/templates", { signal })
     return response.data as { items: Template[]; count: number }
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function createTemplate(data: { name: string; subject?: string; body: string }) {
+export async function createTemplate(data: { name: string; subject?: string; body: string }, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/templates", data)
+    const response = await aaliyahApi.post("/templates", data, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function deleteTemplate(templateId: string) {
+export async function deleteTemplate(templateId: string, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.delete(`/templates/${templateId}`)
+    const response = await aaliyahApi.delete(`/templates/${templateId}`, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -590,20 +621,22 @@ export interface ActionLogItem {
   explain?: string
 }
 
-export async function getActions(limit = 50) {
+export async function getActions(limit = 50, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/actions", { params: { limit } })
+    const response = await aaliyahApi.get("/actions", { params: { limit }, signal })
     return response.data as { items: ActionLogItem[] }
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getDebugSnapshot() {
+export async function getDebugSnapshot(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.get("/debug/snapshot")
+    const response = await aaliyahApi.get("/debug/snapshot", { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -623,20 +656,22 @@ export interface SyncStatusResponse {
   calendar: SyncProgressItem
 }
 
-export async function triggerInitialSync() {
+export async function triggerInitialSync(signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post("/sync/initial")
+    const response = await aaliyahApi.post("/sync/initial", {}, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function getSyncStatus(): Promise<SyncStatusResponse> {
+export async function getSyncStatus(signal?: AbortSignal): Promise<SyncStatusResponse> {
   try {
-    const response = await aaliyahApi.get("/sync/status")
+    const response = await aaliyahApi.get("/sync/status", { signal })
     return response.data as SyncStatusResponse
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -658,23 +693,32 @@ export interface BookingLinkData {
   expires_at: string | null
 }
 
-export async function getBookingLink(slug: string): Promise<BookingLinkData> {
+export const publicApi = axios.create({
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+})
+
+export async function getBookingLink(slug: string, signal?: AbortSignal): Promise<BookingLinkData> {
   try {
-    const response = await aaliyahApi.get(`/booking/${slug}`)
-    return response.data as BookingLinkData
+    const response = await publicApi.get(`/booking/${slug}`, { signal })
+    return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
 
-export async function confirmBooking(slug: string, selectedSlot: BookingSlot, bookerEmail?: string) {
+export async function confirmBooking(slug: string, selectedSlot: BookingSlot, bookerEmail?: string, signal?: AbortSignal) {
   try {
-    const response = await aaliyahApi.post(`/booking/${slug}/confirm`, {
+    const response = await publicApi.post(`/booking/${slug}/confirm`, {
       selected_slot: selectedSlot,
       booker_email: bookerEmail,
-    })
+    }, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }
@@ -685,11 +729,12 @@ export async function composeEmail(payload: {
   subject: string
   body: string
   workspace_id?: string
-}) {
+}, signal?: AbortSignal) {
   try {
-    const response = await assistApi.post("/compose", payload)
+    const response = await assistApi.post("/compose", payload, { signal })
     return response.data
   } catch (error) {
+    if (axios.isCancel(error)) throw error;
     throw toApiError(error)
   }
 }

@@ -215,6 +215,7 @@ class CalendarSync:
                     external_event_id=event.id,
                     title=event.title,
                     organizer=event.organizer,
+                    attendees=event.raw.get("attendees", []),
                     start_at=event.start_at,
                     end_at=event.end_at,
                     is_all_day=event.is_all_day,

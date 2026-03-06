@@ -16,9 +16,14 @@ export function SyncPromptCard({ onSync }: { onSync: () => void }) {
     const handleSync = async () => {
         setSyncing(true)
         try {
-            await onSync()
+            if (onSync) await onSync()
+            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                detail: { text: "Initialize data pipeline and sync my accounts." }
+            }))
+        } catch (error) {
+            console.error("Sync failed:", error)
         } finally {
-            // Syncing state handled by parent usually, but we keep it here for local effect
+            setTimeout(() => setSyncing(false), 1000)
         }
     }
 

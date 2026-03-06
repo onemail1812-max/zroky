@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { Mail, Calendar, CheckCircle2, Loader2, X, Sparkles, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSystemStore } from "@/lib/aaliyah/store"
+import { useOnlineStatus } from "@/hooks/useOnlineStatus"
 import type { SyncProgressItem } from "@/lib/aaliyah/api"
 
 // ─── Individual service row ───────────────────────────────────────────────────
@@ -122,6 +123,7 @@ function SyncProgressBar({ inbox, calendar }: { inbox: SyncProgressItem | null; 
 export function SyncStatusWidget({ onDismiss }: { onDismiss?: () => void }) {
     const { syncProgress } = useSystemStore()
     const { phase, inbox, calendar } = syncProgress
+    const { isFullyConnected, isOnline } = useOnlineStatus()
 
     // Auto-dismiss after done for a few seconds
     React.useEffect(() => {
@@ -143,20 +145,26 @@ export function SyncStatusWidget({ onDismiss }: { onDismiss?: () => void }) {
             exit={{ opacity: 0, y: 20, scale: 0.95, filter: "blur(4px)", transition: { duration: 0.2 } }}
             transition={{ type: "spring", stiffness: 350, damping: 25 }}
             className={cn(
-                "relative rounded-3xl border overflow-hidden shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] backdrop-blur-3xl",
-                isDone
-                    ? "bg-white/95 border-emerald-500/20"
-                    : "bg-white/95 border-zinc-200/50"
+                "relative rounded-3xl border overflow-hidden shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] backdrop-blur-2xl",
+                !isFullyConnected
+                    ? "bg-rose-50/95 border-rose-500/20"
+                    : isDone
+                        ? "bg-white/95 border-emerald-500/20"
+                        : "bg-white/95 border-zinc-200/50"
             )}
         >
             {/* Animated Background Glow */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className={cn(
-                    "absolute -max-w-full w-full h-full opacity-[0.15] transition-all duration-1000 blur-2xl",
-                    isDone
-                        ? "bg-[radial-gradient(circle_at_50%_0%,_#34d399,_transparent_60%)]"
-                        : "bg-[radial-gradient(circle_at_50%_0%,_#6366f1,_transparent_60%)]"
-                )} />
+                <div
+                    className="absolute w-full h-full opacity-[0.15] transition-all duration-1000 blur-2xl"
+                    style={{
+                        background: !isFullyConnected
+                            ? "radial-gradient(circle at 50% 0%, #ef4444, transparent 60%)"
+                            : isDone
+                                ? "radial-gradient(circle at 50% 0%, #34d399, transparent 60%)"
+                                : "radial-gradient(circle at 50% 0%, #6366f1, transparent 60%)"
+                    }}
+                />
             </div>
 
             <div className="relative p-5">
@@ -167,9 +175,11 @@ export function SyncStatusWidget({ onDismiss }: { onDismiss?: () => void }) {
                             "relative flex items-center justify-center w-11 h-11 rounded-2xl shadow-sm border border-white/20",
                             isDone
                                 ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white"
-                                : "bg-gradient-to-br from-indigo-500 to-violet-600 text-white"
+                                : !isFullyConnected
+                                    ? "bg-gradient-to-br from-rose-500 to-rose-700 text-white"
+                                    : "bg-gradient-to-br from-indigo-500 to-violet-600 text-white"
                         )}>
-                            {isDone ? <CheckCircle2 className="w-5 h-5 drop-shadow-sm" /> : <Sparkles className="w-5 h-5 animate-pulse drop-shadow-sm" />}
+                            {isDone ? <CheckCircle2 className="w-5 h-5 drop-shadow-sm" /> : !isFullyConnected ? <Activity className="w-5 h-5 animate-pulse drop-shadow-sm" /> : <Sparkles className="w-5 h-5 animate-pulse drop-shadow-sm" />}
 
                             {/* Ping animation behind icon */}
                             {!isDone && (
@@ -178,25 +188,27 @@ export function SyncStatusWidget({ onDismiss }: { onDismiss?: () => void }) {
                         </div>
                         <div className="flex flex-col">
                             <h4 className="text-[14px] font-bold text-zinc-900 tracking-tight leading-snug">
-                                {isDone ? "Knowledge Base Synced" : phase === "queued" ? "Initializing Protocol" : "Aaliyah is Syncing"}
+                                {!isFullyConnected
+                                    ? (isOnline ? "Reconnecting..." : "Offline")
+                                    : isDone ? "Knowledge Base Synced" : phase === "queued" ? "Initializing Protocol" : "Aaliyah is Syncing"}
                             </h4>
                             <p className="text-[11.5px] text-zinc-500 font-medium">
-                                {isDone
-                                    ? "All neural pathways active"
-                                    : "Establishing secure connection..."}
+                                {!isFullyConnected
+                                    ? (isOnline ? "Aaliyah Core is unreachable" : "No internet connection detected")
+                                    : isDone
+                                        ? "All neural pathways active"
+                                        : "Establishing secure connection..."}
                             </p>
                         </div>
                     </div>
 
                     {/* Dismiss Button */}
-                    {true && (
-                        <button
-                            onClick={onDismiss}
-                            className="h-7 w-7 rounded-full text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 flex items-center justify-center transition-all bg-white/50 backdrop-blur-md border border-zinc-100/50"
-                        >
-                            <X className="h-3.5 w-3.5" />
-                        </button>
-                    )}
+                    <button
+                        onClick={onDismiss}
+                        className="h-7 w-7 rounded-full text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 flex items-center justify-center transition-all bg-white/50 backdrop-blur-md border border-zinc-100/50"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
                 </div>
 
                 <div className="mb-5 px-1">
@@ -218,7 +230,7 @@ export function SyncStatusWidget({ onDismiss }: { onDismiss?: () => void }) {
                         transition={{ delay: 0.5 }}
                         className="mt-4 flex items-center justify-center gap-2"
                     >
-                        <Activity className="h-3.5 w-3.5 text-indigo-500 animate-[pulse_1.5s_ease-in-out_infinite]" />
+                        <Activity className="h-3.5 w-3.5 text-indigo-500 animate-pulse" />
                         <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-widest animate-pulse">
                             Deep Extraction Active
                         </span>

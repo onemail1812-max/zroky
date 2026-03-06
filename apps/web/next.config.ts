@@ -21,20 +21,24 @@ const nextConfig: NextConfig = {
         destination: `${API_URL}/health/:path*`,
       },
       {
-        source: '/aaliyah/:path*',
-        destination: `${API_URL}/aaliyah/:path*`,
+        source: '/oauth/google/:path*',
+        destination: `${API_URL}/oauth/google/:path*`,
       },
       {
-        source: '/assist/:path*',
-        destination: `${API_URL}/assist/:path*`,
-      },
-      {
-        source: '/oauth/:path*',
-        destination: `${API_URL}/oauth/:path*`,
+        source: '/oauth/microsoft/:path*',
+        destination: `${API_URL}/oauth/microsoft/:path*`,
       },
       {
         source: '/me',
         destination: `${API_URL}/me`,
+      },
+      {
+        source: '/booking/:path*',
+        destination: `${API_URL}/booking/:path*`,
+      },
+      {
+        source: '/webhooks/:path*',
+        destination: `${API_URL}/webhooks/:path*`,
       },
     ]
   },

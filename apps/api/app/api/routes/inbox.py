@@ -25,11 +25,13 @@ logger = logging.getLogger(__name__)
 from app.services.integrations.token_store import get_valid_token
 
 from app.core.limiter import limiter
+from app.services.cache import cached_response, invalidate_cache
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
 
 
 @router.get("/threads")
 @limiter.limit("60/minute")
+@cached_response(ttl_seconds=30, prefix="inbox_threads")
 async def list_threads(
     request: Request,
     queue: Optional[str] = Query(None, description="Filter by category"),
@@ -55,14 +57,26 @@ async def list_threads(
 
     # Filter by category if specified
     if queue:
-        if queue.lower() == "cleaned":
+        queue_l = queue.lower()
+        if queue_l == "cleaned":
             # "Cleaned" is a special virtual queue for noise/archived items
             query = query.filter(TriagedEmail.is_noise == True)
         else:
-            parsed_queue = queue.replace("_", " ").lower()
-            query = query.filter(func.lower(TriagedEmail.category) == parsed_queue)
-            # When filtering by a specific actionable category, we usually want non-noise
-            # unless explicitly looking for noise in that category (rare).
+            # Map frontend queue names to DB categories
+            queue_map = {
+                "fyi": "Notifications",
+                "notifications": "Notifications",
+                "followup": "Follow-ups",
+                "follow_ups": "Follow-ups",
+                "follow_up": "Follow-ups",
+                "needs_reply": "Needs Reply",
+                "reply": "Needs Reply",
+                "priority": "Priority",
+                "approvals": "Approvals",
+                "newsletter": "Newsletter"
+            }
+            target_cat = queue_map.get(queue_l, queue.title().replace("_", " "))
+            query = query.filter(TriagedEmail.category == target_cat)
             query = query.filter(TriagedEmail.is_noise == False)
     else:
         # DEFAULT: Hide noise from the master / all view
@@ -115,7 +129,9 @@ async def list_threads(
 
 
 @router.get("/{message_id}/body")
+@limiter.limit("60/minute")
 async def get_email_body(
+    request: Request,
     message_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -204,7 +220,7 @@ async def archive_email(
 
         # INSTANT COUNTS: Broadcast updated counts after archiving
         from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
-        orchestrator = AaliyahOrchestrator(context.workspace_id)
+        orchestrator = AaliyahOrchestrator.get_orchestrator(context.workspace_id)
         await orchestrator.broadcast_updates(db)
 
         return {"status": "success", "action": "archived"}
@@ -214,7 +230,9 @@ async def archive_email(
 
 
 @router.post("/{message_id}/trash")
+@limiter.limit("30/minute")
 async def trash_email(
+    request: Request,
     message_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -250,8 +268,12 @@ async def trash_email(
 
         # INSTANT COUNTS: Broadcast updated counts after trashing
         from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
-        orchestrator = AaliyahOrchestrator(context.workspace_id)
+        orchestrator = AaliyahOrchestrator.get_orchestrator(context.workspace_id)
         await orchestrator.broadcast_updates(db)
+
+        # Invalidate cached inbox data
+        invalidate_cache("inbox_threads", workspace_id=context.workspace_id)
+        invalidate_cache("inbox_counts", workspace_id=context.workspace_id)
 
         return {"status": "success", "action": "trashed"}
     except Exception as e:
@@ -260,7 +282,9 @@ async def trash_email(
 
 
 @router.post("/mark-read")
+@limiter.limit("30/minute")
 async def mark_emails_read(
+    request: Request,
     payload: MarkReadRequest,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -277,7 +301,7 @@ async def mark_emails_read(
     db.commit()
 
     # Broadcast updated counts to UI
-    orchestrator = AaliyahOrchestrator(workspace_id)
+    orchestrator = AaliyahOrchestrator.get_orchestrator(workspace_id)
     await orchestrator.broadcast_updates(db)
     
     return {"status": "success", "count": len(payload.thread_ids)}
@@ -334,7 +358,10 @@ def _find_part(payload: dict, mime_type: str) -> str:
 
 
 @router.get("/counts")
+@limiter.limit("60/minute")
+@cached_response(ttl_seconds=30, prefix="inbox_counts")
 async def get_inbox_counts(
+    request: Request,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
 ):
@@ -370,14 +397,16 @@ async def get_inbox_counts(
         for i in integrations
     )
 
+    # Map DB categories to frontend-friendly keys
     return {
-        "priority": counts.get("priority", 0),
-        "fyi": counts.get("fyi", 0),
-        "needs_reply": counts.get("needs_reply", 0),
-        "approvals": counts.get("approvals", 0),
-        "follow_ups": counts.get("follow_ups", 0) or counts.get("follow_up", 0), # handle plural/singular
-        "newsletter": counts.get("newsletter", 0),
-        "noise": counts.get("noise", 0),
+        "priority": counts.get("Priority", 0),
+        "fyi": counts.get("Notifications", 0),
+        "notifications": counts.get("Notifications", 0),
+        "needs_reply": counts.get("Needs Reply", 0),
+        "approvals": counts.get("Approvals", 0),
+        "follow_ups": counts.get("Follow-ups", 0),
+        "newsletter": counts.get("Newsletter", 0),
+        "noise": counts.get("Noise", 0),
         "cleaned": cleaned_count,
         "drafts": 0,
         "total": sum(counts.values()),

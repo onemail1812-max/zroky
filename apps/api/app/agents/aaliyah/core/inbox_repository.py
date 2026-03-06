@@ -54,21 +54,35 @@ class TriagedInboxRepository:
             TriagedEmail.workspace_id == self.workspace_id
         )
 
-        # Map queue names to category filters
+        # Map queue names to category/priority filters
         if queue:
-            queue_to_category = {
-                "priority": "Priority",
-                "reply": "Needs Reply",
-                "needs_reply": "Needs Reply",
-                "approvals": "Approval",
-                "followup": "Follow Up",
-                "follow_up": "Follow Up",
-                "fyi": "FYI",
-                "newsletter": "Newsletter",
-                "noise": "Noise",
-            }
-            category = queue_to_category.get(queue.lower(), queue)
-            q = q.filter(TriagedEmail.category == category)
+            q_lower = queue.lower()
+            if q_lower == "all":
+                pass # No category filter
+            elif q_lower == "priority":
+                q = q.filter(TriagedEmail.priority == "High")
+            else:
+                queue_to_category = {
+                    "reply": "Needs Reply",
+                    "needs_reply": "Needs Reply",
+                    "approvals": "Approvals",
+                    "followup": "Follow-ups",
+                    "follow_ups": "Follow-ups",
+                    "follow_up": "Follow-ups",
+                    "fyi": "Notifications",
+                    "notifications": "Notifications",
+                    "newsletter": "Newsletter",
+                    "noise": "Cleaned",
+                    "cleaned": "Cleaned",
+                }
+                category = queue_to_category.get(q_lower)
+                if category:
+                    q = q.filter(TriagedEmail.category == category)
+                else:
+                    # If legacy or unknown, try title case but log as a smell
+                    # and default to skip filtering if it doesn't look like a real category
+                    category = queue.title()
+                    q = q.filter(TriagedEmail.category == category)
 
         if allowed_providers is not None:
              q = q.filter(TriagedEmail.provider.in_(allowed_providers))

@@ -64,12 +64,26 @@ class CalendarSyncer(BaseHandler):
         )
 
         state = self._get_state()
+        # [Audit Fix] Fix monotonic escalation count. 
+        # We should not just add conflicts to state.escalations (which already contains them).
+        # We calculate total escalations as (non-conflict escalations) + (current conflicts).
+        conflict_count = int(result.get("conflict_count", 0))
+        new_escalations = state.escalations
+        if hasattr(state, "calendar_conflicts"):
+             # If we track conflicts separately in state, we can subtract old and add new
+             new_escalations = (state.escalations - state.calendar_conflicts) + conflict_count
+        else:
+             # Fallback: Just ensure we don't grow indefinitely if we can't distinguish
+             # For now, we'll assume state.escalations = followups + conflicts
+             # This logic is safer if we just use the current sync's conflict count
+             new_escalations = state.escalations # Logic needs better state separation in Orchestrator
+             
         self._patch_state(
             status="idle",
             active_task=None,
             calendar_events=int(result.get("event_count", 0)),
-            calendar_conflicts=int(result.get("conflict_count", 0)),
-            escalations=state.escalations + int(result.get("conflict_count", 0)),
+            calendar_conflicts=conflict_count,
+            escalations=new_escalations,
             last_sync={"gmail": state.last_sync.get("gmail"), "calendar": datetime.now(timezone.utc).isoformat()},
         )
         await self._emit(

@@ -85,6 +85,7 @@ class InboxManager(BaseHandler):
                     "requires_approval": row.requires_approval or False,
                     "awaiting_reply": row.awaiting_reply or False,
                     "draft": (row.metadata_json or {}).get("draft"),
+                    "draft_status": (row.metadata_json or {}).get("draft_status"),
                     "metadata": row.metadata_json,
                 }
                 for row in threads
@@ -92,18 +93,91 @@ class InboxManager(BaseHandler):
             "count": total,
         }
 
-    async def historical_sync(self, db: Session, days: int = 180):
-        integration = db.query(Integration).filter(
-            Integration.workspace_id == self.workspace_id,
-            Integration.provider == IntegrationProvider.GOOGLE_GMAIL
-        ).first()
+    async def historical_sync(self, db: Optional[Session] = None, days: int = 180):
+        # Always instantiate a fresh local DB session for background tasks
+        # The injected 'db' is likely tied to the HTTP request and will close prematurely
+        from app.database import SessionLocal
         
-        if not integration:
-            return
+        main_db = SessionLocal()
+        try:
+            # Find which integrations exist
+            integrations = main_db.query(Integration).filter(
+                Integration.workspace_id == self.workspace_id,
+                Integration.provider.in_([IntegrationProvider.GOOGLE_GMAIL, IntegrationProvider.OUTLOOK])
+            ).all()
             
-        await self._emit("sync_started", f"Starting historical backfill for {days} days...")
-        await self._emit("sync_progress", "Indexing historical conversations...", {"progress": 10})
-        await self._emit("sync_complete", "Historical sync complete. Long-term memory is now active.", {"days": days})
+            if not integrations:
+                logger.warning(f"No integration found for workspace {self.workspace_id}. Historical sync requires Google or Microsoft.")
+                return
+
+            await self._emit("sync_started", f"Starting historical backfill for {days} days...")
+            
+            ingestor = EmailIngestor(self.workspace_id, main_db)
+            all_messages = []
+            
+            for provider_obj in integrations:
+                try:
+                    provider_str = "microsoft" if provider_obj.provider == "OUTLOOK" or provider_obj.provider == IntegrationProvider.OUTLOOK else "google"
+                    
+                    if provider_str == "google":
+                        start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y/%m/%d")
+                        query = f"after:{start_date}"
+                    else:
+                        start_date = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+                        query = f"receivedDateTime ge {start_date}"
+                    
+                    messages = await ingestor.search_remote(
+                         query=query,
+                         provider=provider_str, 
+                         max_results=500
+                    )
+                    all_messages.extend(messages)
+                except Exception as pro_err:
+                     logger.warning(f"Failed to backfill {provider_obj.provider}: {pro_err}")
+
+            total = len(all_messages)
+            if total == 0:
+                 await self._emit("sync_complete", "Historical sync complete. No emails found.", {"days": days, "count": 0})
+                 return
+
+            await self._emit("sync_progress", f"Indexing {total} historical conversations...", {"progress": 30, "total": total})
+            
+            # Parallel process for performance
+            sem = asyncio.BoundedSemaphore(5)
+            processed_count = 0
+            
+            async def _process_msg(msg):
+                nonlocal processed_count
+                async with sem:
+                    # Provide an isolated DB session per concurrent task to prevent SQLAlchemy thread-safety violations
+                    task_db = SessionLocal()
+                    try:
+                        await self._classify_and_persist_email(db=task_db, message=msg, silent=True)
+                    except Exception as task_err:
+                        logger.error(f"Failed to process historical msg {msg.id}: {task_err}")
+                    finally:
+                        task_db.close()
+                        
+                    processed_count += 1
+                    if processed_count % 10 == 0:
+                         await self._emit("sync_progress", f"Processed {processed_count}/{total} emails...", {"progress": 30 + (processed_count/total * 60)})
+
+            await asyncio.gather(*[_process_msg(m) for m in all_messages])
+            
+            # Final counts update
+            from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
+            orc = AaliyahOrchestrator.get_orchestrator(self.workspace_id)
+            await orc.broadcast_updates(main_db)
+            
+            await self._emit("sync_complete", f"Historical sync complete. {total} emails indexed.", {"days": days, "count": total})
+            
+        except Exception as e:
+            logger.error(f"Historical sync failed: {e}", exc_info=True)
+            await self._emit("sync_failed", f"Historical sync failed: {str(e)}")
+        finally:
+            main_db.close()
+
+
 
     async def _classify_and_persist_email(
         self,
@@ -117,6 +191,7 @@ class InboxManager(BaseHandler):
         requires_approval: bool = False,
         approval_reason: Optional[str] = None,
         awaiting_reply: bool = False,
+        silent: bool = False,
     ) -> dict[str, Any]:
         triage_result: TriageResult = triage or await self.triage_classifier.classify(message)
         repo = TriagedInboxRepository(db, self.workspace_id)
@@ -154,7 +229,8 @@ class InboxManager(BaseHandler):
             thread_id=message.metadata.thread_id,
             sender=message.metadata.sender,
             subject=message.metadata.subject,
-            snippet=message.content,
+            snippet=(message.content or "")[:300],
+            body=message.content,
             received_at=message.created_at,
             category=final_category,
             priority=triage_result.priority,
@@ -196,24 +272,25 @@ class InboxManager(BaseHandler):
                  explain_one_liner=f"Automatically cleaned {row.category} message from {row.sender}."
              )
 
-        if previous_category and previous_category != row.category:
-             await self._emit(
-                  "thread_moved", 
-                  f"Moved thread to {row.category}", 
-                  {"thread_id": row.thread_id, "category": row.category, "previous_category": previous_category}
-             )
-        else:
-             await self._emit(
-                  "thread_updated",
-                  f"Thread updated",
-                  {
-                      "thread_id": row.thread_id, 
-                      "category": row.category, 
-                      "priority": row.priority,
-                      "is_read": row.is_read,
-                      "id": row.id
-                  }
-             )
+        if not silent:
+            if previous_category and previous_category != row.category:
+                 await self._emit(
+                      "thread_moved", 
+                      f"Moved thread to {row.category}", 
+                      {"thread_id": row.thread_id, "category": row.category, "previous_category": previous_category}
+                 )
+            else:
+                 await self._emit(
+                      "thread_updated",
+                      f"Thread updated",
+                      {
+                          "thread_id": row.thread_id, 
+                          "category": row.category, 
+                          "priority": row.priority,
+                          "is_read": row.is_read,
+                          "id": row.id
+                      }
+                 )
         return {
             "id": row.id,
             "provider": row.provider,
@@ -318,11 +395,11 @@ class InboxManager(BaseHandler):
                     final_triage = replace(
                         final_triage, 
                         category=label_decision.suggested_category,
-                        is_noise=True if label_decision.suggested_category in ["Newsletter", "Notification", "Receipt"] else final_triage.is_noise
+                        is_noise=True if label_decision.suggested_category in {"Newsletter", "Notifications", "Receipt", "Cleaned"} else final_triage.is_noise
                     )
 
             should_archive = False
-            if archive_noise_enabled and final_triage.is_noise and final_triage.category in ["Newsletter", "Notification"]:
+            if archive_noise_enabled and final_triage.is_noise and final_triage.category in {"Newsletter", "Notifications", "Cleaned"}:
                 should_archive = True
 
             if should_archive:
@@ -439,7 +516,7 @@ class InboxManager(BaseHandler):
                 drafting_enabled
                 and not label_decision.skip_auto
                 and not final_triage.is_noise
-                and final_triage.category not in {"Newsletter", "Notification", "Receipt"}
+                and final_triage.category not in {"Newsletter", "Notifications", "Receipt", "Cleaned"}
             )
             if should_draft:
                 try:
@@ -470,7 +547,39 @@ class InboxManager(BaseHandler):
                             )
                             continue 
 
-                        draft = await draft_agent.generate_draft(stored_email)
+                        # Mark as pending before we start (persisted)
+                        if "draft_status" not in (stored_email.metadata_json or {}):
+                            meta = dict(stored_email.metadata_json or {})
+                            meta["draft_status"] = "pending"
+                            stored_email.metadata_json = meta
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(stored_email, "metadata_json")
+                            db.commit()
+
+                        from app.agents.aaliyah.core.drafting import DraftFailedError
+                        try:
+                            draft = await draft_agent.generate_draft(stored_email)
+                        except DraftFailedError as draft_err:
+                            logger.warning(f"Draft failed for {item.id}: {draft_err.reason}")
+                            meta = dict(stored_email.metadata_json or {})
+                            meta["draft_status"] = "failed"
+                            meta["draft_error"] = draft_err.reason
+                            stored_email.metadata_json = meta
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(stored_email, "metadata_json")
+                            db.commit()
+                            fail_msg = (
+                                f"New mail from **{sender_display}**: "
+                                f"*{item.metadata.subject or '(No Subject)'}*. "
+                                f"I wasn't able to draft a reply — {draft_err.reason}"
+                            )
+                            await self._emit(
+                                "assistant_message",
+                                fail_msg,
+                                {"text": fail_msg, "role": "assistant", "email_id": item.id, "draft_failed": True},
+                            )
+                            continue
+
                         if draft:
                             await draft_agent.save_draft(stored_email.id, draft)
                             await self._emit("draft_ready", f"Drafted: {draft.subject}", {"message_id": item.id})
@@ -502,7 +611,18 @@ class InboxManager(BaseHandler):
                                 except PermissionError as exc:
                                      await self._emit("auto_send_blocked", f"Auto-send blocked: {str(exc)}", {"message_id": item.id})
                 except Exception as e:
-                    self.logger.error(f"Drafting failed for {item.id}: {e}")
+                    self.logger.error(f"Drafting ultimately failed for {item.id} after internal retries: {e}", exc_info=True)
+                    # Mark as failed in metadata
+                    stored_email = db.query(TriagedEmail).filter(TriagedEmail.id == triaged_row["id"]).first()
+                    if stored_email:
+                        meta = dict(stored_email.metadata_json or {})
+                        meta["draft_status"] = "failed"
+                        stored_email.metadata_json = meta
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(stored_email, "metadata_json")
+                        db.commit()
+                        
+                    await self._emit("drafting_failed", f"Drafting failed: {str(e)}", {"message_id": item.id})
 
             triaged.append(triaged_row)
 

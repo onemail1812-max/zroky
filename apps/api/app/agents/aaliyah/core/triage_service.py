@@ -9,6 +9,10 @@ from app.services.brain.core import Brain
 from app.services.brain.schemas.models import ModelType
 from app.config import settings
 import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from app.services.brain.errors import BrainTimeoutError, BrainProviderError
+import httpx
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -131,26 +135,44 @@ class SmartTriageClassifier:
         )
 
         try:
-            # Stage 1: Tier-1 Fast Primary (e.g. Gemini Flash)
-            result = await self.brain.think_json(
-                prompt=prompt,
-                response_model=TriageResult,
-                system_prompt=system_prompt,
-                model_override=settings.BRAIN_MODEL,
-                temperature_override=0.0,
+            # Stage 1: Tier-1 Fast Primary (e.g. Gemini Flash) with resilience
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
+                retry=retry_if_exception_type((BrainTimeoutError, BrainProviderError, httpx.RequestError, httpx.HTTPStatusError, asyncio.TimeoutError)),
+                reraise=True
             )
+            async def _classify_stage1():
+                return await self.brain.think_json(
+                    prompt=prompt,
+                    response_model=TriageResult,
+                    system_prompt=system_prompt,
+                    model_override=settings.BRAIN_MODEL,
+                    temperature_override=0.0,
+                )
+            
+            result = await _classify_stage1()
             
             # [v2.1 Scale Hardening] - Multi-Model Fallback
             # If confidence is low or categorizations are ambiguous, escalate to Tier-2 High-Capacity.
             if result.confidence < 0.7 or result.category == "Notifications": # Low confidence or noisy cat
                  logger.info(f"Triage: Confidence ({result.confidence}) below threshold. Escalating to Tier-2 High-Capacity.")
-                 result = await self.brain.think_json(
-                    prompt=prompt,
-                    response_model=TriageResult,
-                    system_prompt=system_prompt,
-                    model_override="openai/gpt-4o", # Tier-2 Sovereign Model
-                    temperature_override=0.0,
-                )
+                 
+                 @retry(
+                    stop=stop_after_attempt(2),
+                    wait=wait_exponential(multiplier=1, min=2, max=10),
+                    retry=retry_if_exception_type((BrainTimeoutError, BrainProviderError, httpx.RequestError, httpx.HTTPStatusError, asyncio.TimeoutError)),
+                    reraise=True
+                 )
+                 async def _classify_stage2():
+                     return await self.brain.think_json(
+                        prompt=prompt,
+                        response_model=TriageResult,
+                        system_prompt=system_prompt,
+                        model_override="openai/gpt-4o", # Tier-2 Sovereign Model
+                        temperature_override=0.0,
+                    )
+                 result = await _classify_stage2()
 
             # Normalize category and priority
             result = self._normalize_result(result)
@@ -159,13 +181,21 @@ class SmartTriageClassifier:
             logger.warning("Primary triage failed, attempting critical recovery fallback: %s", e)
             try:
                 # Emergency recovery using highest-capacity model
-                result = await self.brain.think_json(
-                    prompt=prompt,
-                    response_model=TriageResult,
-                    system_prompt=system_prompt,
-                    model_override="openai/gpt-4o",
-                    temperature_override=0.0,
+                @retry(
+                    stop=stop_after_attempt(2),
+                    wait=wait_exponential(multiplier=1, min=2, max=10),
+                    retry=retry_if_exception_type((BrainTimeoutError, BrainProviderError, httpx.RequestError, httpx.HTTPStatusError, asyncio.TimeoutError)),
+                    reraise=True
                 )
+                async def _classify_emergency():
+                    return await self.brain.think_json(
+                        prompt=prompt,
+                        response_model=TriageResult,
+                        system_prompt=system_prompt,
+                        model_override="openai/gpt-4o",
+                        temperature_override=0.0,
+                    )
+                result = await _classify_emergency()
                 return self._normalize_result(result)
             except Exception:
                 pass

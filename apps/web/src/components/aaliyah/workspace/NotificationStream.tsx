@@ -264,11 +264,12 @@ export function NotificationStream({
       <LiveStrip tasks={liveTasks} active={status === "thinking" || workingOpen} />
       <ChatHeader title={activeConversation.title} timestamp={activeConversation.timestamp} state={activeConversation.status} />
 
-      <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 pb-48 pt-6 md:px-6">
+      <div ref={feedScrollRef} className="flex-1 overflow-y-auto px-4 pb-48 pt-6 md:px-6" aria-live="polite">
         <div className="mx-auto w-full max-w-4xl space-y-4">
           {activeConversation.id === "morning-briefing" && <MorningBriefing />}
           <CardFeed
             items={feedItems}
+            isLoading={isLoading}
             onOpenIntelligence={(tab) => onOpenIntelligence(tab)}
             onUpdateDraft={onUpdateDraft}
             onApprovalAction={onApprovalAction}

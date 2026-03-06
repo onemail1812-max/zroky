@@ -5,6 +5,8 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 import type { ConversationSummary } from "@/components/aaliyah/workspace/types"
 import { ActiveWorkItem } from "@/components/aaliyah/workspace/left/ActiveWorkItem"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { CheckCircle2 } from "lucide-react"
 
 function groupLabel(item: ConversationSummary) {
   if (item.status === "Completed") return "Completed"
@@ -102,8 +104,13 @@ export function ActiveWorkList({
         )}
 
         {!loading && flatItems.length === 0 && (
-          <div className="rounded-lg border border-borderSubtle bg-surface p-4 text-[13px] text-textSecondary">
-            All clear for now.
+          <div className="rounded-lg border border-borderSubtle bg-white/50 text-[13px] text-textSecondary overflow-hidden py-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+            <EmptyState
+              icon={CheckCircle2}
+              title="All Clear"
+              description="No active work pending."
+              className="p-4 py-8"
+            />
           </div>
         )}
 

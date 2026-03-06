@@ -91,8 +91,14 @@ class WorkspaceEventBus:
         try:
             logger.info(f"New internal SSE listener attached for {workspace_id} (last_id={last_event_id})")
             while True:
-                event = await q.get()
-                yield event
+                # [Audit Fix] Add timeout to prevent zombie connections if client drops without detach
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield event
+                except asyncio.TimeoutError:
+                    # Emit keepalive to prevent proxy idle connection drop (Traefik drops at 30s defaults)
+                    yield LiveEvent(workspace_id=workspace_id, type="ping", message="keepalive")
+                    continue
         finally:
             async with self._lock:
                 if workspace_id in self._subscribers:

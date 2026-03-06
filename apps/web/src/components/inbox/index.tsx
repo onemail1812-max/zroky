@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { Mail, RefreshCw, X, AlertCircle, Edit, Send, CheckCircle2, Sparkles } from "lucide-react";
 import { EmailMessage, inboxService } from "@/services/inbox.service";
 import { SkeletonEmail, SkeletonEmailBody, Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 // Helper for relative time
 function timeAgo(dateString: string) {
@@ -61,7 +62,14 @@ export function InboxList({ onSelect, selectedId, refreshTrigger, filter, onLoad
     // No empty state here to avoid flashing on tab switch if loading happens quickly
     // But good to have if truly empty after load
     if (!loading && messages.length === 0) {
-        return <div className="p-8 text-center text-zinc-400 text-xs uppercase tracking-widest">No messages</div>;
+        return (
+            <EmptyState
+                icon={Mail}
+                title="Your Inbox is Clear"
+                description={`No ${filter?.replace('_', ' ')} messages found. Aaliyah has everything under control.`}
+                className="py-20"
+            />
+        );
     }
 
     return (
@@ -117,9 +125,6 @@ export function InboxList({ onSelect, selectedId, refreshTrigger, filter, onLoad
                             ),
                             msg.labels?.includes("follow_ups") && (
                                 <span key="f" className="px-1.5 py-0.5 bg-amber-950/80 text-amber-200 text-[8px] font-bold uppercase tracking-wider rounded border border-amber-900/50">Follow-up</span>
-                            ),
-                            msg.labels?.includes("newsletter") && (
-                                <span key="nl" className="px-1.5 py-0.5 bg-blue-950/80 text-blue-200 text-[8px] font-bold uppercase tracking-wider rounded border border-blue-900/50">Newsletter</span>
                             ),
                             msg.labels?.includes("notifications") && (
                                 <span key="nt" className="px-1.5 py-0.5 bg-zinc-800 text-zinc-300 text-[8px] font-bold uppercase tracking-wider rounded border border-zinc-700/50">Notification</span>

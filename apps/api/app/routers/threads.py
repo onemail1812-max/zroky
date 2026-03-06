@@ -174,7 +174,7 @@ async def create_message(
             )
 
             orchestrator = ShlokOrchestrator(db)
-            raw = orchestrator.generate_reply(
+            raw = await orchestrator.generate_reply(
                 workspace_id=context.workspace_id,
                 thread_messages=thread_messages,
             )
@@ -226,7 +226,7 @@ async def create_message(
 
             from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
 
-            orchestrator = AaliyahOrchestrator(workspace_id=context.workspace_id)
+            orchestrator = AaliyahOrchestrator.get_orchestrator(workspace_id=context.workspace_id)
             
             # Extract last user message for single-turn handling
             last_user_msg = ""

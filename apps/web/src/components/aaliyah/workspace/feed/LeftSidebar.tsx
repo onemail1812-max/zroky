@@ -52,9 +52,13 @@ export function LeftSidebar({
         cleaned: 0 // TODO: Add to store if needed
     }
     return (
-        <aside className={cn(
-            "flex flex-col w-full h-full bg-[#fcfcfc] border-r border-zinc-200/50 shadow-[2px_0_24px_rgba(0,0,0,0.02)] transition-opacity duration-300 relative"
-        )}>
+        <aside
+            role="navigation"
+            aria-label="Aaliyah sidebar navigation"
+            className={cn(
+                "flex flex-col w-full h-full bg-[#fcfcfc] border-r border-zinc-200/50 shadow-[2px_0_24px_rgba(0,0,0,0.02)] transition-opacity duration-300 relative"
+            )}
+        >
             {/* Ambient Background Gradient for Premium Feel */}
             <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-br from-indigo-50/50 via-white to-transparent opacity-50 pointer-events-none" />
 
@@ -82,10 +86,13 @@ export function LeftSidebar({
             </div>
 
             {/* Navigation Queues */}
-            <nav className={cn(
-                "flex-1 flex flex-col gap-1 p-3 pt-6 relative z-10 overflow-y-auto custom-scrollbar transition-opacity duration-300",
-                disabled && "opacity-40 pointer-events-none grayscale"
-            )}>
+            <nav
+                aria-label="Email triage queues"
+                className={cn(
+                    "flex-1 flex flex-col gap-1 p-3 pt-6 relative z-10 overflow-y-auto custom-scrollbar transition-opacity duration-300",
+                    disabled && "opacity-40 pointer-events-none grayscale"
+                )}
+            >
                 <div className="px-3 mb-2">
                     <h4 className="text-[10px] font-bold tracking-widest text-zinc-400 uppercase">Focus</h4>
                 </div>
@@ -108,6 +115,7 @@ export function LeftSidebar({
                         e.stopPropagation()
                         onOpenGuidelines?.()
                     }}
+                    aria-label="Open Aaliyah guidelines"
                     className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-white transition-all duration-300 group hover:shadow-lg hover:shadow-zinc-900/10 hover:-translate-y-0.5 active:scale-95 text-left w-full"
                 >
                     <BookOpen className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" strokeWidth={2.5} />
@@ -118,6 +126,7 @@ export function LeftSidebar({
                         e.stopPropagation()
                         onOpenSettings?.()
                     }}
+                    aria-label="Open settings"
                     className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-white transition-all duration-300 group hover:shadow-lg hover:shadow-zinc-900/10 hover:-translate-y-0.5 active:scale-95 text-left w-full"
                 >
                     <Settings className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" strokeWidth={2.5} />
@@ -128,6 +137,7 @@ export function LeftSidebar({
                         e.stopPropagation()
                         onOpenDiagnostics?.()
                     }}
+                    aria-label="Open diagnostics"
                     className="flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-white transition-all duration-300 group hover:shadow-lg hover:shadow-zinc-900/10 hover:-translate-y-0.5 active:scale-95 text-left w-full"
                 >
                     <Terminal className="h-4 w-4 text-zinc-400 group-hover:text-white transition-colors" strokeWidth={2.5} />
@@ -158,6 +168,8 @@ function NavItem({
     return (
         <button
             onClick={onClick}
+            aria-label={`${label} queue${count !== undefined && count > 0 ? `, ${count} items` : ''}`}
+            aria-current={active ? 'page' : undefined}
             className={cn(
                 "flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 text-left group relative",
                 active

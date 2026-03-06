@@ -121,7 +121,12 @@ class MorningBriefingService:
         # Check if we can reuse the cached briefing even if it's "freshness" TTL has expired, 
         # as long as the data is identical.
         workspace = self.db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-        last_briefing = (workspace.settings_json or {}).get("aaliyah", {}).get("last_briefing", {})
+        if not workspace:
+             logger.error(f"Workspace {self.workspace_id} not found during briefing generation.")
+             return "Configuration Error: Workspace missing."
+             
+        aaliyah_settings = (workspace.settings_json or {}).get("aaliyah", {})
+        last_briefing = aaliyah_settings.get("last_briefing", {})
         if last_briefing.get("fingerprint") == fingerprint:
             logger.info("Semantic Cache Hit: Data hasn't changed. Reusing cached briefing.")
             return last_briefing.get("content", "")
@@ -134,7 +139,7 @@ class MorningBriefingService:
                 "No urgent emails, pending drafts, or meetings require your attention. "
                 "I'll stand by for new tasks."
             )
-            self._cache_briefing(content)
+            self._cache_briefing(content=content, fingerprint=fingerprint)
             return content
 
         # 4. Construct Prompt
@@ -155,7 +160,8 @@ class MorningBriefingService:
                 lines.append(f"- {time_str}: {evt.title}")
                 
                 # Cognitive Recall for this meeting
-                meeting_query = f"Meeting about {evt.title} with {', '.join(evt.attendees or [])}"
+                attendees = getattr(evt, 'attendees', []) or []
+                meeting_query = f"Meeting about {evt.title} with {', '.join(attendees)}"
                 recall_data = memory.recall(meeting_query, top_k=2)
                 context_snippet = recall_data.get("prompt_context", "")
                 if context_snippet:
@@ -211,7 +217,7 @@ class MorningBriefingService:
                       f"You have {total_unread} unread emails to review."
 
         # 7. Cache Result
-        self._cache_briefing(content, fingerprint)
+        self._cache_briefing(content=content, fingerprint=fingerprint)
         return content
 
     def _generate_data_fingerprint(self, emails: list, events: list, unread: int, drafts: int) -> str:
@@ -285,17 +291,19 @@ class MorningBriefingService:
             return 0
 
     def _count_pending_drafts(self) -> int:
+        from sqlalchemy import cast, Text
         try:
-            emails_with_meta = (
+            # [Bug 3.7] Pre-filter at the database level to prevent loading ALL emails into memory
+            emails_with_drafts = (
                 self.db.query(TriagedEmail)
                 .filter(
                     TriagedEmail.workspace_id == self.workspace_id,
-                    TriagedEmail.metadata_json.isnot(None)
+                    cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
                 )
                 .all()
             )
             count = 0
-            for e in emails_with_meta:
+            for e in emails_with_drafts:
                 meta = e.metadata_json or {}
                 draft = meta.get("draft")
                 if isinstance(draft, dict) and draft.get("status") != "sent":

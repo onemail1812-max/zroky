@@ -42,7 +42,18 @@ export function HealthReportCard({ health }: { health: any }) {
                 </div>
 
                 {health.action && (
-                    <button className="flex items-center justify-between w-full p-4 rounded-2xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:scale-[1.01] transition-all shadow-lg active:scale-[0.99]">
+                    <button
+                        onClick={() => {
+                            if (health.action.onClick) {
+                                health.action.onClick()
+                            } else {
+                                window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                    detail: { text: `Can you help me with: ${health.action.label}?` }
+                                }))
+                            }
+                        }}
+                        className="flex items-center justify-between w-full p-4 rounded-2xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 hover:scale-[1.01] transition-all shadow-lg active:scale-[0.99]"
+                    >
                         <span className="text-[13px] font-bold uppercase tracking-widest">{health.action.label}</span>
                         <ArrowRight className="h-4 w-4" />
                     </button>

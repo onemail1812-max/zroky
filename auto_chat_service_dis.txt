@@ -1,0 +1,3356 @@
+  0           0 RESUME                   0
+
+  1           2 LOAD_CONST               0 ('\nAutomatic Proactive Chat Service for Aaliyah.\nAutomatically initiates conversations, asks clarifying questions, and handles workflows autonomously.\nTriggered by: new emails, calendar events, pending tasks, user status changes.\n')
+              4 STORE_NAME               0 (__doc__)
+
+  6           6 LOAD_CONST               1 (0)
+              8 LOAD_CONST               2 (None)
+             10 IMPORT_NAME              1 (asyncio)
+             12 STORE_NAME               1 (asyncio)
+
+  7          14 LOAD_CONST               1 (0)
+             16 LOAD_CONST               2 (None)
+             18 IMPORT_NAME              2 (json)
+             20 STORE_NAME               2 (json)
+
+  8          22 LOAD_CONST               1 (0)
+             24 LOAD_CONST               2 (None)
+             26 IMPORT_NAME              3 (logging)
+             28 STORE_NAME               3 (logging)
+
+  9          30 LOAD_CONST               1 (0)
+             32 LOAD_CONST               2 (None)
+             34 IMPORT_NAME              4 (uuid)
+             36 STORE_NAME               4 (uuid)
+
+ 10          38 LOAD_CONST               1 (0)
+             40 LOAD_CONST               3 (('datetime', 'timezone', 'timedelta'))
+             42 IMPORT_NAME              5 (datetime)
+             44 IMPORT_FROM              5 (datetime)
+             46 STORE_NAME               5 (datetime)
+             48 IMPORT_FROM              6 (timezone)
+             50 STORE_NAME               6 (timezone)
+             52 IMPORT_FROM              7 (timedelta)
+             54 STORE_NAME               7 (timedelta)
+             56 POP_TOP
+
+ 11          58 LOAD_CONST               1 (0)
+             60 LOAD_CONST               4 (('Any', 'Dict', 'List', 'Optional'))
+             62 IMPORT_NAME              8 (typing)
+             64 IMPORT_FROM              9 (Any)
+             66 STORE_NAME               9 (Any)
+             68 IMPORT_FROM             10 (Dict)
+             70 STORE_NAME              10 (Dict)
+             72 IMPORT_FROM             11 (List)
+             74 STORE_NAME              11 (List)
+             76 IMPORT_FROM             12 (Optional)
+             78 STORE_NAME              12 (Optional)
+             80 POP_TOP
+
+ 12          82 LOAD_CONST               1 (0)
+             84 LOAD_CONST               5 (('Enum',))
+             86 IMPORT_NAME             13 (enum)
+             88 IMPORT_FROM             14 (Enum)
+             90 STORE_NAME              14 (Enum)
+             92 POP_TOP
+
+ 14          94 LOAD_CONST               1 (0)
+             96 LOAD_CONST               6 (('Session',))
+             98 IMPORT_NAME             15 (sqlalchemy.orm)
+            100 IMPORT_FROM             16 (Session)
+            102 STORE_NAME              16 (Session)
+            104 POP_TOP
+
+ 16         106 LOAD_CONST               1 (0)
+            108 LOAD_CONST               7 (('TriagedEmail',))
+            110 IMPORT_NAME             17 (app.models.triaged_email)
+            112 IMPORT_FROM             18 (TriagedEmail)
+            114 STORE_NAME              18 (TriagedEmail)
+            116 POP_TOP
+
+ 17         118 LOAD_CONST               1 (0)
+            120 LOAD_CONST               8 (('Workspace',))
+            122 IMPORT_NAME             19 (app.models.workspace)
+            124 IMPORT_FROM             20 (Workspace)
+            126 STORE_NAME              20 (Workspace)
+            128 POP_TOP
+
+ 18         130 LOAD_CONST               1 (0)
+            132 LOAD_CONST               9 (('User',))
+            134 IMPORT_NAME             21 (app.models.user)
+            136 IMPORT_FROM             22 (User)
+            138 STORE_NAME              22 (User)
+            140 POP_TOP
+
+ 19         142 LOAD_CONST               1 (0)
+            144 LOAD_CONST              10 (('Thread',))
+            146 IMPORT_NAME             23 (app.models.thread)
+            148 IMPORT_FROM             24 (Thread)
+            150 STORE_NAME              24 (Thread)
+            152 POP_TOP
+
+ 20         154 LOAD_CONST               1 (0)
+            156 LOAD_CONST              11 (('ChatMessageRow', 'ChatRepository'))
+            158 IMPORT_NAME             25 (app.models.chat_message)
+            160 IMPORT_FROM             26 (ChatMessageRow)
+            162 STORE_NAME              26 (ChatMessageRow)
+            164 IMPORT_FROM             27 (ChatRepository)
+            166 STORE_NAME              27 (ChatRepository)
+            168 POP_TOP
+
+ 21         170 LOAD_CONST               1 (0)
+            172 LOAD_CONST              12 (('CalendarEventSnapshot',))
+            174 IMPORT_NAME             28 (app.models.calendar_event_snapshot)
+            176 IMPORT_FROM             29 (CalendarEventSnapshot)
+            178 STORE_NAME              29 (CalendarEventSnapshot)
+            180 POP_TOP
+
+ 22         182 LOAD_CONST               1 (0)
+            184 LOAD_CONST              13 (('Brain',))
+            186 IMPORT_NAME             30 (app.services.brain.core)
+            188 IMPORT_FROM             31 (Brain)
+            190 STORE_NAME              31 (Brain)
+            192 POP_TOP
+
+ 23         194 LOAD_CONST               1 (0)
+            196 LOAD_CONST              14 (('ModelType',))
+            198 IMPORT_NAME             32 (app.services.brain.schemas.models)
+            200 IMPORT_FROM             33 (ModelType)
+            202 STORE_NAME              33 (ModelType)
+            204 POP_TOP
+
+ 24         206 LOAD_CONST               1 (0)
+            208 LOAD_CONST              15 (('DualStateMemory',))
+            210 IMPORT_NAME             34 (app.services.brain.memory)
+            212 IMPORT_FROM             35 (DualStateMemory)
+            214 STORE_NAME              35 (DualStateMemory)
+            216 POP_TOP
+
+ 25         218 LOAD_CONST               1 (0)
+            220 LOAD_CONST              16 (('SmartTriageClassifier',))
+            222 IMPORT_NAME             36 (app.agents.aaliyah.core.triage_service)
+            224 IMPORT_FROM             37 (SmartTriageClassifier)
+            226 STORE_NAME              37 (SmartTriageClassifier)
+            228 POP_TOP
+
+ 26         230 LOAD_CONST               1 (0)
+            232 LOAD_CONST              17 (('GreetingService',))
+            234 IMPORT_NAME             38 (app.agents.aaliyah.core.greeting_service)
+            236 IMPORT_FROM             39 (GreetingService)
+            238 STORE_NAME              39 (GreetingService)
+            240 POP_TOP
+
+ 28         242 PUSH_NULL
+            244 LOAD_NAME                3 (logging)
+            246 LOAD_ATTR               40 (getLogger)
+            256 LOAD_NAME               41 (__name__)
+            258 PRECALL                  1
+            262 CALL                     1
+            272 STORE_NAME              42 (logger)
+
+ 31         274 PUSH_NULL
+            276 LOAD_BUILD_CLASS
+            278 LOAD_CONST              18 (<code object ConversationTrigger at 0x000001C3128323D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 31>)
+            280 MAKE_FUNCTION            0
+            282 LOAD_CONST              19 ('ConversationTrigger')
+            284 LOAD_NAME               43 (str)
+            286 LOAD_NAME               14 (Enum)
+            288 PRECALL                  4
+            292 CALL                     4
+            302 STORE_NAME              44 (ConversationTrigger)
+
+ 44         304 PUSH_NULL
+            306 LOAD_BUILD_CLASS
+            308 LOAD_CONST              20 (<code object AutoChatService at 0x000001C312B5DD20, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 44>)
+            310 MAKE_FUNCTION            0
+            312 LOAD_CONST              21 ('AutoChatService')
+            314 PRECALL                  2
+            318 CALL                     2
+            328 STORE_NAME              45 (AutoChatService)
+            330 LOAD_CONST               2 (None)
+            332 RETURN_VALUE
+
+Disassembly of <code object ConversationTrigger at 0x000001C3128323D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 31>:
+ 31           0 RESUME                   0
+              2 LOAD_NAME                0 (__name__)
+              4 STORE_NAME               1 (__module__)
+              6 LOAD_CONST               0 ('ConversationTrigger')
+              8 STORE_NAME               2 (__qualname__)
+
+ 32          10 LOAD_CONST               1 ('What triggers automatic conversation initiation.')
+             12 STORE_NAME               3 (__doc__)
+
+ 33          14 LOAD_CONST               2 ('new_email')
+             16 STORE_NAME               4 (NEW_EMAIL)
+
+ 34          18 LOAD_CONST               3 ('urgent_email')
+             20 STORE_NAME               5 (URGENT_EMAIL)
+
+ 35          22 LOAD_CONST               4 ('meeting_prep')
+             24 STORE_NAME               6 (MEETING_PREP)
+
+ 36          26 LOAD_CONST               5 ('pending_followup')
+             28 STORE_NAME               7 (PENDING_FOLLOWUP)
+
+ 37          30 LOAD_CONST               6 ('task_reminder')
+             32 STORE_NAME               8 (TASK_REMINDER)
+
+ 38          34 LOAD_CONST               7 ('clarification_needed')
+             36 STORE_NAME               9 (CLARIFICATION_NEEDED)
+
+ 39          38 LOAD_CONST               8 ('afternoon_digest')
+             40 STORE_NAME              10 (AFTERNOON_DIGEST)
+
+ 40          42 LOAD_CONST               9 ('calendar_conflict')
+             44 STORE_NAME              11 (CALENDAR_CONFLICT)
+
+ 41          46 LOAD_CONST              10 ('vip_response')
+             48 STORE_NAME              12 (VIP_RESPONSE)
+             50 LOAD_CONST              11 (None)
+             52 RETURN_VALUE
+
+Disassembly of <code object AutoChatService at 0x000001C312B5DD20, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 44>:
+ 44           0 RESUME                   0
+              2 LOAD_NAME                0 (__name__)
+              4 STORE_NAME               1 (__module__)
+              6 LOAD_CONST               0 ('AutoChatService')
+              8 STORE_NAME               2 (__qualname__)
+
+ 45          10 LOAD_CONST               1 ('\n    Automatically initiates and drives conversations.\n    \n    Features:\n    - Auto-starts chat when high-priority emails arrive\n    - Asks clarification questions automatically\n    - Generates follow-up suggestions\n    - Provides proactive meeting prep\n    - Handles email drafting end-to-end\n    ')
+             12 STORE_NAME               3 (__doc__)
+
+ 56          14 LOAD_CONST               2 ('workspace_id')
+             16 LOAD_NAME                4 (str)
+             18 BUILD_TUPLE              2
+             20 LOAD_CONST               3 (<code object __init__ at 0x000001C312870FF0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 56>)
+             22 MAKE_FUNCTION            4 (annotations)
+             24 STORE_NAME               5 (__init__)
+
+ 68          26 LOAD_CONST               4 (None)
+
+ 62          28 LOAD_CONST               5 (('context',))
+             30 BUILD_CONST_KEY_MAP      1
+             32 LOAD_CONST               6 ('db')
+
+ 64          34 LOAD_NAME                6 (Session)
+
+ 62          36 LOAD_CONST               7 ('user_id')
+
+ 66          38 LOAD_NAME                4 (str)
+
+ 62          40 LOAD_CONST               8 ('trigger')
+
+ 67          42 LOAD_NAME                7 (ConversationTrigger)
+
+ 62          44 LOAD_CONST               9 ('context')
+
+ 68          46 LOAD_NAME                8 (Optional)
+             48 LOAD_NAME                9 (Dict)
+             50 LOAD_NAME                4 (str)
+             52 LOAD_NAME               10 (Any)
+             54 BUILD_TUPLE              2
+             56 BINARY_SUBSCR
+             66 BINARY_SUBSCR
+
+ 62          76 LOAD_CONST              10 ('return')
+
+ 69          78 LOAD_NAME                8 (Optional)
+             80 LOAD_NAME                9 (Dict)
+             82 LOAD_NAME                4 (str)
+             84 LOAD_NAME               10 (Any)
+             86 BUILD_TUPLE              2
+             88 BINARY_SUBSCR
+             98 BINARY_SUBSCR
+
+ 62         108 BUILD_TUPLE             10
+            110 LOAD_CONST              11 (<code object trigger_auto_chat at 0x000001C312B566B0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 62>)
+            112 MAKE_FUNCTION            6 (kwdefaults, annotations)
+            114 STORE_NAME              11 (trigger_auto_chat)
+
+ 95         116 LOAD_CONST               6 ('db')
+
+ 97         118 LOAD_NAME                6 (Session)
+
+ 95         120 LOAD_CONST               7 ('user_id')
+
+ 99         122 LOAD_NAME                4 (str)
+
+ 95         124 LOAD_CONST              12 ('email_id')
+
+100         126 LOAD_NAME                4 (str)
+
+ 95         128 LOAD_CONST              10 ('return')
+
+102         130 LOAD_NAME                8 (Optional)
+            132 LOAD_NAME                9 (Dict)
+            134 LOAD_NAME                4 (str)
+            136 LOAD_NAME               10 (Any)
+            138 BUILD_TUPLE              2
+            140 BINARY_SUBSCR
+            150 BINARY_SUBSCR
+
+ 95         160 BUILD_TUPLE              8
+            162 LOAD_CONST              13 (<code object _handle_new_email at 0x000001C312B4A0A0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 95>)
+            164 MAKE_FUNCTION            4 (annotations)
+            166 STORE_NAME              12 (_handle_new_email)
+
+176         168 LOAD_CONST               6 ('db')
+
+178         170 LOAD_NAME                6 (Session)
+
+176         172 LOAD_CONST               7 ('user_id')
+
+180         174 LOAD_NAME                4 (str)
+
+176         176 LOAD_CONST              12 ('email_id')
+
+181         178 LOAD_NAME                4 (str)
+
+176         180 LOAD_CONST              10 ('return')
+
+183         182 LOAD_NAME                8 (Optional)
+            184 LOAD_NAME                9 (Dict)
+            186 LOAD_NAME                4 (str)
+            188 LOAD_NAME               10 (Any)
+            190 BUILD_TUPLE              2
+            192 BINARY_SUBSCR
+            202 BINARY_SUBSCR
+
+176         212 BUILD_TUPLE              8
+            214 LOAD_CONST              14 (<code object _handle_urgent_email at 0x000001C312B1D160, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 176>)
+            216 MAKE_FUNCTION            4 (annotations)
+            218 STORE_NAME              13 (_handle_urgent_email)
+
+220         220 LOAD_CONST               6 ('db')
+
+222         222 LOAD_NAME                6 (Session)
+
+220         224 LOAD_CONST               7 ('user_id')
+
+224         226 LOAD_NAME                4 (str)
+
+220         228 LOAD_CONST              12 ('email_id')
+
+225         230 LOAD_NAME                4 (str)
+
+220         232 LOAD_CONST              15 ('questions')
+
+226         234 LOAD_NAME               14 (List)
+            236 LOAD_NAME                4 (str)
+            238 BINARY_SUBSCR
+
+220         248 LOAD_CONST              10 ('return')
+
+228         250 LOAD_NAME                8 (Optional)
+            252 LOAD_NAME                9 (Dict)
+            254 LOAD_NAME                4 (str)
+            256 LOAD_NAME               10 (Any)
+            258 BUILD_TUPLE              2
+            260 BINARY_SUBSCR
+            270 BINARY_SUBSCR
+
+220         280 BUILD_TUPLE             10
+            282 LOAD_CONST              16 (<code object _handle_clarification_needed at 0x000001C312B1B270, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 220>)
+            284 MAKE_FUNCTION            4 (annotations)
+            286 STORE_NAME              15 (_handle_clarification_needed)
+
+256         288 LOAD_CONST               6 ('db')
+
+258         290 LOAD_NAME                6 (Session)
+
+256         292 LOAD_CONST               7 ('user_id')
+
+260         294 LOAD_NAME                4 (str)
+
+256         296 LOAD_CONST              17 ('event_id')
+
+261         298 LOAD_NAME                4 (str)
+
+256         300 LOAD_CONST              10 ('return')
+
+263         302 LOAD_NAME                8 (Optional)
+            304 LOAD_NAME                9 (Dict)
+            306 LOAD_NAME                4 (str)
+            308 LOAD_NAME               10 (Any)
+            310 BUILD_TUPLE              2
+            312 BINARY_SUBSCR
+            322 BINARY_SUBSCR
+
+256         332 BUILD_TUPLE              8
+            334 LOAD_CONST              18 (<code object _handle_meeting_prep at 0x000001C312B4A640, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 256>)
+            336 MAKE_FUNCTION            4 (annotations)
+            338 STORE_NAME              16 (_handle_meeting_prep)
+
+318         340 LOAD_CONST              19 (3)
+
+312         342 LOAD_CONST              20 (('days_pending',))
+            344 BUILD_CONST_KEY_MAP      1
+            346 LOAD_CONST               6 ('db')
+
+314         348 LOAD_NAME                6 (Session)
+
+312         350 LOAD_CONST               7 ('user_id')
+
+316         352 LOAD_NAME                4 (str)
+
+312         354 LOAD_CONST              12 ('email_id')
+
+317         356 LOAD_NAME                4 (str)
+
+312         358 LOAD_CONST              21 ('days_pending')
+
+318         360 LOAD_NAME               17 (int)
+
+312         362 LOAD_CONST              10 ('return')
+
+320         364 LOAD_NAME                8 (Optional)
+            366 LOAD_NAME                9 (Dict)
+            368 LOAD_NAME                4 (str)
+            370 LOAD_NAME               10 (Any)
+            372 BUILD_TUPLE              2
+            374 BINARY_SUBSCR
+            384 BINARY_SUBSCR
+
+312         394 BUILD_TUPLE             10
+            396 LOAD_CONST              22 (<code object _handle_pending_followup at 0x000001C312B4B6B0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 312>)
+            398 MAKE_FUNCTION            6 (kwdefaults, annotations)
+            400 STORE_NAME              18 (_handle_pending_followup)
+
+355         402 LOAD_CONST               6 ('db')
+
+357         404 LOAD_NAME                6 (Session)
+
+355         406 LOAD_CONST               7 ('user_id')
+
+359         408 LOAD_NAME                4 (str)
+
+355         410 LOAD_CONST              10 ('return')
+
+361         412 LOAD_NAME                8 (Optional)
+            414 LOAD_NAME                9 (Dict)
+            416 LOAD_NAME                4 (str)
+            418 LOAD_NAME               10 (Any)
+            420 BUILD_TUPLE              2
+            422 BINARY_SUBSCR
+            432 BINARY_SUBSCR
+
+355         442 BUILD_TUPLE              6
+            444 LOAD_CONST              23 (<code object _handle_afternoon_digest at 0x000001C312B4AE80, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 355>)
+            446 MAKE_FUNCTION            4 (annotations)
+            448 STORE_NAME              19 (_handle_afternoon_digest)
+
+408         450 LOAD_CONST               6 ('db')
+
+410         452 LOAD_NAME                6 (Session)
+
+408         454 LOAD_CONST               7 ('user_id')
+
+412         456 LOAD_NAME                4 (str)
+
+408         458 LOAD_CONST              24 ('conflicts')
+
+413         460 LOAD_NAME               14 (List)
+            462 LOAD_NAME                9 (Dict)
+            464 LOAD_NAME                4 (str)
+            466 LOAD_NAME                4 (str)
+            468 BUILD_TUPLE              2
+            470 BINARY_SUBSCR
+            480 BINARY_SUBSCR
+
+408         490 LOAD_CONST              10 ('return')
+
+415         492 LOAD_NAME                8 (Optional)
+            494 LOAD_NAME                9 (Dict)
+            496 LOAD_NAME                4 (str)
+            498 LOAD_NAME               10 (Any)
+            500 BUILD_TUPLE              2
+            502 BINARY_SUBSCR
+            512 BINARY_SUBSCR
+
+408         522 BUILD_TUPLE              8
+            524 LOAD_CONST              25 (<code object _handle_calendar_conflict at 0x000001C312783D20, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 408>)
+            526 MAKE_FUNCTION            4 (annotations)
+            528 STORE_NAME              20 (_handle_calendar_conflict)
+
+444         530 LOAD_CONST               6 ('db')
+
+446         532 LOAD_NAME                6 (Session)
+
+444         534 LOAD_CONST               7 ('user_id')
+
+448         536 LOAD_NAME                4 (str)
+
+444         538 LOAD_CONST              12 ('email_id')
+
+449         540 LOAD_NAME                4 (str)
+
+444         542 LOAD_CONST              26 ('vip_name')
+
+450         544 LOAD_NAME                4 (str)
+
+444         546 LOAD_CONST              10 ('return')
+
+452         548 LOAD_NAME                8 (Optional)
+            550 LOAD_NAME                9 (Dict)
+            552 LOAD_NAME                4 (str)
+            554 LOAD_NAME               10 (Any)
+            556 BUILD_TUPLE              2
+            558 BINARY_SUBSCR
+            568 BINARY_SUBSCR
+
+444         578 BUILD_TUPLE             10
+            580 LOAD_CONST              27 (<code object _handle_vip_response at 0x000001C312B5B3D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 444>)
+            582 MAKE_FUNCTION            4 (annotations)
+            584 STORE_NAME              21 (_handle_vip_response)
+
+488         586 LOAD_CONST               6 ('db')
+
+490         588 LOAD_NAME                6 (Session)
+
+488         590 LOAD_CONST               7 ('user_id')
+
+491         592 LOAD_NAME                4 (str)
+
+488         594 LOAD_CONST              12 ('email_id')
+
+492         596 LOAD_NAME                4 (str)
+
+488         598 LOAD_CONST              15 ('questions')
+
+493         600 LOAD_NAME               14 (List)
+            602 LOAD_NAME                4 (str)
+            604 BINARY_SUBSCR
+
+488         614 LOAD_CONST              10 ('return')
+
+494         616 LOAD_CONST               4 (None)
+
+488         618 BUILD_TUPLE             10
+            620 LOAD_CONST              28 (<code object _auto_ask_questions at 0x000001C312B5B720, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 488>)
+            622 MAKE_FUNCTION            4 (annotations)
+            624 STORE_NAME              22 (_auto_ask_questions)
+
+522         626 LOAD_CONST               6 ('db')
+
+524         628 LOAD_NAME                6 (Session)
+
+522         630 LOAD_CONST               7 ('user_id')
+
+525         632 LOAD_NAME                4 (str)
+
+522         634 LOAD_CONST              29 ('content')
+
+526         636 LOAD_NAME                4 (str)
+
+522         638 LOAD_CONST              30 ('payload')
+
+527         640 LOAD_NAME                9 (Dict)
+            642 LOAD_NAME                4 (str)
+            644 LOAD_NAME               10 (Any)
+            646 BUILD_TUPLE              2
+            648 BINARY_SUBSCR
+
+522         658 LOAD_CONST              10 ('return')
+
+528         660 LOAD_CONST               4 (None)
+
+522         662 BUILD_TUPLE             10
+            664 LOAD_CONST              31 (<code object _store_system_message at 0x000001C312B5C420, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 522>)
+            666 MAKE_FUNCTION            4 (annotations)
+            668 STORE_NAME              23 (_store_system_message)
+
+555         670 LOAD_CONST              32 ('draft')
+
+549         672 LOAD_CONST              33 (('auto_action',))
+            674 BUILD_CONST_KEY_MAP      1
+            676 LOAD_CONST               6 ('db')
+
+551         678 LOAD_NAME                6 (Session)
+
+549         680 LOAD_CONST               7 ('user_id')
+
+553         682 LOAD_NAME                4 (str)
+
+549         684 LOAD_CONST              12 ('email_id')
+
+554         686 LOAD_NAME                4 (str)
+
+549         688 LOAD_CONST              34 ('auto_action')
+
+555         690 LOAD_NAME                4 (str)
+
+549         692 LOAD_CONST              10 ('return')
+
+556         694 LOAD_NAME               24 (bool)
+
+549         696 BUILD_TUPLE             10
+            698 LOAD_CONST              35 (<code object auto_execute_follow_through at 0x000001C31288D070, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 549>)
+            700 MAKE_FUNCTION            6 (kwdefaults, annotations)
+            702 STORE_NAME              25 (auto_execute_follow_through)
+
+570         704 LOAD_CONST               6 ('db')
+
+572         706 LOAD_NAME                6 (Session)
+
+570         708 LOAD_CONST               7 ('user_id')
+
+573         710 LOAD_NAME                4 (str)
+
+570         712 LOAD_CONST              12 ('email_id')
+
+574         714 LOAD_NAME                4 (str)
+
+570         716 LOAD_CONST              10 ('return')
+
+575         718 LOAD_NAME               24 (bool)
+
+570         720 BUILD_TUPLE              8
+            722 LOAD_CONST              36 (<code object _auto_draft_response at 0x000001C312B5BF50, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 570>)
+            724 MAKE_FUNCTION            4 (annotations)
+            726 STORE_NAME              26 (_auto_draft_response)
+
+629         728 LOAD_CONST               6 ('db')
+
+631         730 LOAD_NAME                6 (Session)
+
+629         732 LOAD_CONST               7 ('user_id')
+
+632         734 LOAD_NAME                4 (str)
+
+629         736 LOAD_CONST              12 ('email_id')
+
+633         738 LOAD_NAME                4 (str)
+
+629         740 LOAD_CONST              10 ('return')
+
+634         742 LOAD_NAME               24 (bool)
+
+629         744 BUILD_TUPLE              8
+            746 LOAD_CONST              37 (<code object _auto_schedule_followup at 0x000001C312B5D2D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 629>)
+            748 MAKE_FUNCTION            4 (annotations)
+            750 STORE_NAME              27 (_auto_schedule_followup)
+
+662         752 NOP
+
+657         754 LOAD_CONST              41 ((24,))
+            756 LOAD_CONST               6 ('db')
+
+659         758 LOAD_NAME                6 (Session)
+
+657         760 LOAD_CONST               7 ('user_id')
+
+660         762 LOAD_NAME                4 (str)
+
+657         764 LOAD_CONST              12 ('email_id')
+
+661         766 LOAD_NAME                4 (str)
+
+657         768 LOAD_CONST              39 ('hours')
+
+662         770 LOAD_NAME               17 (int)
+
+657         772 LOAD_CONST              10 ('return')
+
+663         774 LOAD_NAME               24 (bool)
+
+657         776 BUILD_TUPLE             10
+            778 LOAD_CONST              40 (<code object _auto_snooze at 0x000001C312B5D560, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 657>)
+            780 MAKE_FUNCTION            5 (defaults, annotations)
+            782 STORE_NAME              28 (_auto_snooze)
+            784 LOAD_CONST               4 (None)
+            786 RETURN_VALUE
+
+Disassembly of <code object __init__ at 0x000001C312870FF0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 56>:
+ 56           0 RESUME                   0
+
+ 57           2 LOAD_FAST                1 (workspace_id)
+              4 LOAD_FAST                0 (self)
+              6 STORE_ATTR               0 (workspace_id)
+
+ 58          16 LOAD_GLOBAL              3 (NULL + Brain)
+             28 PRECALL                  0
+             32 CALL                     0
+             42 LOAD_FAST                0 (self)
+             44 STORE_ATTR               2 (brain)
+
+ 59          54 LOAD_GLOBAL              7 (NULL + SmartTriageClassifier)
+             66 LOAD_FAST                0 (self)
+             68 LOAD_ATTR                2 (brain)
+             78 PRECALL                  1
+             82 CALL                     1
+             92 LOAD_FAST                0 (self)
+             94 STORE_ATTR               4 (triage)
+
+ 60         104 LOAD_GLOBAL             11 (NULL + DualStateMemory)
+            116 PRECALL                  0
+            120 CALL                     0
+            130 LOAD_FAST                0 (self)
+            132 STORE_ATTR               6 (memory)
+            142 LOAD_CONST               0 (None)
+            144 RETURN_VALUE
+
+Disassembly of <code object trigger_auto_chat at 0x000001C312B566B0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 62>:
+ 62           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+ 74           6 LOAD_FAST                4 (context)
+              8 JUMP_IF_TRUE_OR_POP      1 (to 12)
+             10 BUILD_MAP                0
+        >>   12 STORE_FAST               4 (context)
+
+ 76          14 LOAD_FAST                3 (trigger)
+             16 LOAD_GLOBAL              0 (ConversationTrigger)
+             28 LOAD_ATTR                1 (NEW_EMAIL)
+             38 COMPARE_OP               2 (==)
+             44 POP_JUMP_FORWARD_IF_FALSE    22 (to 90)
+
+ 77          46 PUSH_NULL
+             48 LOAD_FAST                0 (self)
+             50 LOAD_ATTR                2 (_handle_new_email)
+             60 LOAD_FAST                1 (db)
+             62 BUILD_TUPLE              1
+             64 LOAD_CONST               1 ('user_id')
+             66 LOAD_FAST                2 (user_id)
+             68 BUILD_MAP                1
+             70 LOAD_FAST                4 (context)
+             72 DICT_MERGE               1
+             74 CALL_FUNCTION_EX         1
+             76 GET_AWAITABLE            0
+             78 LOAD_CONST               2 (None)
+        >>   80 SEND                     3 (to 88)
+             82 YIELD_VALUE
+             84 RESUME                   3
+             86 JUMP_BACKWARD_NO_INTERRUPT     4 (to 80)
+        >>   88 RETURN_VALUE
+
+ 78     >>   90 LOAD_FAST                3 (trigger)
+             92 LOAD_GLOBAL              0 (ConversationTrigger)
+            104 LOAD_ATTR                3 (URGENT_EMAIL)
+            114 COMPARE_OP               2 (==)
+            120 POP_JUMP_FORWARD_IF_FALSE    22 (to 166)
+
+ 79         122 PUSH_NULL
+            124 LOAD_FAST                0 (self)
+            126 LOAD_ATTR                4 (_handle_urgent_email)
+            136 LOAD_FAST                1 (db)
+            138 BUILD_TUPLE              1
+            140 LOAD_CONST               1 ('user_id')
+            142 LOAD_FAST                2 (user_id)
+            144 BUILD_MAP                1
+            146 LOAD_FAST                4 (context)
+            148 DICT_MERGE               1
+            150 CALL_FUNCTION_EX         1
+            152 GET_AWAITABLE            0
+            154 LOAD_CONST               2 (None)
+        >>  156 SEND                     3 (to 164)
+            158 YIELD_VALUE
+            160 RESUME                   3
+            162 JUMP_BACKWARD_NO_INTERRUPT     4 (to 156)
+        >>  164 RETURN_VALUE
+
+ 80     >>  166 LOAD_FAST                3 (trigger)
+            168 LOAD_GLOBAL              0 (ConversationTrigger)
+            180 LOAD_ATTR                5 (CLARIFICATION_NEEDED)
+            190 COMPARE_OP               2 (==)
+            196 POP_JUMP_FORWARD_IF_FALSE    22 (to 242)
+
+ 81         198 PUSH_NULL
+            200 LOAD_FAST                0 (self)
+            202 LOAD_ATTR                6 (_handle_clarification_needed)
+            212 LOAD_FAST                1 (db)
+            214 BUILD_TUPLE              1
+            216 LOAD_CONST               1 ('user_id')
+            218 LOAD_FAST                2 (user_id)
+            220 BUILD_MAP                1
+            222 LOAD_FAST                4 (context)
+            224 DICT_MERGE               1
+            226 CALL_FUNCTION_EX         1
+            228 GET_AWAITABLE            0
+            230 LOAD_CONST               2 (None)
+        >>  232 SEND                     3 (to 240)
+            234 YIELD_VALUE
+            236 RESUME                   3
+            238 JUMP_BACKWARD_NO_INTERRUPT     4 (to 232)
+        >>  240 RETURN_VALUE
+
+ 82     >>  242 LOAD_FAST                3 (trigger)
+            244 LOAD_GLOBAL              0 (ConversationTrigger)
+            256 LOAD_ATTR                7 (MEETING_PREP)
+            266 COMPARE_OP               2 (==)
+            272 POP_JUMP_FORWARD_IF_FALSE    22 (to 318)
+
+ 83         274 PUSH_NULL
+            276 LOAD_FAST                0 (self)
+            278 LOAD_ATTR                8 (_handle_meeting_prep)
+            288 LOAD_FAST                1 (db)
+            290 BUILD_TUPLE              1
+            292 LOAD_CONST               1 ('user_id')
+            294 LOAD_FAST                2 (user_id)
+            296 BUILD_MAP                1
+            298 LOAD_FAST                4 (context)
+            300 DICT_MERGE               1
+            302 CALL_FUNCTION_EX         1
+            304 GET_AWAITABLE            0
+            306 LOAD_CONST               2 (None)
+        >>  308 SEND                     3 (to 316)
+            310 YIELD_VALUE
+            312 RESUME                   3
+            314 JUMP_BACKWARD_NO_INTERRUPT     4 (to 308)
+        >>  316 RETURN_VALUE
+
+ 84     >>  318 LOAD_FAST                3 (trigger)
+            320 LOAD_GLOBAL              0 (ConversationTrigger)
+            332 LOAD_ATTR                9 (PENDING_FOLLOWUP)
+            342 COMPARE_OP               2 (==)
+            348 POP_JUMP_FORWARD_IF_FALSE    22 (to 394)
+
+ 85         350 PUSH_NULL
+            352 LOAD_FAST                0 (self)
+            354 LOAD_ATTR               10 (_handle_pending_followup)
+            364 LOAD_FAST                1 (db)
+            366 BUILD_TUPLE              1
+            368 LOAD_CONST               1 ('user_id')
+            370 LOAD_FAST                2 (user_id)
+            372 BUILD_MAP                1
+            374 LOAD_FAST                4 (context)
+            376 DICT_MERGE               1
+            378 CALL_FUNCTION_EX         1
+            380 GET_AWAITABLE            0
+            382 LOAD_CONST               2 (None)
+        >>  384 SEND                     3 (to 392)
+            386 YIELD_VALUE
+            388 RESUME                   3
+            390 JUMP_BACKWARD_NO_INTERRUPT     4 (to 384)
+        >>  392 RETURN_VALUE
+
+ 86     >>  394 LOAD_FAST                3 (trigger)
+            396 LOAD_GLOBAL              0 (ConversationTrigger)
+            408 LOAD_ATTR               11 (AFTERNOON_DIGEST)
+            418 COMPARE_OP               2 (==)
+            424 POP_JUMP_FORWARD_IF_FALSE    22 (to 470)
+
+ 87         426 PUSH_NULL
+            428 LOAD_FAST                0 (self)
+            430 LOAD_ATTR               12 (_handle_afternoon_digest)
+            440 LOAD_FAST                1 (db)
+            442 BUILD_TUPLE              1
+            444 LOAD_CONST               1 ('user_id')
+            446 LOAD_FAST                2 (user_id)
+            448 BUILD_MAP                1
+            450 LOAD_FAST                4 (context)
+            452 DICT_MERGE               1
+            454 CALL_FUNCTION_EX         1
+            456 GET_AWAITABLE            0
+            458 LOAD_CONST               2 (None)
+        >>  460 SEND                     3 (to 468)
+            462 YIELD_VALUE
+            464 RESUME                   3
+            466 JUMP_BACKWARD_NO_INTERRUPT     4 (to 460)
+        >>  468 RETURN_VALUE
+
+ 88     >>  470 LOAD_FAST                3 (trigger)
+            472 LOAD_GLOBAL              0 (ConversationTrigger)
+            484 LOAD_ATTR               13 (CALENDAR_CONFLICT)
+            494 COMPARE_OP               2 (==)
+            500 POP_JUMP_FORWARD_IF_FALSE    22 (to 546)
+
+ 89         502 PUSH_NULL
+            504 LOAD_FAST                0 (self)
+            506 LOAD_ATTR               14 (_handle_calendar_conflict)
+            516 LOAD_FAST                1 (db)
+            518 BUILD_TUPLE              1
+            520 LOAD_CONST               1 ('user_id')
+            522 LOAD_FAST                2 (user_id)
+            524 BUILD_MAP                1
+            526 LOAD_FAST                4 (context)
+            528 DICT_MERGE               1
+            530 CALL_FUNCTION_EX         1
+            532 GET_AWAITABLE            0
+            534 LOAD_CONST               2 (None)
+        >>  536 SEND                     3 (to 544)
+            538 YIELD_VALUE
+            540 RESUME                   3
+            542 JUMP_BACKWARD_NO_INTERRUPT     4 (to 536)
+        >>  544 RETURN_VALUE
+
+ 90     >>  546 LOAD_FAST                3 (trigger)
+            548 LOAD_GLOBAL              0 (ConversationTrigger)
+            560 LOAD_ATTR               15 (VIP_RESPONSE)
+            570 COMPARE_OP               2 (==)
+            576 POP_JUMP_FORWARD_IF_FALSE    22 (to 622)
+
+ 91         578 PUSH_NULL
+            580 LOAD_FAST                0 (self)
+            582 LOAD_ATTR               16 (_handle_vip_response)
+            592 LOAD_FAST                1 (db)
+            594 BUILD_TUPLE              1
+            596 LOAD_CONST               1 ('user_id')
+            598 LOAD_FAST                2 (user_id)
+            600 BUILD_MAP                1
+            602 LOAD_FAST                4 (context)
+            604 DICT_MERGE               1
+            606 CALL_FUNCTION_EX         1
+            608 GET_AWAITABLE            0
+            610 LOAD_CONST               2 (None)
+        >>  612 SEND                     3 (to 620)
+            614 YIELD_VALUE
+            616 RESUME                   3
+            618 JUMP_BACKWARD_NO_INTERRUPT     4 (to 612)
+        >>  620 RETURN_VALUE
+
+ 93     >>  622 LOAD_CONST               2 (None)
+            624 RETURN_VALUE
+
+Disassembly of <code object _handle_new_email at 0x000001C312B4A0A0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 95>:
+ 95           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+104           6 NOP
+
+105           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               5 (email)
+
+106         162 LOAD_FAST                5 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+107         166 LOAD_CONST               1 (None)
+            168 RETURN_VALUE
+
+110     >>  170 LOAD_GLOBAL             11 (NULL + GreetingService)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                0 (self)
+            186 LOAD_ATTR                6 (workspace_id)
+            196 LOAD_FAST                2 (user_id)
+            198 PRECALL                  3
+            202 CALL                     3
+            212 STORE_FAST               6 (greeting_service)
+
+111         214 LOAD_FAST                6 (greeting_service)
+            216 LOAD_METHOD              7 (_resolve_name)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 STORE_FAST               7 (name)
+
+114         254 LOAD_FAST                5 (email)
+            256 LOAD_ATTR                8 (category)
+            266 POP_JUMP_FORWARD_IF_TRUE   142 (to 552)
+
+115         268 LOAD_FAST                0 (self)
+            270 LOAD_ATTR                9 (triage)
+            280 LOAD_METHOD             10 (classify_email)
+
+116         302 LOAD_FAST                5 (email)
+            304 LOAD_ATTR               11 (subject)
+
+117         314 LOAD_FAST                5 (email)
+            316 LOAD_ATTR               12 (body)
+            326 JUMP_IF_TRUE_OR_POP      8 (to 344)
+            328 LOAD_FAST                5 (email)
+            330 LOAD_ATTR               13 (snippet)
+            340 JUMP_IF_TRUE_OR_POP      1 (to 344)
+            342 LOAD_CONST               2 ('')
+
+118     >>  344 LOAD_FAST                5 (email)
+            346 LOAD_ATTR               14 (sender)
+
+115         356 KW_NAMES                 3
+            358 PRECALL                  3
+            362 CALL                     3
+            372 GET_AWAITABLE            0
+            374 LOAD_CONST               1 (None)
+        >>  376 SEND                     3 (to 384)
+            378 YIELD_VALUE
+            380 RESUME                   3
+            382 JUMP_BACKWARD_NO_INTERRUPT     4 (to 376)
+        >>  384 STORE_FAST               8 (triage_result)
+
+120         386 LOAD_FAST                8 (triage_result)
+            388 LOAD_ATTR                8 (category)
+            398 LOAD_FAST                5 (email)
+            400 STORE_ATTR               8 (category)
+
+121         410 LOAD_FAST                8 (triage_result)
+            412 LOAD_ATTR               15 (priority)
+            422 LOAD_FAST                5 (email)
+            424 STORE_ATTR              15 (priority)
+
+122         434 BUILD_MAP                0
+
+123         436 LOAD_FAST                5 (email)
+            438 LOAD_ATTR               16 (metadata_json)
+            448 JUMP_IF_TRUE_OR_POP      1 (to 452)
+            450 BUILD_MAP                0
+
+122     >>  452 DICT_UPDATE              1
+
+124         454 LOAD_CONST               4 ('triage_result')
+
+125         456 LOAD_FAST                8 (triage_result)
+            458 LOAD_ATTR                8 (category)
+
+126         468 LOAD_FAST                8 (triage_result)
+            470 LOAD_ATTR               15 (priority)
+
+127         480 LOAD_FAST                8 (triage_result)
+            482 LOAD_ATTR               17 (confidence)
+
+124         492 LOAD_CONST               5 (('category', 'priority', 'confidence'))
+            494 BUILD_CONST_KEY_MAP      3
+
+122         496 BUILD_MAP                1
+            498 DICT_UPDATE              1
+            500 LOAD_FAST                5 (email)
+            502 STORE_ATTR              16 (metadata_json)
+
+130         512 LOAD_FAST                1 (db)
+            514 LOAD_METHOD             18 (commit)
+            536 PRECALL                  0
+            540 CALL                     0
+            550 POP_TOP
+
+133     >>  552 LOAD_FAST                5 (email)
+            554 LOAD_ATTR               15 (priority)
+            564 LOAD_CONST               6 (('High', 'Critical'))
+            566 CONTAINS_OP              0
+            568 JUMP_IF_TRUE_OR_POP     10 (to 590)
+            570 LOAD_FAST                5 (email)
+            572 LOAD_ATTR                8 (category)
+            582 LOAD_CONST               7 ('PRIORITY')
+            584 COMPARE_OP               2 (==)
+        >>  590 STORE_FAST               9 (is_urgent)
+
+136         592 LOAD_CONST               8 ('📧 ')
+            594 LOAD_FAST                7 (name)
+            596 FORMAT_VALUE             0
+            598 LOAD_CONST               9 (', I just received an email from ')
+            600 LOAD_FAST                5 (email)
+            602 LOAD_ATTR               14 (sender)
+            612 FORMAT_VALUE             0
+            614 BUILD_STRING             4
+            616 STORE_FAST              10 (opening_msg)
+
+138         618 LOAD_FAST                9 (is_urgent)
+            620 POP_JUMP_FORWARD_IF_FALSE     6 (to 634)
+
+139         622 LOAD_FAST               10 (opening_msg)
+            624 LOAD_CONST              10 (' - this one needs your attention:')
+            626 BINARY_OP               13 (+=)
+            630 STORE_FAST              10 (opening_msg)
+            632 JUMP_FORWARD             5 (to 644)
+
+141     >>  634 LOAD_FAST               10 (opening_msg)
+            636 LOAD_CONST              11 (':')
+            638 BINARY_OP               13 (+=)
+            642 STORE_FAST              10 (opening_msg)
+
+144     >>  644 LOAD_FAST                5 (email)
+            646 LOAD_ATTR               13 (snippet)
+            656 JUMP_IF_TRUE_OR_POP      8 (to 674)
+            658 LOAD_FAST                5 (email)
+            660 LOAD_ATTR               12 (body)
+            670 JUMP_IF_TRUE_OR_POP      1 (to 674)
+            672 LOAD_CONST               2 ('')
+        >>  674 LOAD_CONST               1 (None)
+            676 LOAD_CONST              12 (200)
+            678 BUILD_SLICE              2
+            680 BINARY_SUBSCR
+            690 STORE_FAST              11 (snippet)
+
+145         692 LOAD_FAST               10 (opening_msg)
+            694 LOAD_CONST              13 ('\n\n**')
+            696 LOAD_FAST                5 (email)
+            698 LOAD_ATTR               11 (subject)
+            708 FORMAT_VALUE             0
+            710 LOAD_CONST              14 ('**\n')
+            712 LOAD_FAST               11 (snippet)
+            714 FORMAT_VALUE             0
+            716 BUILD_STRING             4
+            718 BINARY_OP               13 (+=)
+            722 STORE_FAST              10 (opening_msg)
+
+149         724 LOAD_CONST              15 ('auto_chat_opening')
+
+150         726 LOAD_GLOBAL             38 (ConversationTrigger)
+            738 LOAD_ATTR               20 (NEW_EMAIL)
+            748 LOAD_ATTR               21 (value)
+
+151         758 LOAD_FAST                3 (email_id)
+
+152         760 LOAD_FAST                5 (email)
+            762 LOAD_ATTR               14 (sender)
+
+153         772 LOAD_FAST                5 (email)
+            774 LOAD_ATTR               11 (subject)
+
+154         784 LOAD_FAST                5 (email)
+            786 LOAD_ATTR                8 (category)
+
+155         796 LOAD_FAST                5 (email)
+            798 LOAD_ATTR               15 (priority)
+
+156         808 LOAD_FAST               11 (snippet)
+
+157         810 LOAD_FAST                9 (is_urgent)
+
+158         812 LOAD_CONST               1 (None)
+
+148         814 LOAD_CONST              16 (('type', 'trigger', 'email_id', 'sender', 'subject', 'category', 'priority', 'snippet', 'is_urgent', 'next_action'))
+            816 BUILD_CONST_KEY_MAP     10
+            818 STORE_FAST              12 (payload)
+
+162         820 LOAD_FAST                0 (self)
+            822 LOAD_METHOD             22 (_store_system_message)
+            844 LOAD_FAST                1 (db)
+            846 LOAD_FAST                2 (user_id)
+            848 LOAD_FAST               10 (opening_msg)
+            850 LOAD_FAST               12 (payload)
+            852 PRECALL                  4
+            856 CALL                     4
+            866 GET_AWAITABLE            0
+            868 LOAD_CONST               1 (None)
+        >>  870 SEND                     3 (to 878)
+            872 YIELD_VALUE
+            874 RESUME                   3
+            876 JUMP_BACKWARD_NO_INTERRUPT     4 (to 870)
+        >>  878 POP_TOP
+
+165         880 LOAD_FAST                9 (is_urgent)
+            882 POP_JUMP_FORWARD_IF_FALSE   125 (to 1134)
+            884 LOAD_FAST                5 (email)
+            886 LOAD_ATTR               16 (metadata_json)
+            896 LOAD_METHOD             23 (get)
+            918 LOAD_CONST               4 ('triage_result')
+            920 BUILD_MAP                0
+            922 PRECALL                  2
+            926 CALL                     2
+            936 LOAD_METHOD             23 (get)
+            958 LOAD_CONST              17 ('needs_clarity')
+            960 PRECALL                  1
+            964 CALL                     1
+            974 POP_JUMP_FORWARD_IF_FALSE    79 (to 1134)
+
+166         976 LOAD_FAST                5 (email)
+            978 LOAD_ATTR               16 (metadata_json)
+            988 LOAD_METHOD             23 (get)
+           1010 LOAD_CONST               4 ('triage_result')
+           1012 BUILD_MAP                0
+           1014 PRECALL                  2
+           1018 CALL                     2
+           1028 LOAD_METHOD             23 (get)
+           1050 LOAD_CONST              18 ('clarification_questions')
+           1052 BUILD_LIST               0
+           1054 PRECALL                  2
+           1058 CALL                     2
+           1068 STORE_FAST              13 (questions)
+
+167        1070 LOAD_FAST               13 (questions)
+           1072 POP_JUMP_FORWARD_IF_FALSE    30 (to 1134)
+
+168        1074 LOAD_FAST                0 (self)
+           1076 LOAD_METHOD             24 (_auto_ask_questions)
+           1098 LOAD_FAST                1 (db)
+           1100 LOAD_FAST                2 (user_id)
+           1102 LOAD_FAST                3 (email_id)
+           1104 LOAD_FAST               13 (questions)
+           1106 PRECALL                  4
+           1110 CALL                     4
+           1120 GET_AWAITABLE            0
+           1122 LOAD_CONST               1 (None)
+        >> 1124 SEND                     3 (to 1132)
+           1126 YIELD_VALUE
+           1128 RESUME                   3
+           1130 JUMP_BACKWARD_NO_INTERRUPT     4 (to 1124)
+        >> 1132 POP_TOP
+
+170     >> 1134 LOAD_FAST               12 (payload)
+           1136 RETURN_VALUE
+        >> 1138 PUSH_EXC_INFO
+
+172        1140 LOAD_GLOBAL             50 (Exception)
+           1152 CHECK_EXC_MATCH
+           1154 POP_JUMP_FORWARD_IF_FALSE    42 (to 1240)
+           1156 STORE_FAST              14 (e)
+
+173        1158 LOAD_GLOBAL             52 (logger)
+           1170 LOAD_METHOD             27 (error)
+           1192 LOAD_CONST              19 ('[AutoChat] Error in new_email handler: ')
+           1194 LOAD_FAST               14 (e)
+           1196 FORMAT_VALUE             0
+           1198 BUILD_STRING             2
+           1200 LOAD_CONST              20 (True)
+           1202 KW_NAMES                21
+           1204 PRECALL                  2
+           1208 CALL                     2
+           1218 POP_TOP
+
+174        1220 POP_EXCEPT
+           1222 LOAD_CONST               1 (None)
+           1224 STORE_FAST              14 (e)
+           1226 DELETE_FAST             14 (e)
+           1228 LOAD_CONST               1 (None)
+           1230 RETURN_VALUE
+        >> 1232 LOAD_CONST               1 (None)
+           1234 STORE_FAST              14 (e)
+           1236 DELETE_FAST             14 (e)
+           1238 RERAISE                  1
+
+172     >> 1240 RERAISE                  0
+        >> 1242 COPY                     3
+           1244 POP_EXCEPT
+           1246 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 1138 [0]
+  170 to 1134 -> 1138 [0]
+  1138 to 1156 -> 1242 [1] lasti
+  1158 to 1218 -> 1232 [1] lasti
+  1232 to 1240 -> 1242 [1] lasti
+
+Disassembly of <code object _handle_urgent_email at 0x000001C312B1D160, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 176>:
+176           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+185           6 NOP
+
+186           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               5 (email)
+
+187         162 LOAD_FAST                5 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+188         166 LOAD_CONST               1 (None)
+            168 RETURN_VALUE
+
+190     >>  170 LOAD_GLOBAL             11 (NULL + GreetingService)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                0 (self)
+            186 LOAD_ATTR                6 (workspace_id)
+            196 LOAD_FAST                2 (user_id)
+            198 PRECALL                  3
+            202 CALL                     3
+            212 STORE_FAST               6 (greeting_service)
+
+191         214 LOAD_FAST                6 (greeting_service)
+            216 LOAD_METHOD              7 (_resolve_name)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 STORE_FAST               7 (name)
+
+194         254 LOAD_CONST               2 ('🔴 **URGENT**, ')
+            256 LOAD_FAST                7 (name)
+            258 FORMAT_VALUE             0
+            260 LOAD_CONST               3 ('!\n\n')
+            262 BUILD_STRING             3
+            264 STORE_FAST               8 (msg)
+
+195         266 LOAD_FAST                8 (msg)
+            268 LOAD_CONST               4 ('From: ')
+            270 LOAD_FAST                5 (email)
+            272 LOAD_ATTR                8 (sender)
+            282 FORMAT_VALUE             0
+            284 LOAD_CONST               5 ('\n')
+            286 BUILD_STRING             3
+            288 BINARY_OP               13 (+=)
+            292 STORE_FAST               8 (msg)
+
+196         294 LOAD_FAST                8 (msg)
+            296 LOAD_CONST               6 ('Subject: ')
+            298 LOAD_FAST                5 (email)
+            300 LOAD_ATTR                9 (subject)
+            310 FORMAT_VALUE             0
+            312 LOAD_CONST               7 ('\n\n')
+            314 BUILD_STRING             3
+            316 BINARY_OP               13 (+=)
+            320 STORE_FAST               8 (msg)
+
+197         322 LOAD_FAST                8 (msg)
+            324 LOAD_FAST                5 (email)
+            326 LOAD_ATTR               10 (snippet)
+            336 JUMP_IF_TRUE_OR_POP      8 (to 354)
+            338 LOAD_FAST                5 (email)
+            340 LOAD_ATTR               11 (body)
+            350 JUMP_IF_TRUE_OR_POP      1 (to 354)
+            352 LOAD_CONST               8 ('')
+        >>  354 LOAD_CONST               1 (None)
+            356 LOAD_CONST               9 (300)
+            358 BUILD_SLICE              2
+            360 BINARY_SUBSCR
+            370 FORMAT_VALUE             0
+            372 LOAD_CONST               7 ('\n\n')
+            374 BUILD_STRING             2
+            376 BINARY_OP               13 (+=)
+            380 STORE_FAST               8 (msg)
+
+198         382 LOAD_FAST                8 (msg)
+            384 LOAD_CONST              10 ('**What should we do?**\n')
+            386 BINARY_OP               13 (+=)
+            390 STORE_FAST               8 (msg)
+
+199         392 LOAD_FAST                8 (msg)
+            394 LOAD_CONST              11 ('- 📝 Draft a reply\n')
+            396 BINARY_OP               13 (+=)
+            400 STORE_FAST               8 (msg)
+
+200         402 LOAD_FAST                8 (msg)
+            404 LOAD_CONST              12 ('- 📅 Schedule a call\n')
+            406 BINARY_OP               13 (+=)
+            410 STORE_FAST               8 (msg)
+
+201         412 LOAD_FAST                8 (msg)
+            414 LOAD_CONST              13 ('- 🔔 Snooze until later\n')
+            416 BINARY_OP               13 (+=)
+            420 STORE_FAST               8 (msg)
+
+202         422 LOAD_FAST                8 (msg)
+            424 LOAD_CONST              14 ('- ➡️ Delegate to someone\n')
+            426 BINARY_OP               13 (+=)
+            430 STORE_FAST               8 (msg)
+
+205         432 LOAD_CONST              15 ('urgent_action_required')
+
+206         434 LOAD_GLOBAL             24 (ConversationTrigger)
+            446 LOAD_ATTR               13 (URGENT_EMAIL)
+            456 LOAD_ATTR               14 (value)
+
+207         466 LOAD_FAST                3 (email_id)
+
+208         468 LOAD_FAST                5 (email)
+            470 LOAD_ATTR                8 (sender)
+
+209         480 LOAD_FAST                5 (email)
+            482 LOAD_ATTR                9 (subject)
+
+210         492 BUILD_LIST               0
+            494 LOAD_CONST              16 (('draft', 'schedule', 'snooze', 'delegate'))
+            496 LIST_EXTEND              1
+
+204         498 LOAD_CONST              17 (('type', 'trigger', 'email_id', 'sender', 'subject', 'suggested_actions'))
+            500 BUILD_CONST_KEY_MAP      6
+            502 STORE_FAST               9 (payload)
+
+213         504 LOAD_FAST                0 (self)
+            506 LOAD_METHOD             15 (_store_system_message)
+            528 LOAD_FAST                1 (db)
+            530 LOAD_FAST                2 (user_id)
+            532 LOAD_FAST                8 (msg)
+            534 LOAD_FAST                9 (payload)
+            536 PRECALL                  4
+            540 CALL                     4
+            550 GET_AWAITABLE            0
+            552 LOAD_CONST               1 (None)
+        >>  554 SEND                     3 (to 562)
+            556 YIELD_VALUE
+            558 RESUME                   3
+            560 JUMP_BACKWARD_NO_INTERRUPT     4 (to 554)
+        >>  562 POP_TOP
+
+214         564 LOAD_FAST                9 (payload)
+            566 RETURN_VALUE
+        >>  568 PUSH_EXC_INFO
+
+216         570 LOAD_GLOBAL             32 (Exception)
+            582 CHECK_EXC_MATCH
+            584 POP_JUMP_FORWARD_IF_FALSE    42 (to 670)
+            586 STORE_FAST              10 (e)
+
+217         588 LOAD_GLOBAL             34 (logger)
+            600 LOAD_METHOD             18 (error)
+            622 LOAD_CONST              18 ('[AutoChat] Error in urgent_email handler: ')
+            624 LOAD_FAST               10 (e)
+            626 FORMAT_VALUE             0
+            628 BUILD_STRING             2
+            630 LOAD_CONST              19 (True)
+            632 KW_NAMES                20
+            634 PRECALL                  2
+            638 CALL                     2
+            648 POP_TOP
+
+218         650 POP_EXCEPT
+            652 LOAD_CONST               1 (None)
+            654 STORE_FAST              10 (e)
+            656 DELETE_FAST             10 (e)
+            658 LOAD_CONST               1 (None)
+            660 RETURN_VALUE
+        >>  662 LOAD_CONST               1 (None)
+            664 STORE_FAST              10 (e)
+            666 DELETE_FAST             10 (e)
+            668 RERAISE                  1
+
+216     >>  670 RERAISE                  0
+        >>  672 COPY                     3
+            674 POP_EXCEPT
+            676 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 568 [0]
+  170 to 564 -> 568 [0]
+  568 to 586 -> 672 [1] lasti
+  588 to 648 -> 662 [1] lasti
+  662 to 670 -> 672 [1] lasti
+
+Disassembly of <code object _handle_clarification_needed at 0x000001C312B1B270, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 220>:
+220           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+230           6 NOP
+
+231           8 LOAD_GLOBAL              1 (NULL + GreetingService)
+             20 LOAD_FAST                1 (db)
+             22 LOAD_FAST                0 (self)
+             24 LOAD_ATTR                1 (workspace_id)
+             34 LOAD_FAST                2 (user_id)
+             36 PRECALL                  3
+             40 CALL                     3
+             50 STORE_FAST               6 (greeting_service)
+
+232          52 LOAD_FAST                6 (greeting_service)
+             54 LOAD_METHOD              2 (_resolve_name)
+             76 PRECALL                  0
+             80 CALL                     0
+             90 STORE_FAST               7 (name)
+
+234          92 LOAD_FAST                4 (questions)
+             94 POP_JUMP_FORWARD_IF_TRUE     2 (to 100)
+
+235          96 LOAD_CONST               1 (None)
+             98 RETURN_VALUE
+
+237     >>  100 LOAD_CONST               2 ('Hi ')
+            102 LOAD_FAST                7 (name)
+            104 FORMAT_VALUE             0
+            106 LOAD_CONST               3 ('! Before I draft a response, I need a few clarifications:\n\n')
+            108 BUILD_STRING             3
+            110 STORE_FAST               8 (msg)
+
+238         112 LOAD_GLOBAL              7 (NULL + enumerate)
+            124 LOAD_FAST                4 (questions)
+            126 LOAD_CONST               4 (1)
+            128 PRECALL                  2
+            132 CALL                     2
+            142 GET_ITER
+        >>  144 FOR_ITER                17 (to 180)
+            146 UNPACK_SEQUENCE          2
+            150 STORE_FAST               9 (i)
+            152 STORE_FAST              10 (q)
+
+239         154 LOAD_FAST                8 (msg)
+            156 LOAD_CONST               5 ('**Q')
+            158 LOAD_FAST                9 (i)
+            160 FORMAT_VALUE             0
+            162 LOAD_CONST               6 (': ')
+            164 LOAD_FAST               10 (q)
+            166 FORMAT_VALUE             0
+            168 LOAD_CONST               7 ('**\n')
+            170 BUILD_STRING             5
+            172 BINARY_OP               13 (+=)
+            176 STORE_FAST               8 (msg)
+            178 JUMP_BACKWARD           18 (to 144)
+
+242     >>  180 LOAD_CONST               8 ('clarification_questions')
+
+243         182 LOAD_GLOBAL              8 (ConversationTrigger)
+            194 LOAD_ATTR                5 (CLARIFICATION_NEEDED)
+            204 LOAD_ATTR                6 (value)
+
+244         214 LOAD_FAST                3 (email_id)
+
+245         216 LOAD_FAST                4 (questions)
+
+246         218 LOAD_CONST               9 (True)
+
+241         220 LOAD_CONST              10 (('type', 'trigger', 'email_id', 'questions', 'awaiting_user_input'))
+            222 BUILD_CONST_KEY_MAP      5
+            224 STORE_FAST              11 (payload)
+
+249         226 LOAD_FAST                0 (self)
+            228 LOAD_METHOD              7 (_store_system_message)
+            250 LOAD_FAST                1 (db)
+            252 LOAD_FAST                2 (user_id)
+            254 LOAD_FAST                8 (msg)
+            256 LOAD_FAST               11 (payload)
+            258 PRECALL                  4
+            262 CALL                     4
+            272 GET_AWAITABLE            0
+            274 LOAD_CONST               1 (None)
+        >>  276 SEND                     3 (to 284)
+            278 YIELD_VALUE
+            280 RESUME                   3
+            282 JUMP_BACKWARD_NO_INTERRUPT     4 (to 276)
+        >>  284 POP_TOP
+
+250         286 LOAD_FAST               11 (payload)
+            288 RETURN_VALUE
+        >>  290 PUSH_EXC_INFO
+
+252         292 LOAD_GLOBAL             16 (Exception)
+            304 CHECK_EXC_MATCH
+            306 POP_JUMP_FORWARD_IF_FALSE    42 (to 392)
+            308 STORE_FAST              12 (e)
+
+253         310 LOAD_GLOBAL             18 (logger)
+            322 LOAD_METHOD             10 (error)
+            344 LOAD_CONST              11 ('[AutoChat] Error in clarification handler: ')
+            346 LOAD_FAST               12 (e)
+            348 FORMAT_VALUE             0
+            350 BUILD_STRING             2
+            352 LOAD_CONST               9 (True)
+            354 KW_NAMES                12
+            356 PRECALL                  2
+            360 CALL                     2
+            370 POP_TOP
+
+254         372 POP_EXCEPT
+            374 LOAD_CONST               1 (None)
+            376 STORE_FAST              12 (e)
+            378 DELETE_FAST             12 (e)
+            380 LOAD_CONST               1 (None)
+            382 RETURN_VALUE
+        >>  384 LOAD_CONST               1 (None)
+            386 STORE_FAST              12 (e)
+            388 DELETE_FAST             12 (e)
+            390 RERAISE                  1
+
+252     >>  392 RERAISE                  0
+        >>  394 COPY                     3
+            396 POP_EXCEPT
+            398 RERAISE                  1
+ExceptionTable:
+  8 to 94 -> 290 [0]
+  100 to 286 -> 290 [0]
+  290 to 308 -> 394 [1] lasti
+  310 to 370 -> 384 [1] lasti
+  384 to 392 -> 394 [1] lasti
+
+Disassembly of <code object _handle_meeting_prep at 0x000001C312B4A640, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 256>:
+256           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+265           6 NOP
+
+266           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (CalendarEventSnapshot)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+
+267          80 LOAD_GLOBAL              2 (CalendarEventSnapshot)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (event_id)
+            104 COMPARE_OP               2 (==)
+
+266         110 PRECALL                  1
+            114 CALL                     1
+
+268         124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+
+266         160 STORE_FAST               5 (event)
+
+269         162 LOAD_FAST                5 (event)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+270         166 LOAD_CONST               1 (None)
+            168 RETURN_VALUE
+
+272     >>  170 LOAD_GLOBAL             11 (NULL + GreetingService)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                0 (self)
+            186 LOAD_ATTR                6 (workspace_id)
+            196 LOAD_FAST                2 (user_id)
+            198 PRECALL                  3
+            202 CALL                     3
+            212 STORE_FAST               6 (greeting_service)
+
+273         214 LOAD_FAST                6 (greeting_service)
+            216 LOAD_METHOD              7 (_resolve_name)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 STORE_FAST               7 (name)
+
+276         254 LOAD_FAST                0 (self)
+            256 LOAD_ATTR                8 (memory)
+            266 LOAD_METHOD              9 (recall)
+
+277         288 LOAD_FAST                5 (event)
+            290 LOAD_ATTR               10 (summary)
+            300 JUMP_IF_TRUE_OR_POP      8 (to 318)
+            302 LOAD_FAST                5 (event)
+            304 LOAD_ATTR               11 (title)
+            314 JUMP_IF_TRUE_OR_POP      1 (to 318)
+            316 LOAD_CONST               2 ('')
+
+278     >>  318 LOAD_CONST               3 (5)
+
+276         320 KW_NAMES                 4
+            322 PRECALL                  2
+            326 CALL                     2
+            336 GET_AWAITABLE            0
+            338 LOAD_CONST               1 (None)
+        >>  340 SEND                     3 (to 348)
+            342 YIELD_VALUE
+            344 RESUME                   3
+            346 JUMP_BACKWARD_NO_INTERRUPT     4 (to 340)
+        >>  348 STORE_FAST               8 (memories)
+
+280         350 LOAD_CONST               5 (' | ')
+            352 LOAD_METHOD             12 (join)
+            374 LOAD_CONST               6 (<code object <listcomp> at 0x000001C312826AB0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 280>)
+            376 MAKE_FUNCTION            0
+            378 LOAD_FAST                8 (memories)
+            380 GET_ITER
+            382 PRECALL                  0
+            386 CALL                     0
+            396 PRECALL                  1
+            400 CALL                     1
+            410 STORE_FAST               9 (context_text)
+
+282         412 LOAD_CONST               7 ('📅 Meeting prep for: **')
+            414 LOAD_FAST                5 (event)
+            416 LOAD_ATTR               10 (summary)
+            426 JUMP_IF_TRUE_OR_POP      6 (to 440)
+            428 LOAD_FAST                5 (event)
+            430 LOAD_ATTR               11 (title)
+        >>  440 FORMAT_VALUE             0
+            442 LOAD_CONST               8 ('**\n\n')
+            444 BUILD_STRING             3
+            446 STORE_FAST              10 (msg)
+
+283         448 LOAD_FAST                5 (event)
+            450 LOAD_ATTR               13 (attendees)
+            460 POP_JUMP_FORWARD_IF_FALSE    14 (to 490)
+
+284         462 LOAD_FAST               10 (msg)
+            464 LOAD_CONST               9 ('Attendees: ')
+            466 LOAD_FAST                5 (event)
+            468 LOAD_ATTR               13 (attendees)
+            478 FORMAT_VALUE             0
+            480 LOAD_CONST              10 ('\n')
+            482 BUILD_STRING             3
+            484 BINARY_OP               13 (+=)
+            488 STORE_FAST              10 (msg)
+
+285     >>  490 LOAD_FAST               10 (msg)
+            492 LOAD_CONST              11 ('Starts in: 5 minutes\n\n')
+            494 BINARY_OP               13 (+=)
+            498 STORE_FAST              10 (msg)
+
+287         500 LOAD_FAST                9 (context_text)
+            502 LOAD_METHOD             14 (strip)
+            524 PRECALL                  0
+            528 CALL                     0
+            538 POP_JUMP_FORWARD_IF_FALSE     9 (to 558)
+
+288         540 LOAD_FAST               10 (msg)
+            542 LOAD_CONST              12 ('**Relevant context:**\n')
+            544 LOAD_FAST                9 (context_text)
+            546 FORMAT_VALUE             0
+            548 LOAD_CONST              13 ('\n\n')
+            550 BUILD_STRING             3
+            552 BINARY_OP               13 (+=)
+            556 STORE_FAST              10 (msg)
+
+290     >>  558 LOAD_FAST               10 (msg)
+            560 LOAD_CONST              14 ('**Suggested materials:**\n')
+            562 BINARY_OP               13 (+=)
+            566 STORE_FAST              10 (msg)
+
+291         568 LOAD_FAST               10 (msg)
+            570 LOAD_CONST              15 ('- 📊 Recent emails from attendees\n')
+            572 BINARY_OP               13 (+=)
+            576 STORE_FAST              10 (msg)
+
+292         578 LOAD_FAST               10 (msg)
+            580 LOAD_CONST              16 ('- 📝 Talking points\n')
+            582 BINARY_OP               13 (+=)
+            586 STORE_FAST              10 (msg)
+
+293         588 LOAD_FAST               10 (msg)
+            590 LOAD_CONST              17 ('- ❓ Open questions\n')
+            592 BINARY_OP               13 (+=)
+            596 STORE_FAST              10 (msg)
+
+294         598 LOAD_FAST               10 (msg)
+            600 LOAD_CONST              18 ('- 📋 Agenda\n')
+            602 BINARY_OP               13 (+=)
+            606 STORE_FAST              10 (msg)
+
+297         608 LOAD_CONST              19 ('meeting_prep')
+
+298         610 LOAD_GLOBAL             30 (ConversationTrigger)
+            622 LOAD_ATTR               16 (MEETING_PREP)
+            632 LOAD_ATTR               17 (value)
+
+299         642 LOAD_FAST                3 (event_id)
+
+300         644 LOAD_FAST                5 (event)
+            646 LOAD_ATTR               10 (summary)
+            656 JUMP_IF_TRUE_OR_POP      6 (to 670)
+            658 LOAD_FAST                5 (event)
+            660 LOAD_ATTR               11 (title)
+
+301     >>  670 LOAD_FAST                5 (event)
+            672 LOAD_ATTR               13 (attendees)
+
+302         682 LOAD_FAST                9 (context_text)
+
+296         684 LOAD_CONST              20 (('type', 'trigger', 'event_id', 'event_title', 'attendees', 'context_summary'))
+            686 BUILD_CONST_KEY_MAP      6
+            688 STORE_FAST              11 (payload)
+
+305         690 LOAD_FAST                0 (self)
+            692 LOAD_METHOD             18 (_store_system_message)
+            714 LOAD_FAST                1 (db)
+            716 LOAD_FAST                2 (user_id)
+            718 LOAD_FAST               10 (msg)
+            720 LOAD_FAST               11 (payload)
+            722 PRECALL                  4
+            726 CALL                     4
+            736 GET_AWAITABLE            0
+            738 LOAD_CONST               1 (None)
+        >>  740 SEND                     3 (to 748)
+            742 YIELD_VALUE
+            744 RESUME                   3
+            746 JUMP_BACKWARD_NO_INTERRUPT     4 (to 740)
+        >>  748 POP_TOP
+
+306         750 LOAD_FAST               11 (payload)
+            752 RETURN_VALUE
+        >>  754 PUSH_EXC_INFO
+
+308         756 LOAD_GLOBAL             38 (Exception)
+            768 CHECK_EXC_MATCH
+            770 POP_JUMP_FORWARD_IF_FALSE    42 (to 856)
+            772 STORE_FAST              12 (e)
+
+309         774 LOAD_GLOBAL             40 (logger)
+            786 LOAD_METHOD             21 (error)
+            808 LOAD_CONST              21 ('[AutoChat] Error in meeting_prep handler: ')
+            810 LOAD_FAST               12 (e)
+            812 FORMAT_VALUE             0
+            814 BUILD_STRING             2
+            816 LOAD_CONST              22 (True)
+            818 KW_NAMES                23
+            820 PRECALL                  2
+            824 CALL                     2
+            834 POP_TOP
+
+310         836 POP_EXCEPT
+            838 LOAD_CONST               1 (None)
+            840 STORE_FAST              12 (e)
+            842 DELETE_FAST             12 (e)
+            844 LOAD_CONST               1 (None)
+            846 RETURN_VALUE
+        >>  848 LOAD_CONST               1 (None)
+            850 STORE_FAST              12 (e)
+            852 DELETE_FAST             12 (e)
+            854 RERAISE                  1
+
+308     >>  856 RERAISE                  0
+        >>  858 COPY                     3
+            860 POP_EXCEPT
+            862 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 754 [0]
+  170 to 750 -> 754 [0]
+  754 to 772 -> 858 [1] lasti
+  774 to 834 -> 848 [1] lasti
+  848 to 856 -> 858 [1] lasti
+
+Disassembly of <code object <listcomp> at 0x000001C312826AB0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 280>:
+280           0 RESUME                   0
+              2 BUILD_LIST               0
+              4 LOAD_FAST                0 (.0)
+        >>    6 FOR_ITER                32 (to 72)
+              8 STORE_FAST               1 (m)
+             10 LOAD_FAST                1 (m)
+             12 LOAD_METHOD              0 (get)
+             34 LOAD_CONST               0 ('content_text')
+             36 LOAD_CONST               1 ('')
+             38 PRECALL                  2
+             42 CALL                     2
+             52 LOAD_CONST               2 (None)
+             54 LOAD_CONST               3 (100)
+             56 BUILD_SLICE              2
+             58 BINARY_SUBSCR
+             68 LIST_APPEND              2
+             70 JUMP_BACKWARD           33 (to 6)
+        >>   72 RETURN_VALUE
+
+Disassembly of <code object _handle_pending_followup at 0x000001C312B4B6B0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 312>:
+312           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+322           6 NOP
+
+323           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               6 (email)
+
+324         162 LOAD_FAST                6 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+325         166 LOAD_CONST               1 (None)
+            168 RETURN_VALUE
+
+327     >>  170 LOAD_GLOBAL             11 (NULL + GreetingService)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                0 (self)
+            186 LOAD_ATTR                6 (workspace_id)
+            196 LOAD_FAST                2 (user_id)
+            198 PRECALL                  3
+            202 CALL                     3
+            212 STORE_FAST               7 (greeting_service)
+
+328         214 LOAD_FAST                7 (greeting_service)
+            216 LOAD_METHOD              7 (_resolve_name)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 STORE_FAST               8 (name)
+
+330         254 LOAD_CONST               2 ('⏰ ')
+            256 LOAD_FAST                8 (name)
+            258 FORMAT_VALUE             0
+            260 LOAD_CONST               3 (', this email from ')
+            262 LOAD_FAST                6 (email)
+            264 LOAD_ATTR                8 (sender)
+            274 FORMAT_VALUE             0
+            276 LOAD_CONST               4 (' has been waiting ')
+            278 LOAD_FAST                4 (days_pending)
+            280 FORMAT_VALUE             0
+            282 LOAD_CONST               5 (' days:\n\n')
+            284 BUILD_STRING             7
+            286 STORE_FAST               9 (msg)
+
+331         288 LOAD_FAST                9 (msg)
+            290 LOAD_CONST               6 ('**')
+            292 LOAD_FAST                6 (email)
+            294 LOAD_ATTR                9 (subject)
+            304 FORMAT_VALUE             0
+            306 LOAD_CONST               7 ('**\n')
+            308 BUILD_STRING             3
+            310 BINARY_OP               13 (+=)
+            314 STORE_FAST               9 (msg)
+
+332         316 LOAD_FAST                9 (msg)
+            318 LOAD_FAST                6 (email)
+            320 LOAD_ATTR               10 (snippet)
+            330 JUMP_IF_TRUE_OR_POP      1 (to 334)
+            332 LOAD_CONST               8 ('')
+        >>  334 LOAD_CONST               1 (None)
+            336 LOAD_CONST               9 (200)
+            338 BUILD_SLICE              2
+            340 BINARY_SUBSCR
+            350 FORMAT_VALUE             0
+            352 LOAD_CONST              10 ('\n\n')
+            354 BUILD_STRING             2
+            356 BINARY_OP               13 (+=)
+            360 STORE_FAST               9 (msg)
+
+333         362 LOAD_FAST                9 (msg)
+            364 LOAD_CONST              11 ('**Options:**\n')
+            366 BINARY_OP               13 (+=)
+            370 STORE_FAST               9 (msg)
+
+334         372 LOAD_FAST                9 (msg)
+            374 LOAD_CONST              12 ("- 📧 I'll draft a response\n")
+            376 BINARY_OP               13 (+=)
+            380 STORE_FAST               9 (msg)
+
+335         382 LOAD_FAST                9 (msg)
+            384 LOAD_CONST              13 ('- ⏳ Snooze for 2 more days\n')
+            386 BINARY_OP               13 (+=)
+            390 STORE_FAST               9 (msg)
+
+336         392 LOAD_FAST                9 (msg)
+            394 LOAD_CONST              14 ('- 🗑️ Mark as handled\n')
+            396 BINARY_OP               13 (+=)
+            400 STORE_FAST               9 (msg)
+
+337         402 LOAD_FAST                9 (msg)
+            404 LOAD_CONST              15 ('- ⚡ Escalate\n')
+            406 BINARY_OP               13 (+=)
+            410 STORE_FAST               9 (msg)
+
+340         412 LOAD_CONST              16 ('pending_followup')
+
+341         414 LOAD_GLOBAL             22 (ConversationTrigger)
+            426 LOAD_ATTR               12 (PENDING_FOLLOWUP)
+            436 LOAD_ATTR               13 (value)
+
+342         446 LOAD_FAST                3 (email_id)
+
+343         448 LOAD_FAST                4 (days_pending)
+
+344         450 LOAD_FAST                6 (email)
+            452 LOAD_ATTR                8 (sender)
+
+345         462 LOAD_FAST                6 (email)
+            464 LOAD_ATTR                9 (subject)
+
+339         474 LOAD_CONST              17 (('type', 'trigger', 'email_id', 'days_pending', 'sender', 'subject'))
+            476 BUILD_CONST_KEY_MAP      6
+            478 STORE_FAST              10 (payload)
+
+348         480 LOAD_FAST                0 (self)
+            482 LOAD_METHOD             14 (_store_system_message)
+            504 LOAD_FAST                1 (db)
+            506 LOAD_FAST                2 (user_id)
+            508 LOAD_FAST                9 (msg)
+            510 LOAD_FAST               10 (payload)
+            512 PRECALL                  4
+            516 CALL                     4
+            526 GET_AWAITABLE            0
+            528 LOAD_CONST               1 (None)
+        >>  530 SEND                     3 (to 538)
+            532 YIELD_VALUE
+            534 RESUME                   3
+            536 JUMP_BACKWARD_NO_INTERRUPT     4 (to 530)
+        >>  538 POP_TOP
+
+349         540 LOAD_FAST               10 (payload)
+            542 RETURN_VALUE
+        >>  544 PUSH_EXC_INFO
+
+351         546 LOAD_GLOBAL             30 (Exception)
+            558 CHECK_EXC_MATCH
+            560 POP_JUMP_FORWARD_IF_FALSE    42 (to 646)
+            562 STORE_FAST              11 (e)
+
+352         564 LOAD_GLOBAL             32 (logger)
+            576 LOAD_METHOD             17 (error)
+            598 LOAD_CONST              18 ('[AutoChat] Error in pending_followup handler: ')
+            600 LOAD_FAST               11 (e)
+            602 FORMAT_VALUE             0
+            604 BUILD_STRING             2
+            606 LOAD_CONST              19 (True)
+            608 KW_NAMES                20
+            610 PRECALL                  2
+            614 CALL                     2
+            624 POP_TOP
+
+353         626 POP_EXCEPT
+            628 LOAD_CONST               1 (None)
+            630 STORE_FAST              11 (e)
+            632 DELETE_FAST             11 (e)
+            634 LOAD_CONST               1 (None)
+            636 RETURN_VALUE
+        >>  638 LOAD_CONST               1 (None)
+            640 STORE_FAST              11 (e)
+            642 DELETE_FAST             11 (e)
+            644 RERAISE                  1
+
+351     >>  646 RERAISE                  0
+        >>  648 COPY                     3
+            650 POP_EXCEPT
+            652 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 544 [0]
+  170 to 540 -> 544 [0]
+  544 to 562 -> 648 [1] lasti
+  564 to 624 -> 638 [1] lasti
+  638 to 646 -> 648 [1] lasti
+
+Disassembly of <code object _handle_afternoon_digest at 0x000001C312B4AE80, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 355>:
+355           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+363           6 NOP
+
+364           8 LOAD_GLOBAL              1 (NULL + GreetingService)
+             20 LOAD_FAST                1 (db)
+             22 LOAD_FAST                0 (self)
+             24 LOAD_ATTR                1 (workspace_id)
+             34 LOAD_FAST                2 (user_id)
+             36 PRECALL                  3
+             40 CALL                     3
+             50 STORE_FAST               4 (greeting_service)
+
+365          52 LOAD_FAST                4 (greeting_service)
+             54 LOAD_METHOD              2 (_resolve_name)
+             76 PRECALL                  0
+             80 CALL                     0
+             90 STORE_FAST               5 (name)
+
+368          92 LOAD_FAST                1 (db)
+             94 LOAD_METHOD              3 (query)
+            116 LOAD_GLOBAL              8 (TriagedEmail)
+            128 PRECALL                  1
+            132 CALL                     1
+            142 LOAD_METHOD              5 (filter)
+
+369         164 LOAD_GLOBAL              8 (TriagedEmail)
+            176 LOAD_ATTR                6 (priority)
+            186 LOAD_METHOD              7 (in_)
+            208 LOAD_CONST               1 ('High')
+            210 LOAD_CONST               2 ('Critical')
+            212 BUILD_LIST               2
+            214 PRECALL                  1
+            218 CALL                     1
+
+370         228 LOAD_GLOBAL              8 (TriagedEmail)
+            240 LOAD_ATTR                8 (status)
+            250 LOAD_CONST               3 ('unread')
+            252 COMPARE_OP               2 (==)
+
+368         258 PRECALL                  2
+            262 CALL                     2
+
+371         272 LOAD_METHOD              9 (count)
+            294 PRECALL                  0
+            298 CALL                     0
+
+368         308 STORE_FAST               6 (high_priority)
+
+373         310 LOAD_FAST                1 (db)
+            312 LOAD_METHOD              3 (query)
+            334 LOAD_GLOBAL              8 (TriagedEmail)
+            346 PRECALL                  1
+            350 CALL                     1
+            360 LOAD_METHOD              5 (filter)
+
+374         382 LOAD_GLOBAL              8 (TriagedEmail)
+            394 LOAD_ATTR                8 (status)
+            404 LOAD_CONST               4 ('draft_ready')
+            406 COMPARE_OP               2 (==)
+
+373         412 PRECALL                  1
+            416 CALL                     1
+
+375         426 LOAD_METHOD              9 (count)
+            448 PRECALL                  0
+            452 CALL                     0
+
+373         462 STORE_FAST               7 (pending_drafts)
+
+377         464 LOAD_FAST                1 (db)
+            466 LOAD_METHOD              3 (query)
+            488 LOAD_GLOBAL              8 (TriagedEmail)
+            500 PRECALL                  1
+            504 CALL                     1
+            514 LOAD_METHOD              5 (filter)
+
+378         536 LOAD_GLOBAL              8 (TriagedEmail)
+            548 LOAD_ATTR               10 (category)
+            558 LOAD_CONST               5 ('FOLLOWUP')
+            560 COMPARE_OP               2 (==)
+
+379         566 LOAD_GLOBAL              8 (TriagedEmail)
+            578 LOAD_ATTR                8 (status)
+            588 LOAD_CONST               6 ('pending')
+            590 COMPARE_OP               2 (==)
+
+377         596 PRECALL                  2
+            600 CALL                     2
+
+380         610 LOAD_METHOD              9 (count)
+            632 PRECALL                  0
+            636 CALL                     0
+
+377         646 STORE_FAST               8 (followups)
+
+382         648 LOAD_CONST               7 ('📊 Afternoon digest for ')
+            650 LOAD_FAST                5 (name)
+            652 FORMAT_VALUE             0
+            654 LOAD_CONST               8 (':\n\n')
+            656 BUILD_STRING             3
+            658 STORE_FAST               9 (msg)
+
+383         660 LOAD_FAST                9 (msg)
+            662 LOAD_CONST               9 ('🔴 ')
+            664 LOAD_FAST                6 (high_priority)
+            666 FORMAT_VALUE             0
+            668 LOAD_CONST              10 (' urgent emails needing action\n')
+            670 BUILD_STRING             3
+            672 BINARY_OP               13 (+=)
+            676 STORE_FAST               9 (msg)
+
+384         678 LOAD_FAST                9 (msg)
+            680 LOAD_CONST              11 ('📝 ')
+            682 LOAD_FAST                7 (pending_drafts)
+            684 FORMAT_VALUE             0
+            686 LOAD_CONST              12 (' drafts ready to review\n')
+            688 BUILD_STRING             3
+            690 BINARY_OP               13 (+=)
+            694 STORE_FAST               9 (msg)
+
+385         696 LOAD_FAST                9 (msg)
+            698 LOAD_CONST              13 ('⏰ ')
+            700 LOAD_FAST                8 (followups)
+            702 FORMAT_VALUE             0
+            704 LOAD_CONST              14 (' follow-ups pending\n\n')
+            706 BUILD_STRING             3
+            708 BINARY_OP               13 (+=)
+            712 STORE_FAST               9 (msg)
+
+386         714 LOAD_FAST                9 (msg)
+            716 LOAD_CONST              15 ('**What would help you most right now?**\n')
+            718 BINARY_OP               13 (+=)
+            722 STORE_FAST               9 (msg)
+
+387         724 LOAD_FAST                9 (msg)
+            726 LOAD_CONST              16 ('- 📥 Review high-priority emails\n')
+            728 BINARY_OP               13 (+=)
+            732 STORE_FAST               9 (msg)
+
+388         734 LOAD_FAST                9 (msg)
+            736 LOAD_CONST              17 ('- ✍️ Draft responses\n')
+            738 BINARY_OP               13 (+=)
+            742 STORE_FAST               9 (msg)
+
+389         744 LOAD_FAST                9 (msg)
+            746 LOAD_CONST              18 ('- 📋 Check follow-ups\n')
+            748 BINARY_OP               13 (+=)
+            752 STORE_FAST               9 (msg)
+
+390         754 LOAD_FAST                9 (msg)
+            756 LOAD_CONST              19 ('- ⚙️ Settings\n')
+            758 BINARY_OP               13 (+=)
+            762 STORE_FAST               9 (msg)
+
+393         764 LOAD_CONST              20 ('afternoon_digest')
+
+394         766 LOAD_GLOBAL             22 (ConversationTrigger)
+            778 LOAD_ATTR               12 (AFTERNOON_DIGEST)
+            788 LOAD_ATTR               13 (value)
+
+395         798 LOAD_FAST                6 (high_priority)
+
+396         800 LOAD_FAST                7 (pending_drafts)
+
+397         802 LOAD_FAST                8 (followups)
+
+398         804 LOAD_GLOBAL             29 (NULL + datetime)
+            816 LOAD_ATTR               15 (now)
+            826 LOAD_GLOBAL             32 (timezone)
+            838 LOAD_ATTR               17 (utc)
+            848 PRECALL                  1
+            852 CALL                     1
+            862 LOAD_METHOD             18 (isoformat)
+            884 PRECALL                  0
+            888 CALL                     0
+
+392         898 LOAD_CONST              21 (('type', 'trigger', 'high_priority_count', 'pending_drafts_count', 'followups_count', 'timestamp'))
+            900 BUILD_CONST_KEY_MAP      6
+            902 STORE_FAST              10 (payload)
+
+401         904 LOAD_FAST                0 (self)
+            906 LOAD_METHOD             19 (_store_system_message)
+            928 LOAD_FAST                1 (db)
+            930 LOAD_FAST                2 (user_id)
+            932 LOAD_FAST                9 (msg)
+            934 LOAD_FAST               10 (payload)
+            936 PRECALL                  4
+            940 CALL                     4
+            950 GET_AWAITABLE            0
+            952 LOAD_CONST              22 (None)
+        >>  954 SEND                     3 (to 962)
+            956 YIELD_VALUE
+            958 RESUME                   3
+            960 JUMP_BACKWARD_NO_INTERRUPT     4 (to 954)
+        >>  962 POP_TOP
+
+402         964 LOAD_FAST               10 (payload)
+            966 RETURN_VALUE
+        >>  968 PUSH_EXC_INFO
+
+404         970 LOAD_GLOBAL             40 (Exception)
+            982 CHECK_EXC_MATCH
+            984 POP_JUMP_FORWARD_IF_FALSE    42 (to 1070)
+            986 STORE_FAST              11 (e)
+
+405         988 LOAD_GLOBAL             42 (logger)
+           1000 LOAD_METHOD             22 (error)
+           1022 LOAD_CONST              23 ('[AutoChat] Error in afternoon_digest handler: ')
+           1024 LOAD_FAST               11 (e)
+           1026 FORMAT_VALUE             0
+           1028 BUILD_STRING             2
+           1030 LOAD_CONST              24 (True)
+           1032 KW_NAMES                25
+           1034 PRECALL                  2
+           1038 CALL                     2
+           1048 POP_TOP
+
+406        1050 POP_EXCEPT
+           1052 LOAD_CONST              22 (None)
+           1054 STORE_FAST              11 (e)
+           1056 DELETE_FAST             11 (e)
+           1058 LOAD_CONST              22 (None)
+           1060 RETURN_VALUE
+        >> 1062 LOAD_CONST              22 (None)
+           1064 STORE_FAST              11 (e)
+           1066 DELETE_FAST             11 (e)
+           1068 RERAISE                  1
+
+404     >> 1070 RERAISE                  0
+        >> 1072 COPY                     3
+           1074 POP_EXCEPT
+           1076 RERAISE                  1
+ExceptionTable:
+  8 to 964 -> 968 [0]
+  968 to 986 -> 1072 [1] lasti
+  988 to 1048 -> 1062 [1] lasti
+  1062 to 1070 -> 1072 [1] lasti
+
+Disassembly of <code object _handle_calendar_conflict at 0x000001C312783D20, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 408>:
+408           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+417           6 NOP
+
+418           8 LOAD_GLOBAL              1 (NULL + GreetingService)
+             20 LOAD_FAST                1 (db)
+             22 LOAD_FAST                0 (self)
+             24 LOAD_ATTR                1 (workspace_id)
+             34 LOAD_FAST                2 (user_id)
+             36 PRECALL                  3
+             40 CALL                     3
+             50 STORE_FAST               5 (greeting_service)
+
+419          52 LOAD_FAST                5 (greeting_service)
+             54 LOAD_METHOD              2 (_resolve_name)
+             76 PRECALL                  0
+             80 CALL                     0
+             90 STORE_FAST               6 (name)
+
+421          92 LOAD_CONST               1 ('⚠️ ')
+             94 LOAD_FAST                6 (name)
+             96 FORMAT_VALUE             0
+             98 LOAD_CONST               2 (', I found calendar conflicts:\n\n')
+            100 BUILD_STRING             3
+            102 STORE_FAST               7 (msg)
+
+422         104 LOAD_FAST                3 (conflicts)
+            106 GET_ITER
+        >>  108 FOR_ITER                26 (to 162)
+            110 STORE_FAST               8 (conflict)
+
+423         112 LOAD_FAST                7 (msg)
+            114 LOAD_CONST               3 ('- **')
+            116 LOAD_FAST                8 (conflict)
+            118 LOAD_CONST               4 ('title1')
+            120 BINARY_SUBSCR
+            130 FORMAT_VALUE             0
+            132 LOAD_CONST               5 ('** overlaps with **')
+            134 LOAD_FAST                8 (conflict)
+            136 LOAD_CONST               6 ('title2')
+            138 BINARY_SUBSCR
+            148 FORMAT_VALUE             0
+            150 LOAD_CONST               7 ('**\n')
+            152 BUILD_STRING             5
+            154 BINARY_OP               13 (+=)
+            158 STORE_FAST               7 (msg)
+            160 JUMP_BACKWARD           27 (to 108)
+
+425     >>  162 LOAD_FAST                7 (msg)
+            164 LOAD_CONST               8 ('\n**Quick fix options:**\n')
+            166 BINARY_OP               13 (+=)
+            170 STORE_FAST               7 (msg)
+
+426         172 LOAD_FAST                7 (msg)
+            174 LOAD_CONST               9 ('- 📅 Auto-reschedule one of them\n')
+            176 BINARY_OP               13 (+=)
+            180 STORE_FAST               7 (msg)
+
+427         182 LOAD_FAST                7 (msg)
+            184 LOAD_CONST              10 ('- 🔔 Send apologies to attendees\n')
+            186 BINARY_OP               13 (+=)
+            190 STORE_FAST               7 (msg)
+
+428         192 LOAD_FAST                7 (msg)
+            194 LOAD_CONST              11 ("- ✋ I'll skip\n")
+            196 BINARY_OP               13 (+=)
+            200 STORE_FAST               7 (msg)
+
+431         202 LOAD_CONST              12 ('calendar_conflict')
+
+432         204 LOAD_GLOBAL              6 (ConversationTrigger)
+            216 LOAD_ATTR                4 (CALENDAR_CONFLICT)
+            226 LOAD_ATTR                5 (value)
+
+433         236 LOAD_FAST                3 (conflicts)
+
+434         238 LOAD_CONST              13 (True)
+
+430         240 LOAD_CONST              14 (('type', 'trigger', 'conflicts', 'awaiting_action'))
+            242 BUILD_CONST_KEY_MAP      4
+            244 STORE_FAST               9 (payload)
+
+437         246 LOAD_FAST                0 (self)
+            248 LOAD_METHOD              6 (_store_system_message)
+            270 LOAD_FAST                1 (db)
+            272 LOAD_FAST                2 (user_id)
+            274 LOAD_FAST                7 (msg)
+            276 LOAD_FAST                9 (payload)
+            278 PRECALL                  4
+            282 CALL                     4
+            292 GET_AWAITABLE            0
+            294 LOAD_CONST              15 (None)
+        >>  296 SEND                     3 (to 304)
+            298 YIELD_VALUE
+            300 RESUME                   3
+            302 JUMP_BACKWARD_NO_INTERRUPT     4 (to 296)
+        >>  304 POP_TOP
+
+438         306 LOAD_FAST                9 (payload)
+            308 RETURN_VALUE
+        >>  310 PUSH_EXC_INFO
+
+440         312 LOAD_GLOBAL             14 (Exception)
+            324 CHECK_EXC_MATCH
+            326 POP_JUMP_FORWARD_IF_FALSE    42 (to 412)
+            328 STORE_FAST              10 (e)
+
+441         330 LOAD_GLOBAL             16 (logger)
+            342 LOAD_METHOD              9 (error)
+            364 LOAD_CONST              16 ('[AutoChat] Error in calendar_conflict handler: ')
+            366 LOAD_FAST               10 (e)
+            368 FORMAT_VALUE             0
+            370 BUILD_STRING             2
+            372 LOAD_CONST              13 (True)
+            374 KW_NAMES                17
+            376 PRECALL                  2
+            380 CALL                     2
+            390 POP_TOP
+
+442         392 POP_EXCEPT
+            394 LOAD_CONST              15 (None)
+            396 STORE_FAST              10 (e)
+            398 DELETE_FAST             10 (e)
+            400 LOAD_CONST              15 (None)
+            402 RETURN_VALUE
+        >>  404 LOAD_CONST              15 (None)
+            406 STORE_FAST              10 (e)
+            408 DELETE_FAST             10 (e)
+            410 RERAISE                  1
+
+440     >>  412 RERAISE                  0
+        >>  414 COPY                     3
+            416 POP_EXCEPT
+            418 RERAISE                  1
+ExceptionTable:
+  8 to 306 -> 310 [0]
+  310 to 328 -> 414 [1] lasti
+  330 to 390 -> 404 [1] lasti
+  404 to 412 -> 414 [1] lasti
+
+Disassembly of <code object _handle_vip_response at 0x000001C312B5B3D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 444>:
+444           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+454           6 NOP
+
+455           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               6 (email)
+
+456         162 LOAD_FAST                6 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+457         166 LOAD_CONST               1 (None)
+            168 RETURN_VALUE
+
+459     >>  170 LOAD_GLOBAL             11 (NULL + GreetingService)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                0 (self)
+            186 LOAD_ATTR                6 (workspace_id)
+            196 LOAD_FAST                2 (user_id)
+            198 PRECALL                  3
+            202 CALL                     3
+            212 STORE_FAST               7 (greeting_service)
+
+460         214 LOAD_FAST                7 (greeting_service)
+            216 LOAD_METHOD              7 (_resolve_name)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 STORE_FAST               8 (name)
+
+462         254 LOAD_CONST               2 ('⭐ VIP Alert, ')
+            256 LOAD_FAST                8 (name)
+            258 FORMAT_VALUE             0
+            260 LOAD_CONST               3 ('!\n\n')
+            262 BUILD_STRING             3
+            264 STORE_FAST               9 (msg)
+
+463         266 LOAD_FAST                9 (msg)
+            268 LOAD_FAST                4 (vip_name)
+            270 FORMAT_VALUE             0
+            272 LOAD_CONST               4 (' just sent you an email:\n')
+            274 BUILD_STRING             2
+            276 BINARY_OP               13 (+=)
+            280 STORE_FAST               9 (msg)
+
+464         282 LOAD_FAST                9 (msg)
+            284 LOAD_CONST               5 ('**')
+            286 LOAD_FAST                6 (email)
+            288 LOAD_ATTR                8 (subject)
+            298 FORMAT_VALUE             0
+            300 LOAD_CONST               6 ('**\n\n')
+            302 BUILD_STRING             3
+            304 BINARY_OP               13 (+=)
+            308 STORE_FAST               9 (msg)
+
+465         310 LOAD_FAST                9 (msg)
+            312 LOAD_FAST                6 (email)
+            314 LOAD_ATTR                9 (snippet)
+            324 JUMP_IF_TRUE_OR_POP      1 (to 328)
+            326 LOAD_CONST               7 ('')
+        >>  328 LOAD_CONST               1 (None)
+            330 LOAD_CONST               8 (250)
+            332 BUILD_SLICE              2
+            334 BINARY_SUBSCR
+            344 FORMAT_VALUE             0
+            346 LOAD_CONST               9 ('\n\n')
+            348 BUILD_STRING             2
+            350 BINARY_OP               13 (+=)
+            354 STORE_FAST               9 (msg)
+
+466         356 LOAD_FAST                9 (msg)
+            358 LOAD_CONST              10 ('🎯 **Priority draft suggestions:**\n')
+            360 BINARY_OP               13 (+=)
+            364 STORE_FAST               9 (msg)
+
+467         366 LOAD_FAST                9 (msg)
+            368 LOAD_CONST              11 ('1. Warm, professional tone\n')
+            370 BINARY_OP               13 (+=)
+            374 STORE_FAST               9 (msg)
+
+468         376 LOAD_FAST                9 (msg)
+            378 LOAD_CONST              12 ('2. Address directly\n')
+            380 BINARY_OP               13 (+=)
+            384 STORE_FAST               9 (msg)
+
+469         386 LOAD_FAST                9 (msg)
+            388 LOAD_CONST              13 ('3. Offer value\n')
+            390 BINARY_OP               13 (+=)
+            394 STORE_FAST               9 (msg)
+
+470         396 LOAD_FAST                9 (msg)
+            398 LOAD_CONST              14 ('4. Call to action\n')
+            400 BINARY_OP               13 (+=)
+            404 STORE_FAST               9 (msg)
+
+473         406 LOAD_CONST              15 ('vip_response')
+
+474         408 LOAD_GLOBAL             20 (ConversationTrigger)
+            420 LOAD_ATTR               11 (VIP_RESPONSE)
+            430 LOAD_ATTR               12 (value)
+
+475         440 LOAD_FAST                3 (email_id)
+
+476         442 LOAD_FAST                4 (vip_name)
+
+477         444 LOAD_FAST                6 (email)
+            446 LOAD_ATTR                8 (subject)
+
+478         456 BUILD_LIST               0
+            458 LOAD_CONST              16 (('warm_tone', 'direct_address', 'offer_value', 'cta'))
+            460 LIST_EXTEND              1
+
+472         462 LOAD_CONST              17 (('type', 'trigger', 'email_id', 'vip_name', 'subject', 'priority_tips'))
+            464 BUILD_CONST_KEY_MAP      6
+            466 STORE_FAST              10 (payload)
+
+481         468 LOAD_FAST                0 (self)
+            470 LOAD_METHOD             13 (_store_system_message)
+            492 LOAD_FAST                1 (db)
+            494 LOAD_FAST                2 (user_id)
+            496 LOAD_FAST                9 (msg)
+            498 LOAD_FAST               10 (payload)
+            500 PRECALL                  4
+            504 CALL                     4
+            514 GET_AWAITABLE            0
+            516 LOAD_CONST               1 (None)
+        >>  518 SEND                     3 (to 526)
+            520 YIELD_VALUE
+            522 RESUME                   3
+            524 JUMP_BACKWARD_NO_INTERRUPT     4 (to 518)
+        >>  526 POP_TOP
+
+482         528 LOAD_FAST               10 (payload)
+            530 RETURN_VALUE
+        >>  532 PUSH_EXC_INFO
+
+484         534 LOAD_GLOBAL             28 (Exception)
+            546 CHECK_EXC_MATCH
+            548 POP_JUMP_FORWARD_IF_FALSE    42 (to 634)
+            550 STORE_FAST              11 (e)
+
+485         552 LOAD_GLOBAL             30 (logger)
+            564 LOAD_METHOD             16 (error)
+            586 LOAD_CONST              18 ('[AutoChat] Error in vip_response handler: ')
+            588 LOAD_FAST               11 (e)
+            590 FORMAT_VALUE             0
+            592 BUILD_STRING             2
+            594 LOAD_CONST              19 (True)
+            596 KW_NAMES                20
+            598 PRECALL                  2
+            602 CALL                     2
+            612 POP_TOP
+
+486         614 POP_EXCEPT
+            616 LOAD_CONST               1 (None)
+            618 STORE_FAST              11 (e)
+            620 DELETE_FAST             11 (e)
+            622 LOAD_CONST               1 (None)
+            624 RETURN_VALUE
+        >>  626 LOAD_CONST               1 (None)
+            628 STORE_FAST              11 (e)
+            630 DELETE_FAST             11 (e)
+            632 RERAISE                  1
+
+484     >>  634 RERAISE                  0
+        >>  636 COPY                     3
+            638 POP_EXCEPT
+            640 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 532 [0]
+  170 to 528 -> 532 [0]
+  532 to 550 -> 636 [1] lasti
+  552 to 612 -> 626 [1] lasti
+  626 to 634 -> 636 [1] lasti
+
+Disassembly of <code object _auto_ask_questions at 0x000001C312B5B720, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 488>:
+488           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+496           6 NOP
+
+497           8 LOAD_FAST                4 (questions)
+             10 POP_JUMP_FORWARD_IF_TRUE     2 (to 16)
+
+498          12 LOAD_CONST               1 (None)
+             14 RETURN_VALUE
+
+500     >>   16 LOAD_GLOBAL              1 (NULL + GreetingService)
+             28 LOAD_FAST                1 (db)
+             30 LOAD_FAST                0 (self)
+             32 LOAD_ATTR                1 (workspace_id)
+             42 LOAD_FAST                2 (user_id)
+             44 PRECALL                  3
+             48 CALL                     3
+             58 STORE_FAST               5 (greeting_service)
+
+501          60 LOAD_FAST                5 (greeting_service)
+             62 LOAD_METHOD              2 (_resolve_name)
+             84 PRECALL                  0
+             88 CALL                     0
+             98 STORE_FAST               6 (name)
+
+504         100 LOAD_CONST               2 ('Before I draft that response, ')
+            102 LOAD_FAST                6 (name)
+            104 FORMAT_VALUE             0
+            106 LOAD_CONST               3 (', I need to clarify:\n\n')
+            108 BUILD_STRING             3
+            110 STORE_FAST               7 (msg)
+
+505         112 LOAD_FAST                7 (msg)
+            114 LOAD_CONST               4 ('**Q1: ')
+            116 LOAD_FAST                4 (questions)
+            118 LOAD_CONST               5 (0)
+            120 BINARY_SUBSCR
+            130 FORMAT_VALUE             0
+            132 LOAD_CONST               6 ('**')
+            134 BUILD_STRING             3
+            136 BINARY_OP               13 (+=)
+            140 STORE_FAST               7 (msg)
+
+508         142 LOAD_CONST               7 ('auto_question')
+
+509         144 LOAD_FAST                3 (email_id)
+
+510         146 LOAD_CONST               5 (0)
+
+511         148 LOAD_GLOBAL              7 (NULL + len)
+            160 LOAD_FAST                4 (questions)
+            162 PRECALL                  1
+            166 CALL                     1
+
+512         176 LOAD_FAST                4 (questions)
+            178 LOAD_CONST               5 (0)
+            180 BINARY_SUBSCR
+
+513         190 LOAD_FAST                4 (questions)
+            192 LOAD_CONST               8 (1)
+            194 LOAD_CONST               1 (None)
+            196 BUILD_SLICE              2
+            198 BINARY_SUBSCR
+
+507         208 LOAD_CONST               9 (('type', 'email_id', 'question_index', 'total_questions', 'question', 'remaining'))
+            210 BUILD_CONST_KEY_MAP      6
+            212 STORE_FAST               8 (payload)
+
+517         214 LOAD_FAST                0 (self)
+            216 LOAD_METHOD              4 (_store_system_message)
+            238 LOAD_FAST                1 (db)
+            240 LOAD_FAST                2 (user_id)
+            242 LOAD_FAST                7 (msg)
+            244 LOAD_FAST                8 (payload)
+            246 PRECALL                  4
+            250 CALL                     4
+            260 GET_AWAITABLE            0
+            262 LOAD_CONST               1 (None)
+        >>  264 SEND                     3 (to 272)
+            266 YIELD_VALUE
+            268 RESUME                   3
+            270 JUMP_BACKWARD_NO_INTERRUPT     4 (to 264)
+        >>  272 POP_TOP
+            274 LOAD_CONST               1 (None)
+            276 RETURN_VALUE
+        >>  278 PUSH_EXC_INFO
+
+519         280 LOAD_GLOBAL             10 (Exception)
+            292 CHECK_EXC_MATCH
+            294 POP_JUMP_FORWARD_IF_FALSE    42 (to 380)
+            296 STORE_FAST               9 (e)
+
+520         298 LOAD_GLOBAL             12 (logger)
+            310 LOAD_METHOD              7 (error)
+            332 LOAD_CONST              10 ('[AutoChat] Error in auto_ask_questions: ')
+            334 LOAD_FAST                9 (e)
+            336 FORMAT_VALUE             0
+            338 BUILD_STRING             2
+            340 LOAD_CONST              11 (True)
+            342 KW_NAMES                12
+            344 PRECALL                  2
+            348 CALL                     2
+            358 POP_TOP
+            360 POP_EXCEPT
+            362 LOAD_CONST               1 (None)
+            364 STORE_FAST               9 (e)
+            366 DELETE_FAST              9 (e)
+            368 LOAD_CONST               1 (None)
+            370 RETURN_VALUE
+        >>  372 LOAD_CONST               1 (None)
+            374 STORE_FAST               9 (e)
+            376 DELETE_FAST              9 (e)
+            378 RERAISE                  1
+
+519     >>  380 RERAISE                  0
+        >>  382 COPY                     3
+            384 POP_EXCEPT
+            386 RERAISE                  1
+ExceptionTable:
+  8 to 10 -> 278 [0]
+  16 to 272 -> 278 [0]
+  278 to 296 -> 382 [1] lasti
+  298 to 358 -> 372 [1] lasti
+  372 to 380 -> 382 [1] lasti
+
+Disassembly of <code object _store_system_message at 0x000001C312B5C420, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 522>:
+522           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+530           6 NOP
+
+531           8 LOAD_GLOBAL              1 (NULL + ChatRepository)
+             20 LOAD_FAST                1 (db)
+             22 LOAD_FAST                0 (self)
+             24 LOAD_ATTR                1 (workspace_id)
+             34 PRECALL                  2
+             38 CALL                     2
+             48 STORE_FAST               5 (repo)
+
+532          50 LOAD_CONST               1 ('auto_')
+             52 LOAD_GLOBAL              5 (NULL + uuid)
+             64 LOAD_ATTR                3 (uuid4)
+             74 PRECALL                  0
+             78 CALL                     0
+             88 LOAD_ATTR                4 (hex)
+             98 LOAD_CONST               2 (None)
+            100 LOAD_CONST               3 (12)
+            102 BUILD_SLICE              2
+            104 BINARY_SUBSCR
+            114 FORMAT_VALUE             0
+            116 BUILD_STRING             2
+            118 STORE_FAST               6 (msg_id)
+
+534         120 LOAD_FAST                5 (repo)
+            122 LOAD_METHOD              5 (add_message)
+
+535         144 LOAD_FAST                6 (msg_id)
+
+536         146 LOAD_CONST               4 ('assistant')
+
+537         148 LOAD_FAST                3 (content)
+
+538         150 LOAD_CONST               2 (None)
+
+539         152 LOAD_FAST                4 (payload)
+            154 LOAD_METHOD              6 (get)
+            176 LOAD_CONST               5 ('email_id')
+            178 PRECALL                  1
+            182 CALL                     1
+
+540         192 LOAD_CONST               6 ('system_action')
+
+541         194 LOAD_FAST                4 (payload)
+
+534         196 KW_NAMES                 7
+            198 PRECALL                  7
+            202 CALL                     7
+            212 POP_TOP
+
+543         214 LOAD_FAST                1 (db)
+            216 LOAD_METHOD              7 (commit)
+            238 PRECALL                  0
+            242 CALL                     0
+            252 POP_TOP
+            254 LOAD_CONST               2 (None)
+            256 RETURN_VALUE
+        >>  258 PUSH_EXC_INFO
+
+545         260 LOAD_GLOBAL             16 (Exception)
+            272 CHECK_EXC_MATCH
+            274 POP_JUMP_FORWARD_IF_FALSE    62 (to 400)
+            276 STORE_FAST               7 (e)
+
+546         278 LOAD_GLOBAL             18 (logger)
+            290 LOAD_METHOD             10 (error)
+            312 LOAD_CONST               8 ('[AutoChat] Error storing message: ')
+            314 LOAD_FAST                7 (e)
+            316 FORMAT_VALUE             0
+            318 BUILD_STRING             2
+            320 LOAD_CONST               9 (True)
+            322 KW_NAMES                10
+            324 PRECALL                  2
+            328 CALL                     2
+            338 POP_TOP
+
+547         340 LOAD_FAST                1 (db)
+            342 LOAD_METHOD             11 (rollback)
+            364 PRECALL                  0
+            368 CALL                     0
+            378 POP_TOP
+            380 POP_EXCEPT
+            382 LOAD_CONST               2 (None)
+            384 STORE_FAST               7 (e)
+            386 DELETE_FAST              7 (e)
+            388 LOAD_CONST               2 (None)
+            390 RETURN_VALUE
+        >>  392 LOAD_CONST               2 (None)
+            394 STORE_FAST               7 (e)
+            396 DELETE_FAST              7 (e)
+            398 RERAISE                  1
+
+545     >>  400 RERAISE                  0
+        >>  402 COPY                     3
+            404 POP_EXCEPT
+            406 RERAISE                  1
+ExceptionTable:
+  8 to 252 -> 258 [0]
+  258 to 276 -> 402 [1] lasti
+  278 to 378 -> 392 [1] lasti
+  392 to 400 -> 402 [1] lasti
+
+Disassembly of <code object auto_execute_follow_through at 0x000001C31288D070, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 549>:
+549           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+561           6 LOAD_FAST                4 (auto_action)
+              8 LOAD_CONST               1 ('draft')
+             10 COMPARE_OP               2 (==)
+             16 POP_JUMP_FORWARD_IF_FALSE    29 (to 76)
+
+562          18 LOAD_FAST                0 (self)
+             20 LOAD_METHOD              0 (_auto_draft_response)
+             42 LOAD_FAST                1 (db)
+             44 LOAD_FAST                2 (user_id)
+             46 LOAD_FAST                3 (email_id)
+             48 PRECALL                  3
+             52 CALL                     3
+             62 GET_AWAITABLE            0
+             64 LOAD_CONST               2 (None)
+        >>   66 SEND                     3 (to 74)
+             68 YIELD_VALUE
+             70 RESUME                   3
+             72 JUMP_BACKWARD_NO_INTERRUPT     4 (to 66)
+        >>   74 RETURN_VALUE
+
+563     >>   76 LOAD_FAST                4 (auto_action)
+             78 LOAD_CONST               3 ('schedule')
+             80 COMPARE_OP               2 (==)
+             86 POP_JUMP_FORWARD_IF_FALSE    29 (to 146)
+
+564          88 LOAD_FAST                0 (self)
+             90 LOAD_METHOD              1 (_auto_schedule_followup)
+            112 LOAD_FAST                1 (db)
+            114 LOAD_FAST                2 (user_id)
+            116 LOAD_FAST                3 (email_id)
+            118 PRECALL                  3
+            122 CALL                     3
+            132 GET_AWAITABLE            0
+            134 LOAD_CONST               2 (None)
+        >>  136 SEND                     3 (to 144)
+            138 YIELD_VALUE
+            140 RESUME                   3
+            142 JUMP_BACKWARD_NO_INTERRUPT     4 (to 136)
+        >>  144 RETURN_VALUE
+
+565     >>  146 LOAD_FAST                4 (auto_action)
+            148 LOAD_CONST               4 ('snooze')
+            150 COMPARE_OP               2 (==)
+            156 POP_JUMP_FORWARD_IF_FALSE    29 (to 216)
+
+566         158 LOAD_FAST                0 (self)
+            160 LOAD_METHOD              2 (_auto_snooze)
+            182 LOAD_FAST                1 (db)
+            184 LOAD_FAST                2 (user_id)
+            186 LOAD_FAST                3 (email_id)
+            188 PRECALL                  3
+            192 CALL                     3
+            202 GET_AWAITABLE            0
+            204 LOAD_CONST               2 (None)
+        >>  206 SEND                     3 (to 214)
+            208 YIELD_VALUE
+            210 RESUME                   3
+            212 JUMP_BACKWARD_NO_INTERRUPT     4 (to 206)
+        >>  214 RETURN_VALUE
+
+568     >>  216 LOAD_CONST               5 (False)
+            218 RETURN_VALUE
+
+Disassembly of <code object _auto_draft_response at 0x000001C312B5BF50, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 570>:
+570           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+577           6 NOP
+
+578           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               4 (email)
+
+579         162 LOAD_FAST                4 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+580         166 LOAD_CONST               1 (False)
+            168 RETURN_VALUE
+
+583     >>  170 LOAD_FAST                0 (self)
+            172 LOAD_ATTR                5 (memory)
+            182 LOAD_METHOD              6 (recall)
+
+584         204 LOAD_FAST                4 (email)
+            206 LOAD_ATTR                7 (subject)
+            216 JUMP_IF_TRUE_OR_POP      8 (to 234)
+            218 LOAD_FAST                4 (email)
+            220 LOAD_ATTR                8 (body)
+            230 JUMP_IF_TRUE_OR_POP      1 (to 234)
+            232 LOAD_CONST               2 ('')
+
+585     >>  234 LOAD_CONST               3 (3)
+
+583         236 KW_NAMES                 4
+            238 PRECALL                  2
+            242 CALL                     2
+            252 GET_AWAITABLE            0
+            254 LOAD_CONST               5 (None)
+        >>  256 SEND                     3 (to 264)
+            258 YIELD_VALUE
+            260 RESUME                   3
+            262 JUMP_BACKWARD_NO_INTERRUPT     4 (to 256)
+        >>  264 STORE_FAST               5 (memories)
+
+589         266 LOAD_CONST               6 ('Draft a professional response to this email:\n\nFrom: ')
+
+591         268 LOAD_FAST                4 (email)
+            270 LOAD_ATTR                9 (sender)
+
+589         280 FORMAT_VALUE             0
+            282 LOAD_CONST               7 ('\nSubject: ')
+
+592         284 LOAD_FAST                4 (email)
+            286 LOAD_ATTR                7 (subject)
+
+589         296 FORMAT_VALUE             0
+            298 LOAD_CONST               8 ('\n\nBody:\n')
+
+595         300 LOAD_FAST                4 (email)
+            302 LOAD_ATTR                8 (body)
+            312 JUMP_IF_TRUE_OR_POP      8 (to 330)
+            314 LOAD_FAST                4 (email)
+            316 LOAD_ATTR               10 (snippet)
+            326 JUMP_IF_TRUE_OR_POP      1 (to 330)
+            328 LOAD_CONST               9 ('(No body available)')
+
+589     >>  330 FORMAT_VALUE             0
+            332 LOAD_CONST              10 ('\n\nRelevant context:\n')
+
+598         334 LOAD_CONST              11 (' | ')
+            336 LOAD_METHOD             11 (join)
+            358 LOAD_CONST              12 (<code object <listcomp> at 0x000001C312827330, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 598>)
+            360 MAKE_FUNCTION            0
+            362 LOAD_FAST                5 (memories)
+            364 GET_ITER
+            366 PRECALL                  0
+            370 CALL                     0
+            380 PRECALL                  1
+            384 CALL                     1
+
+589         394 FORMAT_VALUE             0
+            396 LOAD_CONST              13 ('\n\nReturn strict JSON: {"subject": "...", "body": "..."}')
+            398 BUILD_STRING             9
+            400 STORE_FAST               6 (prompt)
+
+602         402 LOAD_FAST                0 (self)
+            404 LOAD_ATTR               12 (brain)
+            414 LOAD_METHOD             13 (think)
+
+603         436 LOAD_FAST                6 (prompt)
+
+604         438 LOAD_CONST              14 ('You are Aaliyah, an executive assistant. Draft professional, warm, actionable emails.')
+
+605         440 LOAD_GLOBAL             28 (ModelType)
+            452 LOAD_ATTR               15 (REASONING)
+            462 LOAD_ATTR               16 (value)
+
+602         472 KW_NAMES                15
+            474 PRECALL                  3
+            478 CALL                     3
+            488 GET_AWAITABLE            0
+            490 LOAD_CONST               5 (None)
+        >>  492 SEND                     3 (to 500)
+            494 YIELD_VALUE
+            496 RESUME                   3
+            498 JUMP_BACKWARD_NO_INTERRUPT     4 (to 492)
+        >>  500 STORE_FAST               7 (response)
+
+609         502 NOP
+
+610         504 LOAD_GLOBAL             35 (NULL + json)
+            516 LOAD_ATTR               18 (loads)
+            526 LOAD_FAST                7 (response)
+            528 LOAD_ATTR               19 (content)
+            538 PRECALL                  1
+            542 CALL                     1
+            552 STORE_FAST               8 (draft_data)
+
+611         554 BUILD_MAP                0
+
+612         556 LOAD_FAST                4 (email)
+            558 LOAD_ATTR               20 (metadata_json)
+            568 JUMP_IF_TRUE_OR_POP      1 (to 572)
+            570 BUILD_MAP                0
+
+611     >>  572 DICT_UPDATE              1
+
+613         574 LOAD_CONST              16 ('auto_draft')
+
+614         576 LOAD_FAST                8 (draft_data)
+            578 LOAD_METHOD             21 (get)
+            600 LOAD_CONST              17 ('subject')
+            602 LOAD_CONST               2 ('')
+            604 PRECALL                  2
+            608 CALL                     2
+
+615         618 LOAD_FAST                8 (draft_data)
+            620 LOAD_METHOD             21 (get)
+            642 LOAD_CONST              18 ('body')
+            644 LOAD_CONST               2 ('')
+            646 PRECALL                  2
+            650 CALL                     2
+
+616         660 LOAD_GLOBAL             45 (NULL + datetime)
+            672 LOAD_ATTR               23 (now)
+            682 LOAD_GLOBAL             48 (timezone)
+            694 LOAD_ATTR               25 (utc)
+            704 PRECALL                  1
+            708 CALL                     1
+            718 LOAD_METHOD             26 (isoformat)
+            740 PRECALL                  0
+            744 CALL                     0
+
+617         754 LOAD_CONST              19 ('ready_for_review')
+
+613         756 LOAD_CONST              20 (('subject', 'body', 'generated_at', 'status'))
+            758 BUILD_CONST_KEY_MAP      4
+
+611         760 BUILD_MAP                1
+            762 DICT_UPDATE              1
+            764 LOAD_FAST                4 (email)
+            766 STORE_ATTR              20 (metadata_json)
+
+620         776 LOAD_FAST                1 (db)
+            778 LOAD_METHOD             27 (commit)
+            800 PRECALL                  0
+            804 CALL                     0
+            814 POP_TOP
+
+621         816 LOAD_CONST              21 (True)
+            818 RETURN_VALUE
+        >>  820 PUSH_EXC_INFO
+
+622         822 POP_TOP
+
+623         824 POP_EXCEPT
+            826 LOAD_CONST               1 (False)
+            828 RETURN_VALUE
+        >>  830 COPY                     3
+            832 POP_EXCEPT
+            834 RERAISE                  1
+        >>  836 PUSH_EXC_INFO
+
+625         838 LOAD_GLOBAL             56 (Exception)
+            850 CHECK_EXC_MATCH
+            852 POP_JUMP_FORWARD_IF_FALSE    42 (to 938)
+            854 STORE_FAST               9 (e)
+
+626         856 LOAD_GLOBAL             58 (logger)
+            868 LOAD_METHOD             30 (error)
+            890 LOAD_CONST              22 ('[AutoChat] Error in auto_draft: ')
+            892 LOAD_FAST                9 (e)
+            894 FORMAT_VALUE             0
+            896 BUILD_STRING             2
+            898 LOAD_CONST              21 (True)
+            900 KW_NAMES                23
+            902 PRECALL                  2
+            906 CALL                     2
+            916 POP_TOP
+
+627         918 POP_EXCEPT
+            920 LOAD_CONST               5 (None)
+            922 STORE_FAST               9 (e)
+            924 DELETE_FAST              9 (e)
+            926 LOAD_CONST               1 (False)
+            928 RETURN_VALUE
+        >>  930 LOAD_CONST               5 (None)
+            932 STORE_FAST               9 (e)
+            934 DELETE_FAST              9 (e)
+            936 RERAISE                  1
+
+625     >>  938 RERAISE                  0
+        >>  940 COPY                     3
+            942 POP_EXCEPT
+            944 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 836 [0]
+  170 to 500 -> 836 [0]
+  504 to 814 -> 820 [0]
+  820 to 822 -> 830 [1] lasti
+  824 to 824 -> 836 [0]
+  830 to 834 -> 836 [0]
+  836 to 854 -> 940 [1] lasti
+  856 to 916 -> 930 [1] lasti
+  930 to 938 -> 940 [1] lasti
+
+Disassembly of <code object <listcomp> at 0x000001C312827330, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 598>:
+598           0 RESUME                   0
+              2 BUILD_LIST               0
+              4 LOAD_FAST                0 (.0)
+        >>    6 FOR_ITER                32 (to 72)
+              8 STORE_FAST               1 (m)
+             10 LOAD_FAST                1 (m)
+             12 LOAD_METHOD              0 (get)
+             34 LOAD_CONST               0 ('content_text')
+             36 LOAD_CONST               1 ('')
+             38 PRECALL                  2
+             42 CALL                     2
+             52 LOAD_CONST               2 (None)
+             54 LOAD_CONST               3 (100)
+             56 BUILD_SLICE              2
+             58 BINARY_SUBSCR
+             68 LIST_APPEND              2
+             70 JUMP_BACKWARD           33 (to 6)
+        >>   72 RETURN_VALUE
+
+Disassembly of <code object _auto_schedule_followup at 0x000001C312B5D2D0, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 629>:
+629           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+636           6 NOP
+
+639           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               4 (email)
+
+640         162 LOAD_FAST                4 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+641         166 LOAD_CONST               1 (False)
+            168 RETURN_VALUE
+
+643     >>  170 BUILD_MAP                0
+
+644         172 LOAD_FAST                4 (email)
+            174 LOAD_ATTR                5 (metadata_json)
+            184 JUMP_IF_TRUE_OR_POP      1 (to 188)
+            186 BUILD_MAP                0
+
+643     >>  188 DICT_UPDATE              1
+
+645         190 LOAD_CONST               2 ('auto_scheduled_followup')
+
+646         192 LOAD_GLOBAL             13 (NULL + datetime)
+            204 LOAD_ATTR                7 (now)
+            214 LOAD_GLOBAL             16 (timezone)
+            226 LOAD_ATTR                9 (utc)
+            236 PRECALL                  1
+            240 CALL                     1
+            250 LOAD_METHOD             10 (isoformat)
+            272 PRECALL                  0
+            276 CALL                     0
+
+647         286 LOAD_CONST               3 (3)
+
+645         288 LOAD_CONST               4 (('scheduled_at', 'reminder_in_days'))
+            290 BUILD_CONST_KEY_MAP      2
+
+643         292 BUILD_MAP                1
+            294 DICT_UPDATE              1
+            296 LOAD_FAST                4 (email)
+            298 STORE_ATTR               5 (metadata_json)
+
+650         308 LOAD_FAST                1 (db)
+            310 LOAD_METHOD             11 (commit)
+            332 PRECALL                  0
+            336 CALL                     0
+            346 POP_TOP
+
+651         348 LOAD_CONST               5 (True)
+            350 RETURN_VALUE
+        >>  352 PUSH_EXC_INFO
+
+653         354 LOAD_GLOBAL             24 (Exception)
+            366 CHECK_EXC_MATCH
+            368 POP_JUMP_FORWARD_IF_FALSE    42 (to 454)
+            370 STORE_FAST               5 (e)
+
+654         372 LOAD_GLOBAL             26 (logger)
+            384 LOAD_METHOD             14 (error)
+            406 LOAD_CONST               6 ('[AutoChat] Error in auto_schedule: ')
+            408 LOAD_FAST                5 (e)
+            410 FORMAT_VALUE             0
+            412 BUILD_STRING             2
+            414 LOAD_CONST               5 (True)
+            416 KW_NAMES                 7
+            418 PRECALL                  2
+            422 CALL                     2
+            432 POP_TOP
+
+655         434 POP_EXCEPT
+            436 LOAD_CONST               8 (None)
+            438 STORE_FAST               5 (e)
+            440 DELETE_FAST              5 (e)
+            442 LOAD_CONST               1 (False)
+            444 RETURN_VALUE
+        >>  446 LOAD_CONST               8 (None)
+            448 STORE_FAST               5 (e)
+            450 DELETE_FAST              5 (e)
+            452 RERAISE                  1
+
+653     >>  454 RERAISE                  0
+        >>  456 COPY                     3
+            458 POP_EXCEPT
+            460 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 352 [0]
+  170 to 346 -> 352 [0]
+  352 to 370 -> 456 [1] lasti
+  372 to 432 -> 446 [1] lasti
+  446 to 454 -> 456 [1] lasti
+
+Disassembly of <code object _auto_snooze at 0x000001C312B5D560, file "apps/api/app/agents/aaliyah/core/auto_chat_service.py", line 657>:
+657           0 RETURN_GENERATOR
+              2 POP_TOP
+              4 RESUME                   0
+
+665           6 NOP
+
+666           8 LOAD_FAST                1 (db)
+             10 LOAD_METHOD              0 (query)
+             32 LOAD_GLOBAL              2 (TriagedEmail)
+             44 PRECALL                  1
+             48 CALL                     1
+             58 LOAD_METHOD              2 (filter)
+             80 LOAD_GLOBAL              2 (TriagedEmail)
+             92 LOAD_ATTR                3 (id)
+            102 LOAD_FAST                3 (email_id)
+            104 COMPARE_OP               2 (==)
+            110 PRECALL                  1
+            114 CALL                     1
+            124 LOAD_METHOD              4 (first)
+            146 PRECALL                  0
+            150 CALL                     0
+            160 STORE_FAST               5 (email)
+
+667         162 LOAD_FAST                5 (email)
+            164 POP_JUMP_FORWARD_IF_TRUE     2 (to 170)
+
+668         166 LOAD_CONST               1 (False)
+            168 RETURN_VALUE
+
+670     >>  170 LOAD_GLOBAL             11 (NULL + datetime)
+            182 LOAD_ATTR                6 (now)
+            192 LOAD_GLOBAL             14 (timezone)
+            204 LOAD_ATTR                8 (utc)
+            214 PRECALL                  1
+            218 CALL                     1
+            228 LOAD_GLOBAL             19 (NULL + timedelta)
+            240 LOAD_FAST                4 (hours)
+            242 KW_NAMES                 2
+            244 PRECALL                  1
+            248 CALL                     1
+            258 BINARY_OP                0 (+)
+            262 STORE_FAST               6 (snooze_until)
+
+671         264 BUILD_MAP                0
+
+672         266 LOAD_FAST                5 (email)
+            268 LOAD_ATTR               10 (metadata_json)
+            278 JUMP_IF_TRUE_OR_POP      1 (to 282)
+            280 BUILD_MAP                0
+
+671     >>  282 DICT_UPDATE              1
+
+673         284 LOAD_CONST               3 ('snoozed_until')
+            286 LOAD_FAST                6 (snooze_until)
+            288 LOAD_METHOD             11 (isoformat)
+            310 PRECALL                  0
+            314 CALL                     0
+
+671         324 BUILD_MAP                1
+            326 DICT_UPDATE              1
+            328 LOAD_FAST                5 (email)
+            330 STORE_ATTR              10 (metadata_json)
+
+675         340 LOAD_FAST                1 (db)
+            342 LOAD_METHOD             12 (commit)
+            364 PRECALL                  0
+            368 CALL                     0
+            378 POP_TOP
+
+676         380 LOAD_CONST               4 (True)
+            382 RETURN_VALUE
+        >>  384 PUSH_EXC_INFO
+
+678         386 LOAD_GLOBAL             26 (Exception)
+            398 CHECK_EXC_MATCH
+            400 POP_JUMP_FORWARD_IF_FALSE    42 (to 486)
+            402 STORE_FAST               7 (e)
+
+679         404 LOAD_GLOBAL             28 (logger)
+            416 LOAD_METHOD             15 (error)
+            438 LOAD_CONST               5 ('[AutoChat] Error in auto_snooze: ')
+            440 LOAD_FAST                7 (e)
+            442 FORMAT_VALUE             0
+            444 BUILD_STRING             2
+            446 LOAD_CONST               4 (True)
+            448 KW_NAMES                 6
+            450 PRECALL                  2
+            454 CALL                     2
+            464 POP_TOP
+
+680         466 POP_EXCEPT
+            468 LOAD_CONST               7 (None)
+            470 STORE_FAST               7 (e)
+            472 DELETE_FAST              7 (e)
+            474 LOAD_CONST               1 (False)
+            476 RETURN_VALUE
+        >>  478 LOAD_CONST               7 (None)
+            480 STORE_FAST               7 (e)
+            482 DELETE_FAST              7 (e)
+            484 RERAISE                  1
+
+678     >>  486 RERAISE                  0
+        >>  488 COPY                     3
+            490 POP_EXCEPT
+            492 RERAISE                  1
+ExceptionTable:
+  8 to 164 -> 384 [0]
+  170 to 378 -> 384 [0]
+  384 to 402 -> 488 [1] lasti
+  404 to 464 -> 478 [1] lasti
+  478 to 486 -> 488 [1] lasti

@@ -125,6 +125,14 @@ export function MorningBriefing() {
   const isError = greeting.state === "error" || greeting.state === "reconnect"
   const isOnboarding = greeting.state === "onboarding" || greeting.state === "connected_not_synced"
 
+  const getGreetingText = () => {
+    if (isError) return greeting.greeting
+    const hour = new Date().getHours()
+    if (hour < 12) return "Good Morning"
+    if (hour < 17) return "Good Afternoon"
+    return "Good Evening"
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-slide-in-soft">
 
@@ -159,7 +167,7 @@ export function MorningBriefing() {
             "text-xl font-semibold mb-2",
             isError ? "text-red-900" : "text-textPrimary"
           )}>
-            {greeting.greeting}
+            {getGreetingText()}, {greeting.greeting.split(',').pop()?.trim() || "User"}
           </h2>
 
           <p className={cn(

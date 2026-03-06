@@ -192,17 +192,6 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
             className="w-full max-w-4xl bg-white h-[80vh] lg:h-[700px] rounded-3xl shadow-xl flex flex-col sm:flex-row border border-slate-200 overflow-hidden relative font-sans text-slate-900 selection:bg-slate-200"
             onClick={(e) => e.stopPropagation()}
         >
-            <style dangerouslySetInnerHTML={{
-                __html: `
-              .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-              .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-              .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 10px; }
-              .glass-switch { transition: all 0.3s; }
-              .glass-switch.active { background: black; }
-              .glass-switch:not(.active) { background: #e2e8f0; } /* slate-200 */
-              .glass-switch .knob { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); background: white; }
-            `}} />
-
             {/* Sidebar */}
             <div className="w-full sm:w-[240px] bg-slate-50/50 border-r border-slate-200 p-6 flex flex-col items-start gap-4 shrink-0">
                 <div className="flex items-center gap-3 mb-6">
@@ -217,6 +206,8 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
+                            aria-label={`Switch to ${tab.label} tab`}
+                            aria-current={activeTab === tab.id ? "true" : "false"}
                             className={cn(
                                 "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all duration-300",
                                 activeTab === tab.id
@@ -250,7 +241,11 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                 <div className="h-20 px-10 flex items-center justify-between border-b border-slate-100 bg-white shrink-0">
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">{tabs.find(t => t.id === activeTab)?.label}</h2>
                     {onClose && (
-                        <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-2.5 bg-slate-50 rounded-full text-slate-500 hover:text-black transition-colors border border-slate-200 hover:bg-slate-100">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onClose(); }}
+                            aria-label="Close settings"
+                            className="p-2.5 bg-slate-50 rounded-full text-slate-500 hover:text-black transition-colors border border-slate-200 hover:bg-slate-100"
+                        >
                             <X className="h-4 w-4" />
                         </button>
                     )}
@@ -274,7 +269,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                 <h3 className="font-bold text-slate-900">Organize Emails</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Automatically label incoming emails.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, organizeInbox: !c.organizeInbox }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.organizeInbox ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, organizeInbox: !c.organizeInbox }))}
+                                                aria-label="Toggle Organize Emails"
+                                                aria-pressed={config.organizeInbox}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.organizeInbox ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.organizeInbox ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -283,7 +283,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                 <h3 className="font-bold text-slate-900">Draft Replies</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Provide reply suggestions.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, draftReplies: !c.draftReplies }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftReplies ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, draftReplies: !c.draftReplies }))}
+                                                aria-label="Toggle Draft Replies"
+                                                aria-pressed={config.draftReplies}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.draftReplies ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.draftReplies ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -293,7 +298,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                     <h3 className="font-bold text-slate-900">Track Pending Replies</h3>
                                                     <p className="text-sm text-slate-500 mt-1">Remind you if someone hasn't replied.</p>
                                                 </div>
-                                                <button onClick={() => setConfig(c => ({ ...c, trackFollowUps: !c.trackFollowUps }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.trackFollowUps ? "active" : "")}>
+                                                <button
+                                                    onClick={() => setConfig(c => ({ ...c, trackFollowUps: !c.trackFollowUps }))}
+                                                    aria-label="Toggle Track Pending Replies"
+                                                    aria-pressed={config.trackFollowUps}
+                                                    className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.trackFollowUps ? "active" : "")}
+                                                >
                                                     <div className={cn("knob w-4 h-4 rounded-full", config.trackFollowUps ? "translate-x-6" : "")} />
                                                 </button>
                                             </div>
@@ -325,7 +335,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                 <h3 className="font-bold text-slate-900">Manage Calendar</h3>
                                                 <p className="text-sm text-slate-500 mt-1">Enable Aaliyah to read your availability.</p>
                                             </div>
-                                            <button onClick={() => setConfig(c => ({ ...c, manageCalendar: !c.manageCalendar }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.manageCalendar ? "active" : "")}>
+                                            <button
+                                                onClick={() => setConfig(c => ({ ...c, manageCalendar: !c.manageCalendar }))}
+                                                aria-label="Toggle Manage Calendar"
+                                                aria-pressed={config.manageCalendar}
+                                                className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.manageCalendar ? "active" : "")}
+                                            >
                                                 <div className={cn("knob w-4 h-4 rounded-full", config.manageCalendar ? "translate-x-6" : "")} />
                                             </button>
                                         </div>
@@ -335,7 +350,12 @@ export default function SettingsForm({ onClose }: SettingsFormProps) {
                                                     <h3 className="font-bold text-slate-900">Attend Meetings</h3>
                                                     <p className="text-sm text-slate-500 mt-1">Join calls to take notes automatically.</p>
                                                 </div>
-                                                <button onClick={() => setConfig(c => ({ ...c, attendMeetings: !c.attendMeetings }))} className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.attendMeetings ? "active" : "")}>
+                                                <button
+                                                    onClick={() => setConfig(c => ({ ...c, attendMeetings: !c.attendMeetings }))}
+                                                    aria-label="Toggle Attend Meetings"
+                                                    aria-pressed={config.attendMeetings}
+                                                    className={cn("glass-switch w-12 h-6 rounded-full flex items-center p-1", config.attendMeetings ? "active" : "")}
+                                                >
                                                     <div className={cn("knob w-4 h-4 rounded-full", config.attendMeetings ? "translate-x-6" : "")} />
                                                 </button>
                                             </div>

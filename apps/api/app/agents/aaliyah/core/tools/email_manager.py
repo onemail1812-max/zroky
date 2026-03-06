@@ -13,6 +13,59 @@ from app.services.integrations.microsoft_outlook import OutlookService
 
 from ..ingestion.email_ingestor import EmailIngestor
 from ..interfaces.tool import AaliyahTool
+from ..runtime_gate import final_action_gate
+from app.models.workspace import Workspace
+import re
+from datetime import datetime
+from collections import defaultdict
+
+# Regex for basic email validation
+EMAIL_REGEX = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+BLACKLISTED_DOMAINS = {"example.com", "test.com", "dummy.com", "localhost"}
+
+# In-memory fallback if Redis is unavailable
+_fallback_limits = defaultdict(int)
+
+def _check_rate_limit(action_type: str, workspace_id: str, limit: int) -> bool:
+    """Returns True if allowed, False if limit exceeded."""
+    from app.services.brain.hot_state import _get_redis
+    redis_client = _get_redis()
+    today = datetime.now().strftime("%Y-%m-%d")
+    key = f"aaliyah:limits:{action_type}:{workspace_id}:{today}"
+    
+    if redis_client:
+        try:
+            current = redis_client.incr(key)
+            if current == 1:
+                redis_client.expire(key, 86400) # 24 hours
+            if current > limit:
+                return False
+            return True
+        except Exception:
+            pass # fallback if redis fails
+            
+    # Fallback
+    _fallback_limits[key] += 1
+    if _fallback_limits[key] > limit:
+        return False
+    return True
+
+def _validate_recipients(recipients_str: str) -> None:
+    recipients = [r.strip() for r in recipients_str.split(",")]
+    for r in recipients:
+        if not r: continue
+        # strip name if format like "Name <email>"
+        email = r
+        if "<" in r and ">" in r:
+            email = r[r.find("<")+1:r.find(">")]
+        
+        email = email.lower().strip()
+        if not EMAIL_REGEX.match(email):
+            raise ValueError(f"Invalid email format: '{email}'")
+        
+        domain = email.split("@")[-1]
+        if domain in BLACKLISTED_DOMAINS:
+            raise ValueError(f"Sending to blacklisted test domain not allowed: '{domain}'")
 
 
 class EmailManager(AaliyahTool):
@@ -71,6 +124,16 @@ class EmailManager(AaliyahTool):
         if not recipient or not subject or not body:
             return {"error": "invalid_request", "message": "recipient, subject, and body are required"}
 
+        # Safety: Ensure recipient is not a blocked domain or internal-only if restricted
+        try:
+            _validate_recipients(recipient)
+        except ValueError as ve:
+            return {"error": "validation_failed", "message": str(ve)}
+            
+        # Rate Limiting: 50 drafts per day
+        if not _check_rate_limit("drafts", workspace_id, 50):
+            return {"error": "rate_limit_exceeded", "message": "Daily AI draft limit reached (50/day). Please try again tomorrow."}
+
         db = SessionLocal()
         try:
             resolved_provider, client = self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
@@ -94,8 +157,41 @@ class EmailManager(AaliyahTool):
         if not recipient or not subject or not body:
             return {"error": "invalid_request", "message": "recipient, subject, and body are required"}
 
+        # CRITICAL: Since this tool can send on behalf of the user, ensure it's not being abused
+        # for spam or massive bulk sending.
+        try:
+            _validate_recipients(recipient)
+        except ValueError as ve:
+            return {"error": "validation_failed", "message": f"Action blocked due to safety measures: {str(ve)}"}
+            
+        # Hard Rate Limiting: 20 sends per day autonomously
+        if not _check_rate_limit("sends", workspace_id, 20):
+             return {"error": "rate_limit_exceeded", "message": "CRITICAL: Daily autonomous send limit reached (20/day). Action blocked for safety."}
+
         db = SessionLocal()
         try:
+            # 2. Final Action Gate
+            workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            settings = getattr(workspace, "settings_json", {}) or {}
+            
+            draft_payload = {
+                "recipient": recipient,
+                "subject": subject,
+                "body": body,
+                "provider": provider
+            }
+            
+            allowed = final_action_gate(
+                action="SEND",
+                email_row=None, # Compose New
+                draft=draft_payload,
+                settings=settings,
+                is_explicit_approval=False # Autonomous tool run
+            )
+            
+            if not allowed:
+                return {"error": "gate_blocked", "message": "Action blocked by Final Action Gate. content safety or policy check failed."}
+
             resolved_provider, client = self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
             sent = client.send_message(recipient=recipient, subject=subject, body=body)
             return {"status": "sent", "provider": resolved_provider, "raw": sent}

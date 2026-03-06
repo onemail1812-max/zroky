@@ -32,6 +32,7 @@ export default function OAuthCallbackClient() {
 
       // Backend-handled completion (connectors.py redirects with ?success=true)
       const success = searchParams.get("success") === "true"
+      const provider = searchParams.get("provider")
       if (success) {
         setStatus("success")
         setMessage("Connection verified. Redirecting you back to your workspace...")
@@ -42,8 +43,11 @@ export default function OAuthCallbackClient() {
         } else {
           // Fallback if not opened as popup
           const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+          const separator = returnPath.includes('?') ? '&' : '?';
+          const finalUrl = `${returnPath}${separator}oauth_success=true${provider ? `&provider=${provider}` : ''}`;
+
           setTimeout(() => {
-            window.location.href = returnPath;
+            window.location.href = finalUrl;
           }, 1500)
         }
         return
@@ -56,6 +60,17 @@ export default function OAuthCallbackClient() {
         setStatus("error")
         setMessage(errorDescription || "OAuth authorization was denied")
         notifyParent(false, error, errorDescription || undefined)
+
+        if (!window.opener) {
+          // Fallback if not opened as popup: Return to workspace after delay
+          const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+          const separator = returnPath.includes('?') ? '&' : '?';
+          const finalUrl = `${returnPath}${separator}oauth_error=${error}${errorDescription ? `&oauth_error_description=${encodeURIComponent(errorDescription)}` : ''}`;
+
+          setTimeout(() => {
+            window.location.href = finalUrl;
+          }, 3000)
+        }
         return
       }
 
@@ -63,6 +78,12 @@ export default function OAuthCallbackClient() {
         setStatus("error")
         setMessage("Missing authorization code or state")
         notifyParent(false, "missing_params")
+
+        if (!window.opener) {
+          setTimeout(() => {
+            window.location.href = '/aaliyahworkspace?oauth_error=missing_params';
+          }, 3000)
+        }
         return
       }
 
@@ -70,6 +91,7 @@ export default function OAuthCallbackClient() {
         const result = await connectorService.handleCallback(code, state)
 
         if (result.success) {
+          const resultProvider = result.account?.provider || sessionStorage.getItem('oauth_provider');
           setStatus("success")
           setMessage(`Connected ${result.account?.email || "account"} successfully.`)
           localStorage.setItem("oauth_result", "success")
@@ -80,19 +102,38 @@ export default function OAuthCallbackClient() {
           } else {
             // Fallback if not opened as popup
             const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+            const separator = returnPath.includes('?') ? '&' : '?';
+            const finalUrl = `${returnPath}${separator}oauth_success=true${resultProvider ? `&provider=${resultProvider}` : ''}`;
+
             setTimeout(() => {
-              window.location.href = returnPath;
+              window.location.href = finalUrl;
             }, 1500)
           }
         } else {
           setStatus("error")
           setMessage(result.error || "Failed to connect account")
           notifyParent(false, result.error)
+
+          if (!window.opener) {
+            const returnPath = sessionStorage.getItem('oauth_return_path') || '/aaliyahworkspace';
+            const separator = returnPath.includes('?') ? '&' : '?';
+            const finalUrl = `${returnPath}${separator}oauth_error=${result.error || 'callback_failed'}`;
+
+            setTimeout(() => {
+              window.location.href = finalUrl;
+            }, 3000)
+          }
         }
       } catch {
         setStatus("error")
         setMessage("An unexpected error occurred during authorization.")
         notifyParent(false, "unexpected_error")
+
+        if (!window.opener) {
+          setTimeout(() => {
+            window.location.href = '/aaliyahworkspace?oauth_error=unexpected_error';
+          }, 3000)
+        }
       }
     }
 

@@ -76,7 +76,18 @@ function Chip({ className, variant, color, size, selected, label, children, ...p
     const finalColor = selected ? "violet" : color || "default"
 
     return (
-        <div className={cn(chipVariants({ variant: finalVariant, color: finalColor, size }), className)} {...props}>
+        <div
+            role={props.onClick ? "button" : undefined}
+            tabIndex={props.onClick ? 0 : undefined}
+            onKeyDown={(e) => {
+                if (props.onClick && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    (props.onClick as any)(e);
+                }
+            }}
+            className={cn(chipVariants({ variant: finalVariant, color: finalColor, size }), className)}
+            {...props}
+        >
             {label || children}
         </div>
     )

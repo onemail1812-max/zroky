@@ -55,18 +55,24 @@ class PolicyEngine:
         settings = getattr(workspace, "settings_json", {}) or {}
         aaliyah_settings = settings.get("aaliyah", {})
         
-        vip_senders = aaliyah_settings.get("vip_senders", [])
-        # MANDATORY: Human-in-the-loop is now an ironclad requirement.
-        always_require_approval = True 
-        required_topics = aaliyah_settings.get("approval_required_topics", ["Financials", "Hiring", "External Strategy"])
-
+        # [v2.3-Lockdown] ABSOLUTE MANUAL MODE
+        # All destructive intents now require human approval regardless of settings.
         allowed_actions: Set[str] = {
             "LABEL", "ARCHIVE", "SUMMARY", "DRAFT", "CREATE_TASK", "UPDATE_PREFERENCE",
             "MEETING_PREP", "BRIEFING", "STATUS",
         }
 
+        # Outbound/Execute actions are non-negotiably gated.
+        if canonical in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
+            return PolicyDecision(
+                allowed=True, # Allowed to prepare/draft
+                reason="Absolute Manual Mode: All outbound actions require explicit human approval.",
+                allowed_actions=allowed_actions,
+                require_approval=True,
+            )
+
         # Default deny for unknown.
-        if canonical not in allowed_actions and canonical not in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
+        if canonical not in allowed_actions:
             return PolicyDecision(
                 allowed=False,
                 reason=f"Unknown intent '{intent}'. Defaulting to review.",
@@ -74,70 +80,10 @@ class PolicyEngine:
                 require_approval=True,
             )
 
-        # 2. VIP Enforcement
-        ctx = context or {}
-        sender = ctx.get("sender", "")
-        is_vip = any(v.lower() in sender.lower() for v in vip_senders) if sender and vip_senders else False
-        
-        if is_vip:
-             return PolicyDecision(
-                allowed=True,
-                reason="VIP Sender: All actions require executive review.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
-        # 3. Global Approval Gate
-        if always_require_approval and canonical in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
-            return PolicyDecision(
-                allowed=False,
-                reason=f"Policy: {canonical} always requires manual approval per workspace settings.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
-        # 4. Sensitive Topic Detection (Sprint 2 Enforcement)
-        subject = ctx.get("subject", "").lower()
-        body = ctx.get("body", "").lower()
-        matched_topic = next((t for t in required_topics if t.lower() in subject or t.lower() in body), None)
-        
-        if matched_topic:
-             return PolicyDecision(
-                allowed=True,
-                reason=f"Sensitive topic '{matched_topic}' detected: require approval.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
-        # Risk-aware approval.
-        if str(risk_domain or "").upper() in {"MONEY", "LEGAL", "HR", "SECURITY"}:
-            return PolicyDecision(
-                allowed=True,
-                reason=f"High-risk domain {risk_domain}: require approval.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
-        # Context-based approval rules (deterministic).
-        if bool(ctx.get("is_new_sender")) and bool(ctx.get("is_actionable")):
-            return PolicyDecision(
-                allowed=True,
-                reason="New sender + actionable request: require approval.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
-        if bool(ctx.get("has_attachments")):
-            return PolicyDecision(
-                allowed=True,
-                reason="Attachments present: require approval.",
-                allowed_actions=allowed_actions,
-                require_approval=True,
-            )
-
+        # Informational actions (Labels, Summaries, Briefings) remain autonomous.
         return PolicyDecision(
             allowed=True,
-            reason="Allowed by deterministic policy.",
+            reason="Operational Autonomy (Non-Outbound).",
             allowed_actions=allowed_actions,
             require_approval=False,
         )

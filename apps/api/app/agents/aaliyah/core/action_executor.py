@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.triaged_email import TriagedEmail
+from app.models.triaged_thread import TriagedThread
 from app.models.workspace import Workspace
 from app.models.send_token import SendToken
 from app.services.audit_log_service import AuditAction, AuditEntityType, AuditLogService
@@ -48,6 +49,23 @@ class ActionExecutor:
         risk: Any,
         model_confidence: float,
     ) -> dict[str, Any]:
+        # 1. Idempotency Check
+        token_hash = self._generate_idempotency_token(workspace_id, message_id, f"LABEL:{label_name}")
+        existing_token = self.db.query(SendToken).filter(SendToken.token_hash == token_hash).first()
+        if existing_token:
+            if datetime.now(timezone.utc) - existing_token.created_at < timedelta(minutes=10):
+                return {"status": "idempotency_blocked", "message": "Action already in progress or recently completed."}
+
+        new_token = SendToken(
+            token_hash=token_hash,
+            workspace_id=workspace_id,
+            entity_id=message_id,
+            action_type="APPLY_LABEL",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
+        )
+        self.db.add(new_token)
+        self.db.commit()
+
         connector = await EmailConnectorFactory(self.db, workspace_id).get_connector(user_id, provider)
 
         before_message = await connector.get_message(message_id)
@@ -145,7 +163,8 @@ class ActionExecutor:
             is_explicit_approval=is_explicit_approval
         )
         
-        if not allowed or not is_explicit_approval:
+        # Allow if (autonomous and gate passed) OR (explicitly approved)
+        if not (allowed or is_explicit_approval):
             AuditLogService.log_action(
                 db=self.db,
                 workspace_id=workspace_id,
@@ -274,6 +293,23 @@ class ActionExecutor:
         explain_one_liner: str,
     ) -> dict[str, Any]:
         """Archive a message and log it."""
+        # 1. Idempotency Check
+        token_hash = self._generate_idempotency_token(workspace_id, message_id, "ACTION:ARCHIVE")
+        existing_token = self.db.query(SendToken).filter(SendToken.token_hash == token_hash).first()
+        if existing_token:
+            if datetime.now(timezone.utc) - existing_token.created_at < timedelta(minutes=10):
+                return {"status": "idempotency_blocked", "message": "Archive already in progress."}
+
+        new_token = SendToken(
+            token_hash=token_hash,
+            workspace_id=workspace_id,
+            entity_id=message_id,
+            action_type="ARCHIVE",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24)
+        )
+        self.db.add(new_token)
+        self.db.commit()
+
         connector = await EmailConnectorFactory(self.db, workspace_id).get_connector(user_id, provider)
         result = await connector.archive_message(message_id)
         
@@ -299,9 +335,6 @@ class ActionExecutor:
         explain_one_liner: str = "Restored thread from Cleaned queue.",
     ) -> dict[str, Any]:
         """Undo cleaning/archiving for a thread."""
-        from app.models.triaged_thread import TriagedThread
-        from app.models.triaged_email import TriagedEmail
-
         thread = self.db.query(TriagedThread).filter(
             TriagedThread.external_thread_id == thread_id,
             TriagedThread.workspace_id == workspace_id
@@ -325,7 +358,8 @@ class ActionExecutor:
         # 1. Update DB State
         thread.is_noise = False
         # If it was in a noise category, move it back to Inbox
-        if thread.category in ["Newsletter", "Notification", "Cleaned", "Newsletter", "Receipt"]:
+        # Standardized to "Notifications" (plural)
+        if thread.category in ["Newsletter", "Notifications", "Cleaned", "Receipt"]:
              thread.category = "Inbox"
         
         # 2. Re-evaluate messages (unarchive)

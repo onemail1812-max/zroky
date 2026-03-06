@@ -44,19 +44,19 @@ class CalendarManager(AaliyahTool):
         
         normalized = (provider or "auto").lower().strip()
         if normalized in {"auto", ""}:
-            if get_valid_token(db, workspace_id, "google"):
+            if await get_valid_token(db, workspace_id, "google"):
                 normalized = "google"
-            elif get_valid_token(db, workspace_id, "microsoft"):
+            elif await get_valid_token(db, workspace_id, "microsoft"):
                 normalized = "microsoft"
 
         if normalized in {"google", "gcal"}:
-            token = get_valid_token(db, workspace_id, "google")
+            token = await get_valid_token(db, workspace_id, "google")
             if not token:
                 raise ValueError("Google Calendar is not connected for this workspace")
             return "google", GoogleCalendarService(token)
 
         if normalized in {"microsoft", "outlook", "ocal"}:
-            token = get_valid_token(db, workspace_id, "microsoft")
+            token = await get_valid_token(db, workspace_id, "microsoft")
             if not token:
                 raise ValueError("Outlook Calendar is not connected for this workspace")
             return "microsoft", MicrosoftCalendarService(token)
@@ -77,8 +77,8 @@ class CalendarManager(AaliyahTool):
 
         db = SessionLocal()
         try:
-            _, client = self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
-            events = client.list_events(time_min=window_start, time_max=window_end, max_results=200)
+            _, client = await self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
+            events = await client.list_events(time_min=window_start, time_max=window_end, max_results=200)
 
             busy_ranges: List[Tuple[datetime, datetime]] = []
             for event in events:
@@ -127,8 +127,8 @@ class CalendarManager(AaliyahTool):
 
         db = SessionLocal()
         try:
-            resolved_provider, client = self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
-            created = client.create_event(
+            resolved_provider, client = await self._resolve_client(workspace_id=workspace_id, provider=provider, db=db)
+            created = await client.create_event(
                 title=title,
                 start_at=start_at,
                 end_at=end_at,

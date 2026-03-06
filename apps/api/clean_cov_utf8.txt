@@ -1,0 +1,54 @@
+﻿Name                                                        Stmts   Miss  Cover   Missing
+-----------------------------------------------------------------------------------------
+app\agents\aaliyah\api\__init__.py                              5      0   100%
+app\agents\aaliyah\api\booking.py                              60     36    40%   30-42, 54-99
+app\agents\aaliyah\api\connectors.py                          321    248    23%   47-95, 107-109, 117, 121-173, 177-182, 186, 190-196, 200-206, 210-215, 219, 232-316, 327-374, 385-413, 425, 436-489, 498-546, 556-608, 624, 628, 651
+app\agents\aaliyah\api\knowledge.py                            62     43    31%   34-81, 101-130
+app\agents\aaliyah\api\routes.py                              933    680    27%   66-82, 182-186, 191, 212-216, 220, 224-232, 236-239, 251-258, 262-280, 293-318, 368-391, 404-492, 508-553, 562-563, 572-598, 605-610, 623-626, 635-672, 694-705, 719-725, 741-747, 765-787, 815-839, 851-941, 951-952, 965-990, 1003-1024, 1055-1076, 1090-1106, 1121-1149, 1159-1193, 1203-1274, 1284-1353, 1374-1445, 1467-1548, 1560-1561, 1570-1577, 1627-1693, 1705-1716, 1734-1751, 1766-1796, 1806-1812, 1834-1847, 1861-1872, 1882-1936, 1945-1971, 1980-1998, 2006-2038, 2050-2051, 2069-2094, 2125-2167, 2179-2196
+app\agents\aaliyah\core\action_executor.py                    148    105    29%   20, 23, 26, 56-57, 76, 131-280, 297-327, 338-404
+app\agents\aaliyah\core\auto_chat_service.py                  173    126    27%   54-57, 67-86, 90-117, 120-136, 139, 142-145, 148-151, 154-157, 161-169, 172-175, 178-182, 186-203, 206-212, 215-236, 239-252, 255-268
+app\agents\aaliyah\core\autonomy.py                            22      8    64%   56, 60, 76-83
+app\agents\aaliyah\core\briefing_service.py                   167    141    16%   23-25, 33-75, 83-221, 225-228, 233-252, 255-268, 271-281, 284-291, 294-313, 316-330
+app\agents\aaliyah\core\communication_engine.py                93     55    41%   41, 59-71, 74-141, 145-147
+app\agents\aaliyah\core\compose_drafting.py                    74     18    76%   71-74, 84-99, 129-132, 165
+app\agents\aaliyah\core\conflict_agent.py                      32     16    50%   29-47, 52-75
+app\agents\aaliyah\core\critic_agent.py                        29      3    90%   73-76
+app\agents\aaliyah\core\drafting.py                           203     50    75%   119-127, 135, 148, 156, 162-164, 187, 303, 318-322, 330-333, 337, 339, 341, 343, 345, 347, 367, 371-418
+app\agents\aaliyah\core\event_service.py                       33      6    82%   47-65
+app\agents\aaliyah\core\golden_examples.py                     14      1    93%   28
+app\agents\aaliyah\core\greeting_service.py                    72     57    21%   19-21, 26-62, 66-72, 78-163
+app\agents\aaliyah\core\handlers\__init__.py                    6      0   100%
+app\agents\aaliyah\core\handlers\base.py                       46      6    87%   31, 35, 51, 61, 64, 67
+app\agents\aaliyah\core\handlers\calendar_syncer.py            41     28    32%   23-30, 55-131
+app\agents\aaliyah\core\handlers\chat_handler.py              391    339    13%   34-42, 56, 61-63, 76, 78, 120-138, 144-460, 491-812
+app\agents\aaliyah\core\handlers\followup_scanner.py           27     17    37%   21-52
+app\agents\aaliyah\core\handlers\inbox_manager.py             226    160    29%   43-68, 98-177, 208-212, 216-217, 222-223, 262, 276, 293, 327-358, 362-364, 390, 393-394, 402, 405-424, 427, 449-585, 594-611
+app\agents\aaliyah\core\handlers\webhook_handler.py           149    129    13%   46-113, 122-190, 202-221, 231-288, 297-311
+app\agents\aaliyah\core\humanizer.py                           28      0   100%
+app\agents\aaliyah\core\inbox_repository.py                    42     19    55%   21, 53-92
+app\agents\aaliyah\core\ingestion\calendar_sync.py            169     97    43%   39-41, 48, 68-78, 81-89, 98-146, 150-162, 166, 200-273, 276-290, 300-304
+app\agents\aaliyah\core\ingestion\email_ingestor.py           387    244    37%   57-59, 67, 76, 97-109, 117, 120-126, 130-146, 153, 160, 164-170, 174-187, 191-210, 227-251, 258-275, 279-298, 307, 314, 319-320, 332-340, 345-356, 359-360, 372-382, 387-400, 409-429, 461-571
+app\agents\aaliyah\core\ingestion\sanitizer.py                 76     22    71%   103, 112, 117-118, 121, 137, 148-150, 154, 158, 162-163, 167, 170, 200, 221, 226, 232-234, 238
+app\agents\aaliyah\core\intent_service.py                      65     26    60%   19, 39, 43, 51-52, 62, 66, 70, 74, 76, 79, 82, 84, 86, 90, 94, 98, 103, 113-124
+app\agents\aaliyah\core\labeling_rules.py                     301     81    73%   68-71, 76, 87, 99, 169-196, 230, 233, 236, 270, 299, 319-321, 335, 337, 339, 343, 346, 351, 355, 360, 380-385, 402-404, 410, 426, 446-448, 455-456, 465-466, 487, 498, 510, 524-529, 559-569
+app\agents\aaliyah\core\live_feed.py                           77     43    44%   26-27, 49, 54-57, 61-109
+app\agents\aaliyah\core\llm_schemas.py                         35      7    80%   27-28, 41, 49, 51, 53, 55
+app\agents\aaliyah\core\meeting_prep.py                       163    132    19%   34-36, 40-52, 63-72, 84, 91-173, 183-200, 203-214, 218-303, 312-315, 329-336, 340-358
+app\agents\aaliyah\core\meeting_summarizer.py                  82     62    24%   26-28, 33-79, 83-189
+app\agents\aaliyah\core\orchestrator.py                       271     91    66%   89-110, 116-133, 139-140, 161-162, 169-174, 196, 214-215, 219, 221, 223, 225, 228, 245-249, 275-276, 283-287, 297-298, 301-304, 317-350, 362-363, 368-382
+app\agents\aaliyah\core\policy_engine.py                       30      1    97%   36
+app\agents\aaliyah\core\query_parser.py                        74     18    76%   55, 57, 59, 61, 65, 67, 69, 71-72, 74-75, 81, 106, 108, 114-116, 138
+app\agents\aaliyah\core\request_controls.py                    43      1    98%   39
+app\agents\aaliyah\core\research_agent.py                      34     16    53%   34-81
+app\agents\aaliyah\core\risk_engine.py                         43      2    95%   123-124
+app\agents\aaliyah\core\runtime_gate.py                        98     40    59%   120-123, 137-139, 152-155, 185-186, 223-271
+app\agents\aaliyah\core\scheduling\availability_engine.py     127     46    64%   3-4, 43-44, 67-72, 89, 108, 111, 162-164, 170, 185-235
+app\agents\aaliyah\core\scheduling\booking_manager.py          53     39    26%   12-13, 17-18, 30-62, 65, 75-103
+app\agents\aaliyah\core\search_agent.py                       208     65    69%   57-58, 123-125, 137, 148-149, 175-202, 210-211, 264-267, 273, 278-283, 312, 314, 318-320, 326, 333-334, 336-337, 339-340, 358-360, 362-363, 373-379
+app\agents\aaliyah\core\search_cache.py                        84     33    61%   25, 53-57, 63-69, 78-79, 87-91, 96, 100-104, 107-115
+app\agents\aaliyah\core\tools\tool_dispatcher.py               37     20    46%   34-71
+app\agents\aaliyah\core\tools\web_research.py                  23     14    39%   23-42
+app\agents\aaliyah\core\triage_service.py                     103     16    84%   75-79, 91, 157-173, 197, 220, 247-248, 264
+app\agents\aaliyah\core\undo_service.py                        46     19    59%   18, 20, 23, 37, 41-54, 59-62
+-----------------------------------------------------------------------------------------
+TOTAL                                                        6026   3426    43%

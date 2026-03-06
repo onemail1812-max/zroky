@@ -20,19 +20,23 @@ class WebResearchTool:
         """
         Mock search implementation. Returns external context for a topic.
         """
+        import asyncio
         logger.info(f"WebResearchTool: Searching web for '{query}'")
         
-        # In a real Level 5 assistant, this would call a real search API.
-        # For now, we simulate a 'thoughtful' external retrieval.
-        system_prompt = (
-            "You are Aaliyah's Web Tool. Simulate a highly accurate web search result "
-            "for the given query. Provide 2-3 key facts that a real search would find."
-        )
-        
-        response = await self.brain.think(
-            prompt=f"Search Query: {query}",
-            system_prompt=system_prompt,
-            temperature_override=0.3
-        )
-        
-        return response.content
+        try:
+            from ddgs import DDGS
+            # [Audit Fix] DDGS().text() is synchronous; wrap in to_thread to prevent blocking event loop
+            # Note: DDGS().text() returns a generator, so we listify it in the thread
+            results = await asyncio.to_thread(lambda: list(DDGS().text(query, max_results=3)))
+            if not results:
+                return "No results found."
+            
+            # Format results into a readable string
+            formatted = []
+            for r in results:
+                formatted.append(f"Title: {r.get('title')}\nSnippet: {r.get('body')}\nURL: {r.get('href')}")
+                
+            return "\n\n".join(formatted)
+        except Exception as e:
+            logger.error(f"WebSearch failed: {e}")
+            return f"Search failed: {str(e)}"

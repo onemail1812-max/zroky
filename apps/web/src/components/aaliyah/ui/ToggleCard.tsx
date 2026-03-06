@@ -23,9 +23,18 @@ export function ToggleCard({
 }: ToggleCardProps) {
     return (
         <div
+            role="switch"
+            aria-checked={checked}
+            tabIndex={0}
             onClick={() => onCheckedChange?.(!checked)}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onCheckedChange?.(!checked);
+                }
+            }}
             className={cn(
-                "cursor-pointer group relative flex items-start gap-5 rounded-2xl border p-6 transition-all duration-300 ease-out",
+                "cursor-pointer group relative flex items-start gap-5 rounded-2xl border p-6 transition-all duration-300 ease-out outline-none focus-visible:ring-2 focus-visible:ring-violet-500",
                 // MASTERPIECE DESIGN: Ethereal Violet
                 checked
                     ? "border-violet-500/30 bg-white/80 shadow-[0_8px_30px_-6px_rgba(139,92,246,0.15)] ring-1 ring-violet-500/20"

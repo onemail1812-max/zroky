@@ -92,6 +92,7 @@ export function TemplateSettings() {
                                 size="sm"
                                 className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 hover:bg-red-50"
                                 onClick={() => handleDelete(t.id)}
+                                aria-label={`Delete template ${t.name}`}
                             >
                                 <Trash2 className="h-3 w-3" />
                             </Button>
@@ -112,17 +113,20 @@ export function TemplateSettings() {
                     placeholder="Template Name (e.g. Sales Rejection)"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    aria-label="New template name"
                 />
                 <Input
                     placeholder="Default Subject (Optional)"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
+                    aria-label="New template subject"
                 />
                 <textarea
                     className="flex min-h-[100px] w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     placeholder="Hi {{name}},&#10;&#10;Thanks for reaching out..."
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
+                    aria-label="New template body"
                 />
                 <Button onClick={handleCreate} disabled={!name || !body || creating} className="w-full">
                     {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

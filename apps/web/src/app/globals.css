@@ -175,3 +175,38 @@ body {
 .animate-slide-in-soft {
   animation: slide-in-soft 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+/* 
+  Custom Utility Classes
+  Migrated from in-line component styles.
+*/
+
+.custom-scrollbar::-webkit-scrollbar { 
+  width: 4px; 
+}
+
+.custom-scrollbar::-webkit-scrollbar-track { 
+  background: transparent; 
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb { 
+  background: rgba(0, 0, 0, 0.1); 
+  border-radius: 10px; 
+}
+
+.glass-switch { 
+  transition: all 0.3s; 
+}
+
+.glass-switch.active { 
+  background: var(--primary); 
+}
+
+.glass-switch:not(.active) { 
+  background: var(--muted); 
+}
+
+.glass-switch .knob { 
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+  background: white; 
+}

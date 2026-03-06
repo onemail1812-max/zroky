@@ -18,7 +18,7 @@ interface ChatInputProps {
     placeholder?: string;
 }
 
-export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }: ChatInputProps) {
+export const ChatInput = React.memo(function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }: ChatInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -95,6 +95,7 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
                                     <span className="text-[10px] text-zinc-400 capitalize truncate">{att.mimeType.split('/')[1] || 'File'}</span>
                                 </div>
                                 <button
+                                    aria-label="Remove attachment"
                                     onClick={() => removeAttachment(i)}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center hover:bg-red-100 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                                 >
@@ -127,7 +128,7 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
                 <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="h-10 w-10 flex shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+                    className="h-11 w-11 min-h-[44px] min-w-[44px] flex shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
                     title="Attach files"
                 >
                     <Paperclip size={18} />
@@ -136,6 +137,7 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
                 <textarea
                     id="chat-input"
                     name="chat-input"
+                    aria-label="Chat message"
                     ref={textareaRef}
                     rows={1}
                     value={value || ""}
@@ -147,9 +149,10 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
 
                 <button
                     type="submit"
+                    aria-label="Send message"
                     disabled={(!(value || "").trim() && attachments.length === 0) || isLoading}
                     className={cn(
-                        "flex shrink-0 h-10 w-10 ml-1 items-center justify-center rounded-lg transition-all",
+                        "flex shrink-0 h-11 w-11 min-h-[44px] min-w-[44px] ml-1 items-center justify-center rounded-lg transition-all",
                         ((value || "").trim() || attachments.length > 0) && !isLoading
                             ? "bg-black text-white hover:bg-zinc-800"
                             : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
@@ -160,4 +163,4 @@ export function ChatInput({ value, onChange, onSubmit, isLoading, placeholder }:
             </form>
         </div>
     );
-}
+})

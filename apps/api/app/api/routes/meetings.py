@@ -4,12 +4,14 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from app.core.limiter import limiter
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_context, CurrentContext
+from app.services.cache import cached_response, invalidate_cache
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,9 @@ class PostToChatRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/transcript")
+@limiter.limit("15/minute")
 async def upload_transcript(
+    request: Request,
     req: TranscriptUploadRequest,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -59,7 +63,9 @@ async def upload_transcript(
 
 
 @router.post("/{transcript_id}/summarize")
+@limiter.limit("10/minute")
 async def summarize_transcript(
+    request: Request,
     transcript_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -82,6 +88,11 @@ async def summarize_transcript(
         if not summary:
             raise HTTPException(status_code=404, detail="Transcript not found")
 
+        try:
+            invalidate_cache("meeting_summary", workspace_id=context.workspace_id)
+        except Exception:
+            pass
+
         return {
             "status": "completed",
             "transcript_id": transcript_id,
@@ -95,7 +106,10 @@ async def summarize_transcript(
 
 
 @router.get("/{transcript_id}/summary")
+@limiter.limit("30/minute")
+@cached_response(ttl_seconds=300, prefix="meeting_summary")
 async def get_summary(
+    request: Request,
     transcript_id: str,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -122,7 +136,9 @@ async def get_summary(
 
 
 @router.post("/{transcript_id}/post-to-chat")
+@limiter.limit("10/minute")
 async def post_summary_to_chat(
+    request: Request,
     transcript_id: str,
     req: Optional[PostToChatRequest] = None,
     db: Session = Depends(get_db),

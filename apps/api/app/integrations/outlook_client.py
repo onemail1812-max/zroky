@@ -4,10 +4,18 @@ from __future__ import annotations
 import logging
 import httpx
 from typing import Optional
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, before_sleep_log
 
 logger = logging.getLogger(__name__)
 
 GRAPH_API = "https://graph.microsoft.com/v1.0"
+
+
+def _is_retriable_error(exc: Exception) -> bool:
+    """Check if the exception is a retriable rate limit or network error."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, (httpx.NetworkError, httpx.TimeoutException))
 
 
 class OutlookClient:
@@ -24,11 +32,33 @@ class OutlookClient:
             "Accept": "application/json",
         }
 
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception(_is_retriable_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Centralized retriable request helper."""
+        timeout = kwargs.pop("timeout", 15.0)
+        url = path if path.startswith("http") else f"{GRAPH_API}/{path.lstrip('/')}"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(
+                method=method,
+                url=url,
+                headers=self._headers,
+                **kwargs
+            )
+            resp.raise_for_status()
+            return resp
+
     async def list_messages(
         self,
         max_results: int = 50,
         folder: str = "inbox",
         skip: int = 0,
+        filter_query: Optional[str] = None,
     ) -> dict:
         """Fetch recent messages from Outlook inbox."""
         params = {
@@ -37,49 +67,28 @@ class OutlookClient:
             "$orderby": "receivedDateTime desc",
             "$select": "id,conversationId,from,subject,bodyPreview,receivedDateTime,isRead,isDraft",
         }
+        if filter_query:
+            params["$filter"] = filter_query
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GRAPH_API}/me/mailFolders/{folder}/messages",
-                headers=self._headers,
-                params=params,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", f"me/mailFolders/{folder}/messages", params=params)
+        return resp.json()
 
     async def get_message(self, message_id: str) -> dict:
         """Get a single message."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GRAPH_API}/me/messages/{message_id}",
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", f"me/messages/{message_id}")
+        return resp.json()
 
     async def archive_message(self, message_id: str) -> bool:
         """Moves the message to the archive folder."""
         payload = {"destinationId": "archive"}
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GRAPH_API}/me/messages/{message_id}/move",
-                headers=self._headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            return True
+        await self._request("POST", f"me/messages/{message_id}/move", json=payload)
+        return True
 
     async def trash_message(self, message_id: str) -> bool:
         """Moves the message to the deleted items folder."""
         payload = {"destinationId": "deleteditems"}
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GRAPH_API}/me/messages/{message_id}/move",
-                headers=self._headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            return True
+        await self._request("POST", f"me/messages/{message_id}/move", json=payload)
+        return True
 
     async def send_message(self, to: str, subject: str, text: str, cc: Optional[str] = None, bcc: Optional[str] = None, thread_id: Optional[str] = None, attachments: list | None = None) -> bool:
         """Sends an email via Microsoft Graph API."""
@@ -117,8 +126,6 @@ class OutlookClient:
             ]
 
         if thread_id:
-            # Graph uses 'comment' for thread replies usually, 
-            # but for simple send we just set the conversationId if known.
             msg_payload["conversationId"] = thread_id
         
         if attachments:
@@ -143,14 +150,8 @@ class OutlookClient:
             "saveToSentItems": "true"
         }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GRAPH_API}/me/sendMail",
-                headers=self._headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            return True
+        await self._request("POST", "me/sendMail", json=payload)
+        return True
 
     async def fetch_inbox(self, max_results: int = 50) -> list[dict]:
         """High-level: fetch inbox messages with parsed metadata.

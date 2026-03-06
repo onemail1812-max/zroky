@@ -5,7 +5,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,8 @@ from app.services.integrations.token_store import get_valid_token
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
+from app.services.cache import cached_response, invalidate_cache
+from app.core.limiter import limiter
 
 
 # ── Request / Response Models ────────────────────────────────────────
@@ -46,7 +48,10 @@ class ConfirmBookingRequest(BaseModel):
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.get("/events")
+@limiter.limit("60/minute")
+@cached_response(ttl_seconds=60, prefix="calendar_events")
 async def list_events(
+    request: Request,
     start: Optional[str] = Query(None, description="ISO datetime start range"),
     end: Optional[str] = Query(None, description="ISO datetime end range"),
     limit: int = Query(50, ge=1, le=100),
@@ -113,7 +118,10 @@ async def list_events(
 
 
 @router.get("/availability")
+@limiter.limit("20/minute")
+@cached_response(ttl_seconds=120, prefix="calendar_availability")
 async def get_availability(
+    request: Request,
     days_ahead: int = Query(5, ge=1, le=30),
     duration: int = Query(30, ge=15, le=240, description="Slot duration in minutes"),
     n: int = Query(5, ge=1, le=20, description="Number of slots to propose"),
@@ -162,7 +170,9 @@ async def get_availability(
 
 
 @router.post("/events")
+@limiter.limit("20/minute")
 async def create_event(
+    request: Request,
     req: CreateEventRequest,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -225,7 +235,9 @@ async def create_event(
 
 
 @router.post("/booking-links")
+@limiter.limit("20/minute")
 async def create_booking_link(
+    request: Request,
     req: BookingLinkRequest,
     db: Session = Depends(get_db),
     context: CurrentContext = Depends(get_current_context),
@@ -284,7 +296,9 @@ async def get_booking_link(
 
 
 @router.post("/booking/{slug}/confirm")
+@limiter.limit("10/minute")
 async def confirm_booking(
+    request: Request,
     slug: str,
     req: ConfirmBookingRequest,
     db: Session = Depends(get_db),

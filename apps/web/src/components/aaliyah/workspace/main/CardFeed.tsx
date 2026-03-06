@@ -8,7 +8,7 @@ import {
   CalendarRange, CheckCircle2, FileText, Mail, ArrowRight,
   Paperclip, X, Save, CornerUpLeft, Plus, Send, Edit,
   AlertCircle, Loader2, ShieldCheck, AlertTriangle, ShieldAlert,
-  Sparkles, Bot, User, Check, Zap, Info, ChevronDown, ChevronRight, ChevronUp, Server, Code, MessageSquare
+  Sparkles, Bot, User, Check, Zap, Info, ChevronDown, ChevronRight, ChevronUp, Server, Code, MessageSquare, Terminal
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -18,23 +18,30 @@ import { EmailEditor } from "./EmailEditor"
 import { updateDraft, confirmBooking } from "@/lib/aaliyah/api"
 import type { BookingSlot } from "@/lib/aaliyah/api"
 import { useViewerStore } from "@/lib/aaliyah/viewerStore"
-import { MeetingSummaryCard } from "@/components/aaliyah/workspace/feed/MeetingSummaryCard"
+import {
+  EmailDraftArtifact,
+  ProposalCard,
+  ApprovalCard,
+  ExecutionReceipt,
+  CalendarDiffArtifact,
+  MiniScheduleGridArtifact,
+  SyncPromptCard,
+  HealthReportCard,
+  MeetingActionCard,
+  MeetingSummaryCard,
+  GroundedAnswerCard,
+} from "../artifacts"
 import { CalendarWidget } from "@/components/aaliyah/workspace/feed/CalendarWidget"
-import { EmailDraftArtifact } from "./EmailDraftArtifact"
 import type { DraftArtifact } from "./EmailDraftArtifact"
 export type { DraftArtifact }
-import { GroundedAnswerCard } from "@/components/aaliyah/workspace/feed/GroundedAnswerCard"
 import type { Evidence } from "@/components/aaliyah/workspace/feed/GroundedAnswerCard"
 export type { Evidence }
-import { ProposalCard, ActionsRow } from "@/components/aaliyah/workspace/feed/ProposalCard"
+import { ActionsRow } from "@/components/aaliyah/workspace/feed/ProposalCard"
 import type { CardAction } from "@/components/aaliyah/workspace/feed/ProposalCard"
 export type { CardAction }
 import { CardShell } from "@/components/aaliyah/workspace/feed/CardShell"
-import { ApprovalCard } from "@/components/aaliyah/workspace/feed/ApprovalCard"
-import { SyncPromptCard } from "@/components/aaliyah/workspace/feed/SyncPromptCard"
-import { ExecutionReceipt, CalendarDiffArtifact, MiniScheduleGridArtifact } from "@/components/aaliyah/workspace/feed/ArtifactCards"
-import { HealthReportCard } from "@/components/aaliyah/workspace/feed/HealthReportCard"
-import { MeetingActionCard } from "@/components/aaliyah/workspace/feed/MeetingActionCard"
+import { SkeletonEmailBody } from "@/components/ui/Skeleton"
+import { EmptyState } from "@/components/ui/EmptyState"
 
 // --- Types ---
 
@@ -86,6 +93,7 @@ const contentLayoutSpring = { type: "spring" as const, stiffness: 450, damping: 
 
 export function CardFeed({
   items,
+  isLoading,
   onOpenIntelligence,
   onUpdateDraft,
   onApprovalAction,
@@ -93,18 +101,43 @@ export function CardFeed({
   onCardAction,
 }: {
   items: FeedItem[]
+  isLoading?: boolean
   onOpenIntelligence: (tab: IntelligenceTab) => void
   onUpdateDraft?: (emailId: string, draft: any) => void
   onApprovalAction?: (action: "approve" | "edit" | "reject", emailId: string) => void
   onSourceClick?: (ev: Evidence) => void
   onCardAction?: (action: CardAction, itemId: string) => void
 }) {
+  if (isLoading && items.length === 0) {
+    return (
+      <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="flex justify-start w-full relative group">
+            <div className="max-w-4xl w-full flex items-start gap-4">
+              <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[12px] bg-zinc-100 animate-pulse flex items-center justify-center shadow-md ring-1 ring-black/5" />
+              <div className="flex-1 mt-1">
+                <div className="flex items-center gap-2.5 mb-2 px-1">
+                  <div className="h-3 w-32 bg-zinc-50 animate-pulse rounded" />
+                </div>
+                <div className="bg-white dark:bg-zinc-900 rounded-[24px] rounded-tl-[4px] p-5 shadow-sm border border-zinc-100 dark:border-zinc-800">
+                  <SkeletonEmailBody />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[200px] opacity-40">
-        <Code className="h-8 w-8 text-zinc-300 mb-3" />
-        <div className="text-[12px] font-bold text-zinc-400 tracking-widest uppercase">System Terminal Standby</div>
-      </div>
+      <EmptyState
+        icon={Terminal}
+        title="Terminal Standby"
+        description="Aaliyah is ready for your next command. Mention her in a thread or start a new conversation."
+        className="min-h-[400px]"
+      />
     )
   }
 

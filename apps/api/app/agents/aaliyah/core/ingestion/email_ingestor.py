@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -202,6 +203,7 @@ class EmailIngestor:
              self.logger.warning("Search failed provider=%s err=%s", resolved_provider, redact_text(str(exc)))
              return []
 
+        normalized: List[NormalizedEmailMessage] = []
         for raw in raw_messages:
             msg = await self.normalize_message(raw, provider=resolved_provider)
             self._upsert_search_index(msg)
@@ -513,7 +515,9 @@ class EmailIngestor:
                 IntegrationTokenManager(self.db).update_config(self.workspace_id, provider_enum, {"last_history_id": history_resp.get("historyId")})
                 
                 normalized = []
-                for msg_id in new_message_ids:
+                for i, msg_id in enumerate(new_message_ids):
+                    if i > 0:
+                        await asyncio.sleep(0.1)  # Throttle: avoid 429s during bulk fetch
                     raw = await service.get_message(msg_id, format="full")
                     msg = await self.normalize_message(raw, provider="google")
                     self._upsert_search_index(msg)

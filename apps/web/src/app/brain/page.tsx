@@ -2,7 +2,9 @@
 
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
+import { formatDistanceToNow, subHours, subDays } from "date-fns"
 import { GlobalRail } from "@/components/shell/GlobalRail"
+import { EmptyState } from "@/components/ui/EmptyState"
 import {
     Mail,
     Calendar,
@@ -75,10 +77,10 @@ type KnowledgeItem = {
 // Removed static INTEGRATION_CARDS
 
 const KNOWLEDGE_ITEMS: KnowledgeItem[] = [
-    { id: "1", title: "Quarterly_Growth_Q1.pdf", type: "file", description: "Aggregated mail & social data insights.", icon: FileText, date: "Just now" },
-    { id: "2", title: "Creative Assets v2", type: "media", description: "Facebook & Instagram brand kit.", icon: ImageIcon, date: "2h ago" },
+    { id: "1", title: "Quarterly_Growth_Q1.pdf", type: "file", description: "Aggregated mail & social data insights.", icon: FileText, date: formatDistanceToNow(new Date(), { addSuffix: true }) },
+    { id: "2", title: "Creative Assets v2", type: "media", description: "Facebook & Instagram brand kit.", icon: ImageIcon, date: formatDistanceToNow(subHours(new Date(), 2), { addSuffix: true }) },
     { id: "3", title: "Executive Schedule Sync", type: "snippet", description: "Synthesized GCal & OCal conflicts.", icon: Calendar, date: "Today" },
-    { id: "4", title: "Market Trends - LinkedIn", type: "webpage", description: "Business intelligence scrape.", icon: Globe, date: "Yesterday" }
+    { id: "4", title: "Market Trends - LinkedIn", type: "webpage", description: "Business intelligence scrape.", icon: Globe, date: formatDistanceToNow(subDays(new Date(), 1), { addSuffix: true }) }
 ]
 
 // --- UI Components ---
@@ -450,9 +452,12 @@ export default function BrainPage() {
                                                 </div>
                                             ))
                                         ) : (
-                                            <div className="py-20 text-center border-2 border-dashed border-zinc-100 rounded-[40px]">
-                                                <p className="text-sm font-bold text-zinc-300 uppercase tracking-widest">No matching intelligence found</p>
-                                            </div>
+                                            <EmptyState
+                                                icon={Brain}
+                                                title="No Matching Intelligence"
+                                                description="Refine your search or add new data protocols to synthesize more neuro-nodes."
+                                                className="border-2 border-dashed border-zinc-100 rounded-[40px] py-20"
+                                            />
                                         )}
                                     </div>
                                 </div>

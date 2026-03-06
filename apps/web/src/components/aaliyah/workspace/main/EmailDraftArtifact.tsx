@@ -161,7 +161,7 @@ export function EmailDraftArtifact({
                 "group relative flex flex-col rounded-[32px] border overflow-hidden transition-all duration-500",
                 isEditing
                     ? "border-indigo-500/40 bg-white dark:bg-zinc-950 shadow-[0_20px_60px_-15px_rgba(99,102,241,0.15)] ring-4 ring-indigo-500/5 z-10"
-                    : "border-zinc-200/60 dark:border-zinc-800/60 bg-white/70 dark:bg-zinc-950/70 backdrop-blur-3xl shadow-2xl shadow-zinc-200/20 dark:shadow-black/20 hover:border-zinc-300 dark:hover:border-zinc-700 hover:shadow-3xl"
+                    : "border-zinc-200/60 dark:border-zinc-800/60 bg-white/70 dark:bg-zinc-950/70 backdrop-blur-2xl shadow-2xl shadow-zinc-200/20 dark:shadow-black/20 hover:border-zinc-300 dark:hover:border-zinc-700 hover:shadow-2xl"
             )}
         >
             <motion.div layout="position" className="relative flex items-center justify-between px-7 py-5 bg-gradient-to-b from-zinc-50/80 to-transparent dark:from-zinc-900/50 dark:to-transparent border-b border-zinc-100 dark:border-zinc-800/80">

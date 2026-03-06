@@ -112,7 +112,12 @@ class IntentService:
         # If fast classification fails or is ambiguous, use LLM
         prompt = f"Identify the user intent for this message: '{message}'. Return one keyword: DRAFT, ARCHIVE, LABEL, SEARCH, BRIEFING, STATUS, MEETING_PREP, CREATE_TASK, CONFLICT, RESEARCH, COMPOSE_NEW, or SUMMARY."
         try:
-            res = await self.brain.think(prompt=prompt, system_prompt="You are an intent classifier.", model_override="google/gemini-flash-1.5")
+            from app.services.brain.core import ModelType
+            res = await self.brain.think(
+                prompt=prompt, 
+                system_prompt="You are an intent classifier.", 
+                model_override=ModelType.FAST.value
+            )
             intent = res.content.strip().upper()
             return intent if intent in {"DRAFT", "ARCHIVE", "LABEL", "SEARCH", "BRIEFING", "STATUS", "MEETING_PREP", "CREATE_TASK", "CONFLICT", "RESEARCH", "COMPOSE_NEW"} else "SUMMARY"
         except Exception:

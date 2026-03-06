@@ -44,11 +44,21 @@ function EmailContextHeader({
     // Fetch full body when expanded
     React.useEffect(() => {
         if (isExpanded && !fullBody) {
+            const controller = new AbortController();
             setBodyLoading(true)
-            inboxService.getEmailBody(thread.id)
+            inboxService.getEmailBody(thread.id, controller.signal)
                 .then(body => setFullBody(body || null))
-                .catch(() => setFullBody(null))
-                .finally(() => setBodyLoading(false))
+                .catch((err) => {
+                    if (err.name === 'AbortError') return;
+                    setFullBody(null)
+                })
+                .finally(() => {
+                    if (!controller.signal.aborted) {
+                        setBodyLoading(false);
+                    }
+                })
+
+            return () => controller.abort();
         }
     }, [isExpanded, thread.id, fullBody])
 
@@ -271,7 +281,7 @@ function EmailContextHeader({
 
 // ── Main Component ─────────────────────────────────────────────────────
 
-export function ThreadConversation({
+export const ThreadConversation = React.memo(function ThreadConversation({
     thread,
     messages,
     isLoading,
@@ -368,4 +378,4 @@ export function ThreadConversation({
             </div>
         </div>
     )
-}
+})

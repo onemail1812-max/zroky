@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Send, Edit, Trash2, Sparkles, Loader2, Paperclip, FileText, X } from "lucide-react"
+import { Send, Edit, Trash2, Sparkles, Loader2, Paperclip, FileText, X, AlertCircle, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AnimatePresence, motion } from "framer-motion"
 
@@ -9,36 +9,34 @@ interface AttachedFile {
     id: string
     name: string
     type: string
+    file?: File  // Actual File object for upload
 }
 
-const MOCK_RECENT_FILES: AttachedFile[] = [
-    { id: "f1", name: "Q3_Report_Final.pdf", type: "pdf" },
-    { id: "f2", name: "Project_Timeline.xlsx", type: "excel" },
-    { id: "f3", name: "Contract_Draft_v2.docx", type: "word" },
-]
-
-interface InlineAssistantCardProps {
+export interface InlineAssistantCardProps {
     draft: {
         body: string
         subject?: string
         reasoning?: string
         intent?: string
         status?: string
+        error?: string
     }
-    onSend: () => void
+    onSend: (attachments?: File[]) => Promise<void> | void
     onEdit: () => void
     onDiscard: () => void
+    onRetry?: () => void
     isSending?: boolean
+    isGenerating?: boolean
 }
 
-export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSending }: InlineAssistantCardProps) {
+export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, onRetry, isSending, isGenerating }: InlineAssistantCardProps) {
     const [isEditing, setIsEditing] = React.useState(false)
     const [editedBody, setEditedBody] = React.useState(draft.body)
+    const [showSuccess, setShowSuccess] = React.useState(false)
 
     // Attachment State
     const [attachedFiles, setAttachedFiles] = React.useState<AttachedFile[]>([])
     const [isDragging, setIsDragging] = React.useState(false)
-    const [showPicker, setShowPicker] = React.useState(false)
 
     React.useEffect(() => {
         setEditedBody(draft.body)
@@ -53,6 +51,17 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
 
     const handleSave = () => {
         setIsEditing(false)
+    }
+
+    const handleSendAction = async () => {
+        const realFiles = attachedFiles.map(a => a.file).filter(Boolean) as File[]
+        try {
+            await onSend(realFiles.length > 0 ? realFiles : undefined)
+            setShowSuccess(true)
+            // Parent handles unmounting usually, but let's keep success state visible briefly
+        } catch (error) {
+            console.error("Failed to send:", error)
+        }
     }
 
     // -- Drag & Drop Handlers --
@@ -75,10 +84,11 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
 
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             const files = Array.from(e.dataTransfer.files)
-            const newAttachments = files.map(file => ({
-                id: `drop_${Date.now()}_${file.name}`,
-                name: file.name,
-                type: file.type || "file"
+            const newAttachments = files.map(f => ({
+                id: `drop_${Date.now()}_${f.name}`,
+                name: f.name,
+                type: f.type || "file",
+                file: f
             }))
 
             attachFiles(newAttachments)
@@ -88,20 +98,78 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
     // -- Attachment Logic --
     const attachFiles = (files: AttachedFile[]) => {
         setAttachedFiles(prev => [...prev, ...files])
-
-        // Auto-modify draft text
-        setEditedBody(prev => {
-            const appendText = "\n\nAttached, I've added the file you requested."
-            if (!prev.includes("Attached, I've added")) {
-                return prev + appendText
-            }
-            return prev
-        })
-        setShowPicker(false)
     }
 
     const removeAttachment = (id: string) => {
         setAttachedFiles(prev => prev.filter(f => f.id !== id))
+    }
+
+    // Error State Boundary
+    if (draft.error || draft.status === "error") {
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6 p-4 rounded-2xl bg-red-50/50 border border-red-100 flex items-start gap-4 cursor-pointer hover:bg-red-50 transition-colors"
+                onClick={onRetry}
+            >
+                <div className="h-10 w-10 shrink-0 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+                    <AlertCircle className="h-5 w-5" />
+                </div>
+                <div className="flex-1 pt-0.5">
+                    <h4 className="text-[14px] font-semibold text-red-900 leading-none mb-1.5">Draft couldn't be generated</h4>
+                    <p className="text-[13px] text-red-700/80 font-medium leading-relaxed">
+                        {draft.error || "Aaliyah encountered an issue while generating this draft. Tap to retry."}
+                    </p>
+                </div>
+                <button
+                    onClick={(e) => { e.stopPropagation(); onDiscard(); }}
+                    className="h-8 w-8 rounded-full hover:bg-red-100 flex items-center justify-center text-red-400 hover:text-red-600 transition-colors"
+                >
+                    <X className="h-4 w-4" />
+                </button>
+            </motion.div>
+        )
+    }
+
+    // Loading State Boundary
+    if (isGenerating || draft.status === "generating") {
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6 p-5 rounded-2xl bg-zinc-50 border border-zinc-200/50 flex items-center gap-4"
+            >
+                <div className="h-10 w-10 shrink-0 rounded-full bg-white shadow-sm ring-1 ring-black/5 flex items-center justify-center text-indigo-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+                <div>
+                    <h4 className="text-[14px] font-semibold text-zinc-900 leading-none mb-1">Aaliyah is thinking...</h4>
+                    <p className="text-[13px] text-zinc-500 font-medium">Generating a bespoke reply based on your style guidelines.</p>
+                </div>
+            </motion.div>
+        )
+    }
+
+    // Success Checkmark State overlay
+    if (showSuccess) {
+        return (
+            <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mt-6 h-32 rounded-2xl bg-emerald-50/50 border border-emerald-100 flex flex-col items-center justify-center gap-3"
+            >
+                <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600"
+                >
+                    <CheckCircle2 className="h-6 w-6" />
+                </motion.div>
+                <span className="text-emerald-900 font-semibold tracking-tight">Sent Successfully</span>
+            </motion.div>
+        )
     }
 
     return (
@@ -113,7 +181,7 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
         >
             {/* Header */}
             <div className="flex items-center gap-3 mb-5 pl-1">
-                <div className="h-7 w-7 rounded-full bg-zinc-900 flex items-center justify-center ring-2 ring-zinc-100">
+                <div className="h-7 w-7 rounded-full bg-zinc-900 flex items-center justify-center ring-2 ring-zinc-100 shadow-sm">
                     <Sparkles className="h-3.5 w-3.5 text-white" />
                 </div>
                 <div className="flex items-center gap-2">
@@ -154,7 +222,7 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                 {/* Reasoning/Intent bar */}
                 {draft.reasoning && (
                     <div className="px-6 py-3 bg-zinc-100/50 border-b border-zinc-200/50">
-                        <p className="text-[12px] text-zinc-500 font-medium italic leading-relaxed">
+                        <p className="text-[12px] text-zinc-600 font-medium italic leading-relaxed">
                             {draft.reasoning}
                         </p>
                     </div>
@@ -166,7 +234,7 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                         <textarea
                             value={editedBody}
                             onChange={(e) => setEditedBody(e.target.value)}
-                            className="w-full text-[15px] leading-[1.8] text-zinc-900 font-medium bg-white border border-zinc-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 transition-all resize-none min-h-[120px]"
+                            className="w-full text-[15px] leading-[1.8] text-zinc-900 font-medium bg-white border border-zinc-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none min-h-[120px]"
                             rows={6}
                             autoFocus
                         />
@@ -193,7 +261,7 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                                     <span className="text-[12px] font-semibold text-zinc-700 truncate max-w-[150px]">{file.name}</span>
                                     <button
                                         onClick={() => removeAttachment(file.id)}
-                                        className="h-5 w-5 rounded-md hover:bg-zinc-100 flex items-center justify-center text-zinc-400 hover:text-red-500 transition-colors ml-1"
+                                        className="h-5 w-5 rounded-md hover:bg-red-50 flex items-center justify-center text-zinc-400 hover:text-red-500 transition-colors ml-1"
                                     >
                                         <X className="h-3 w-3" />
                                     </button>
@@ -204,66 +272,46 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                 )}
 
                 {/* Action Buttons */}
-                <div className="px-6 py-4 bg-white border-t border-zinc-100 flex items-center justify-between relative">
-                    <div className="flex items-center gap-1">
+                <div className="px-4 py-3 bg-white border-t border-zinc-100 flex items-center justify-between relative rounded-b-2xl">
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={onDiscard}
-                            className="h-9 px-4 text-[13px] font-medium text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all flex items-center gap-2"
+                            className="h-9 w-9 flex items-center justify-center text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                            aria-label="Discard Draft"
                         >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Discard
+                            <Trash2 className="h-4 w-4" />
                         </button>
 
-                        <div className="w-px h-4 bg-zinc-200 mx-2" />
+                        <div className="w-px h-4 bg-zinc-200 mx-1" />
 
-                        {/* Recent Files Popover Trigger */}
+                        {/* File Attachment Trigger */}
                         <div className="relative">
+                            <input
+                                type="file"
+                                id="assistant-card-file-input"
+                                className="hidden"
+                                multiple
+                                onChange={(e) => {
+                                    if (e.target.files) {
+                                        const files = Array.from(e.target.files).map(f => ({
+                                            id: `upload_${Date.now()}_${f.name}`,
+                                            name: f.name,
+                                            type: f.type || "file",
+                                            file: f
+                                        }))
+                                        attachFiles(files)
+                                        // Reset input so the same file can be selected again
+                                        e.target.value = ''
+                                    }
+                                }}
+                            />
                             <button
-                                onClick={() => setShowPicker(!showPicker)}
-                                className={cn(
-                                    "h-9 px-3 rounded-xl transition-all flex items-center gap-2 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50",
-                                    showPicker && "bg-zinc-100 text-zinc-900"
-                                )}
+                                onClick={() => document.getElementById('assistant-card-file-input')?.click()}
+                                className="h-9 w-9 flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-xl transition-colors"
+                                aria-label="Attach file"
                             >
                                 <Paperclip className="h-4 w-4" />
                             </button>
-
-                            {/* Modern Recent Files Popover */}
-                            <AnimatePresence>
-                                {showPicker && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                        transition={{ duration: 0.15 }}
-                                        className="absolute bottom-full left-0 mb-3 w-64 bg-white rounded-2xl shadow-2xl border border-zinc-100 overflow-hidden z-50 flex flex-col"
-                                    >
-                                        <div className="px-4 py-3 border-b border-zinc-100 bg-zinc-50/50">
-                                            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Suggested Context</span>
-                                        </div>
-                                        <div className="p-2 space-y-1">
-                                            {MOCK_RECENT_FILES.map(file => (
-                                                <button
-                                                    key={file.id}
-                                                    onClick={() => attachFiles([file])}
-                                                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-zinc-50 rounded-xl transition-colors text-left group"
-                                                >
-                                                    <div className="h-8 w-8 rounded-lg bg-zinc-100 flex items-center justify-center text-zinc-400 group-hover:text-zinc-600 transition-colors shrink-0">
-                                                        <FileText className="h-4 w-4" />
-                                                    </div>
-                                                    <div className="flex flex-col truncate">
-                                                        <span className="text-[13px] font-semibold text-zinc-700 truncate">{file.name}</span>
-                                                        <span className="text-[10px] text-zinc-400 font-medium capitalize">{file.type} Document</span>
-                                                    </div>
-                                                </button>
-                                            ))}
-                                        </div>
-                                        <div className="px-4 py-3 border-t border-zinc-100 bg-zinc-50/50 flex items-center justify-center">
-                                            <span className="text-[11px] font-semibold text-zinc-400 hover:text-zinc-900 cursor-pointer transition-colors">Browse all files</span>
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
                         </div>
                     </div>
 
@@ -271,14 +319,14 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                         {isEditing ? (
                             <button
                                 onClick={handleSave}
-                                className="h-9 px-5 text-[13px] font-semibold text-zinc-700 bg-zinc-100 border border-zinc-200 hover:bg-zinc-200 rounded-xl transition-all"
+                                className="h-9 px-4 text-[13px] font-semibold text-zinc-700 bg-zinc-100 border border-zinc-200/50 hover:bg-zinc-200 rounded-xl transition-all"
                             >
-                                Done Editing
+                                Done
                             </button>
                         ) : (
                             <button
                                 onClick={handleEdit}
-                                className="h-9 px-4 text-[13px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:text-zinc-900 hover:bg-zinc-50 rounded-xl transition-all flex items-center gap-2"
+                                className="h-9 px-4 text-[13px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:text-zinc-900 hover:bg-zinc-50 hover:border-zinc-300 rounded-xl transition-all flex items-center gap-2 shadow-sm shadow-black/5"
                             >
                                 <Edit className="h-3.5 w-3.5" />
                                 Edit
@@ -286,21 +334,39 @@ export function InlineAssistantCard({ draft, onSend, onEdit, onDiscard, isSendin
                         )}
 
                         <button
-                            onClick={onSend}
+                            onClick={handleSendAction}
                             disabled={isSending}
                             className={cn(
-                                "h-9 px-6 text-[13px] font-semibold text-white rounded-xl transition-all flex items-center gap-2 shadow-sm",
+                                "h-9 px-5 text-[13px] font-semibold text-white rounded-xl transition-all flex items-center gap-2 shadow-sm shadow-black/10 origin-right min-w-[124px] justify-center",
                                 isSending
-                                    ? "bg-zinc-400 cursor-not-allowed"
-                                    : "bg-zinc-900 hover:bg-black"
+                                    ? "bg-zinc-900/50 cursor-not-allowed scale-95"
+                                    : "bg-zinc-900 hover:bg-black hover:scale-[1.02] active:scale-95"
                             )}
                         >
-                            {isSending ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                                <Send className="h-3.5 w-3.5" />
-                            )}
-                            {isSending ? "Sending..." : "Send Reply"}
+                            <AnimatePresence mode="popLayout">
+                                {isSending ? (
+                                    <motion.div
+                                        key="loading"
+                                        initial={{ opacity: 0, scale: 0.5, y: -10 }}
+                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.5, y: 10 }}
+                                        className="absolute"
+                                    >
+                                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                                    </motion.div>
+                                ) : (
+                                    <motion.div
+                                        key="content"
+                                        initial={{ opacity: 0, scale: 0.5, y: 10 }}
+                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                        exit={{ opacity: 0, scale: 0.5, y: -10 }}
+                                        className="flex items-center gap-2"
+                                    >
+                                        <Send className="h-3.5 w-3.5 text-white/90" />
+                                        Send Reply
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </button>
                     </div>
                 </div>

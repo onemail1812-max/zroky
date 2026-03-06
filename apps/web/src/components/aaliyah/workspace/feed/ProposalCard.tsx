@@ -35,8 +35,9 @@ export function ActionsRow({
                         size="sm"
                         className="h-9 px-5 rounded-xl text-[13px] font-bold shadow-sm active:scale-95 transition-all"
                         onClick={() => onAction?.(action)}
+                        aria-label={`${action.label} action`}
                     >
-                        {action.icon && <span className="mr-2">{action.icon}</span>}
+                        {action.icon && <span className="mr-2" aria-hidden="true">{action.icon}</span>}
                         {action.label}
                     </Button>
                 )
@@ -61,10 +62,22 @@ export function ProposalCard({
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-5">
                 <h3 className="text-[18px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug">{title}</h3>
                 <div className="flex items-center gap-2 shrink-0">
-                    <Button variant="outline" size="sm" onClick={onAnalyze} className="h-8 rounded-full text-xs font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onAnalyze}
+                        aria-label="Analyze deeply"
+                        className="h-8 rounded-full text-xs font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
                         Analyze Deeply
                     </Button>
-                    <Button variant="outline" size="sm" onClick={onViewSources} className="h-8 rounded-full text-xs font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onViewSources}
+                        aria-label="View material sources"
+                        className="h-8 rounded-full text-xs font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
                         View Material
                     </Button>
                 </div>

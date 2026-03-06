@@ -3,6 +3,7 @@
 import * as React from "react"
 import { GlobalRail } from "@/components/shell/GlobalRail"
 import { InboxList, EmailThreadView } from "@/components/inbox"
+import { useFeedSSE } from "@/hooks/useFeedSSE"
 import { inboxService, EmailMessage } from "@/services/inbox.service"
 import { RefreshCw, Search, Inbox, AlertOctagon, MessageSquare, Newspaper, Calendar, CheckCircle2, Clock, Info, Sparkles, FileText, AlertCircle, Bell } from "lucide-react"
 import { NotificationCard } from "@/components/ui/NotificationCard"
@@ -55,37 +56,26 @@ export default function InboxPage() {
         setNotifications(prev => prev.filter(n => n.id !== id))
     }
 
-    // Aaliyah Notification Stream
-    React.useEffect(() => {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('__session');
-        const workspaceId = localStorage.getItem('tenant_id') || 'default';
-        const url = `/api/v1/feed/stream?token=${token}&workspace_id=${workspaceId}`;
+    // Aaliyah Notification Stream (Hardened via useFeedSSE)
+    useFeedSSE({
+        setRefreshTrigger,
+        onMessage: (data: any) => {
+            if (data.type === 'draft_ready' || data.type === 'thread_updated') {
+                const newNotification: AaliyahNotification = {
+                    id: Math.random().toString(36).substring(7),
+                    title: data.type === 'draft_ready' ? 'Draft Ready' : 'AI Action',
+                    description: data.message,
+                    type: data.payload?.needs_clarity ? 'needs_clarity' :
+                        data.type === 'draft_ready' ? 'draft_ready' : 'auto_archived'
+                };
 
-        const es = new EventSource(url);
+                setNotifications(prev => [...prev, newNotification]);
 
-        es.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'draft_ready' || data.type === 'thread_updated') {
-                    const newNotification: AaliyahNotification = {
-                        id: Math.random().toString(36).substring(7),
-                        title: data.type === 'draft_ready' ? 'Draft Ready' : 'AI Action',
-                        description: data.message,
-                        type: data.payload?.needs_clarity ? 'needs_clarity' :
-                            data.type === 'draft_ready' ? 'draft_ready' : 'auto_archived'
-                    };
-
-                    setNotifications(prev => [...prev, newNotification]);
-                    setRefreshTrigger(p => p + 1); // Auto-refresh the inbox lists
-
-                    // Auto-dismiss after 8 seconds
-                    setTimeout(() => removeNotification(newNotification.id), 8000);
-                }
-            } catch (e) { /* ignore invalid JSON */ }
-        };
-
-        return () => es.close();
-    }, []);
+                // Auto-dismiss after 8 seconds
+                setTimeout(() => removeNotification(newNotification.id), 8000);
+            }
+        }
+    })
 
     // Initial Load & Polling
     React.useEffect(() => {

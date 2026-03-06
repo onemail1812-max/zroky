@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Optional
+from typing import Optional, List
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -25,11 +26,21 @@ from app.agents.aaliyah.core.ingestion.email_ingestor import EmailIngestor
 from app.agents.aaliyah.core.ingestion.sanitizer import sanitize_email_body, extract_latest_reply
 from app.agents.aaliyah.core.critic_agent import CriticAgent, CriticStatus
 from app.agents.aaliyah.core.humanizer import HumanizerFilter
+from app.services.brain.errors import BrainError, BrainProviderError, BrainTimeoutError
 
 logger = logging.getLogger(__name__)
 
 
+class DraftFailedError(Exception):
+    """Raised when draft generation fails in a non-retriable way."""
+    def __init__(self, reason: str, email_id: str | None = None):
+        self.reason = reason
+        self.email_id = email_id
+        super().__init__(reason)
+
+
 class DraftResponse(BaseModel):
+    action: str = "reply"
     subject: str
     body: str
     rationale: str
@@ -112,7 +123,35 @@ class DraftingAgent:
         """
         Generate a reply draft using LLM and context.
         Enforces "No Hallucination" and "Style Learning".
+        Includes automatic retry for transient LLM failures.
+        Raises DraftFailedError if generation fails so callers can notify the user.
         """
+        try:
+            return await self._generate_draft_internal(email, is_followup)
+        except DraftFailedError:
+            raise  # Let callers handle user notification
+        except (BrainProviderError, BrainTimeoutError) as e:
+            logger.error("Drafting ultimately failed after retries for email %s: %s", email.id, e)
+            raise DraftFailedError(
+                reason="The AI service is temporarily unavailable. Your draft will be retried automatically.",
+                email_id=email.id,
+            )
+        except Exception as e:
+            logger.error("Drafting ultimately failed for email %s: %s", email.id, e)
+            raise DraftFailedError(
+                reason="An unexpected error occurred while generating the draft.",
+                email_id=email.id,
+            )
+
+    @retry(
+        wait=wait_exponential(multiplier=1, min=4, max=20),
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception_type((BrainProviderError, BrainTimeoutError)),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+    async def _generate_draft_internal(self, email: TriagedEmail, is_followup: bool = False) -> Optional[DraftResponse]:
+        """Internal implementation of drafting with retry logic."""
         # 0. Skip if already drafted and sent. If not sent, clear old draft and re-draft.
         if email.metadata_json and "draft" in email.metadata_json:
             if email.metadata_json["draft"].get("status") == "sent":
@@ -285,23 +324,22 @@ Content: {latest_content}
 4. INCORPORATE visual facts from Vision Analysis if they are relevant to the reply.
 5. Return strict JSON.
 """
-
         try:
             # Consolidate into a single high-quality pass (Llama-3.3-70B)
             # This handles both content generation and stylistic humanization
-            response = await self.brain.think(
+            # UPGRADE: Using instructor via think_json for guaranteed structure
+            draft_data = await self.brain.think_json(
                 prompt=user_prompt,
+                response_model=DraftResponse,
                 system_prompt=system_prompt,
                 model_override=settings.AALIYAH_DRAFT_MODEL,
                 temperature_override=0.4 # Higher temp for "soul" and variety
             )
             
-            draft_data = self._parse_llm_json(response.content)
-            
-            if draft_data.get("action") == "ignore":
+            if draft_data.action == "ignore":
                 return None
                 
-            draft_body = draft_data.get("body", "")
+            draft_body = draft_data.body
 
             # ---------------------------------------------------------
             # THE DOUBLE LLM CHECK (CRITIC AGENT)
@@ -316,9 +354,6 @@ Content: {latest_content}
             if critic_response.status in [CriticStatus.MODIFIED, CriticStatus.REJECTED] and critic_response.rewritten_body:
                 logger.info(f"Critic intervened. Feedback: {critic_response.feedback}")
                 draft_body = critic_response.rewritten_body
-                if "Critic Review" not in draft_data.get("sources_used", []):
-                    # We will append logic below
-                    pass
 
             # ---------------------------------------------------------
             # THE ZERO FLUFF FILTER (HUMANIZER)
@@ -347,29 +382,35 @@ Content: {latest_content}
             sources_used.append("Zero Fluff Humanizer")
 
             return DraftResponse(
-                subject=draft_data.get("subject", f"Re: {email.subject}"),
+                action=draft_data.action,
+                subject=draft_data.subject or f"Re: {email.subject}",
                 body=draft_body,
-                rationale=draft_data.get("rationale", "Reflective humanized draft."),
-                intent=draft_data.get("intent", "other"),
-                risk_labels=draft_data.get("risk_labels", []),
-                missing_info=draft_data.get("missing_info"),
+                rationale=draft_data.rationale or "Reflective humanized draft.",
+                intent=draft_data.intent or "other",
+                risk_labels=draft_data.risk_labels or [],
+                missing_info=draft_data.missing_info,
                 sources_used=sources_used
             )
 
+        except (BrainProviderError, BrainTimeoutError):
+            # Let these propagate to tenacity
+            raise
+        except BrainError as e:
+            # Bad LLM output / structured parse failure — not retriable
+            logger.error("LLM returned unparseable output for email %s: %s", email.id, e)
+            raise DraftFailedError(
+                reason="The AI returned an invalid response and couldn't generate a proper draft. This email may need a manual reply.",
+                email_id=email.id,
+            )
+        except DraftFailedError:
+            raise
         except Exception as e:
-            logger.error("Failed to generate draft: %s", e)
-            return None
+            logger.error("Non-retriable failure in _generate_draft_internal: %s", e)
+            raise
 
-    def _parse_llm_json(self, content: str) -> dict:
-        text = content.strip()
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        try:
-            return json.loads(text)
-        except (ValueError, KeyError):
-            return {}
+    def _parser_logic_deprecated(self):
+        """Removed in favor of instructor."""
+        pass
 
     async def save_draft(self, email_id: str, draft: DraftResponse) -> bool:
         """Persist the draft and log audit event."""
@@ -379,6 +420,7 @@ Content: {latest_content}
             
         meta = dict(email.metadata_json or {})
         meta["draft"] = draft.model_dump()
+        meta["draft_status"] = "ready"
         email.metadata_json = meta
         
         from sqlalchemy.orm.attributes import flag_modified

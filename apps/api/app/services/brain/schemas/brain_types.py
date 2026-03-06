@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class BrainConfig(BaseModel):
@@ -14,6 +14,8 @@ class BrainConfig(BaseModel):
     temperature: float = Field(default=0.2, ge=0.0, le=1.2)
     max_tokens: int = Field(default=1500, ge=64, le=16_384)
     timeout_seconds: int = Field(default=30, ge=3, le=120)
+    stream_timeout_seconds: int = Field(default=60, ge=5, le=300)
+    chunk_timeout_seconds: int = Field(default=10, ge=2, le=60)
     retry_count: int = Field(default=2, ge=0, le=5)
     retry_backoff_seconds: float = Field(default=0.5, ge=0.1, le=10.0)
 
@@ -53,6 +55,7 @@ class BrainRequest(BaseModel):
 
 
 class BrainResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     content: str = Field(default="")
     usage: Dict[str, Any] = Field(default_factory=dict)
     model_used: str

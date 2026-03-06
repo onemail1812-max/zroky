@@ -10,7 +10,7 @@ import { Chip } from "@/components/aaliyah/ui/Chip"
 import { Slider } from "@/components/aaliyah/ui/Slider"
 import { cn } from "@/lib/utils"
 
-const ALLOWED_LABELS = ["Urgent", "Newsletter", "Meeting", "FYI", "Awaiting Reply", "High Priority", "Actioned"]
+const ALLOWED_LABELS = ["Urgent", "Meeting", "FYI", "Awaiting Reply", "High Priority", "Actioned"]
 
 export function RulesSettings() {
     const [loading, setLoading] = React.useState(true)
@@ -153,6 +153,8 @@ export function RulesSettings() {
                                 variant={isEnabled ? "filled" : "outline"}
                                 color={isEnabled ? "violet" : "default"}
                                 onClick={() => toggleLabel(label)}
+                                aria-label={`Toggle label ${label}`}
+                                aria-pressed={isEnabled}
                                 className="cursor-pointer"
                             >
                                 {label}
@@ -171,14 +173,21 @@ export function RulesSettings() {
                         value={vipInput}
                         onChange={(e) => setVipInput(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && addVip()}
+                        aria-label="VIP sender email"
                     />
-                    <Button size="sm" onClick={addVip} disabled={!vipInput}><Plus className="h-4 w-4" /></Button>
+                    <Button size="sm" onClick={addVip} disabled={!vipInput} aria-label="Add VIP sender"><Plus className="h-4 w-4" /></Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {(preferences.vip_senders || []).map((email) => (
                         <div key={email} className="flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 border border-amber-200">
                             {email}
-                            <button onClick={() => removeVip(email)} className="ml-1 hover:text-amber-900"><X className="h-3 w-3" /></button>
+                            <button
+                                onClick={() => removeVip(email)}
+                                aria-label={`Remove VIP ${email}`}
+                                className="ml-1 hover:text-amber-900"
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
                         </div>
                     ))}
                     {(preferences.vip_senders || []).length === 0 && <span className="text-xs text-zinc-400 italic">No VIPs configured.</span>}
@@ -194,14 +203,21 @@ export function RulesSettings() {
                         value={domainInput}
                         onChange={(e) => setDomainInput(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && addDomain()}
+                        aria-label="Internal domain name"
                     />
-                    <Button size="sm" onClick={addDomain} disabled={!domainInput}><Plus className="h-4 w-4" /></Button>
+                    <Button size="sm" onClick={addDomain} disabled={!domainInput} aria-label="Add internal domain"><Plus className="h-4 w-4" /></Button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     {(preferences.internal_domains || []).map((domain) => (
                         <div key={domain} className="flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700 border border-blue-200">
                             {domain}
-                            <button onClick={() => removeDomain(domain)} className="ml-1 hover:text-blue-900"><X className="h-3 w-3" /></button>
+                            <button
+                                onClick={() => removeDomain(domain)}
+                                aria-label={`Remove internal domain ${domain}`}
+                                className="ml-1 hover:text-blue-900"
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
                         </div>
                     ))}
                 </div>

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 
 from app.services.brain.core import Brain
+from app.agents.aaliyah.core.search_agent import SearchAgent
 from app.agents.aaliyah.core.research_agent import ResearchAgent
 from app.agents.aaliyah.core.conflict_agent import ConflictAgent
 
@@ -40,12 +41,31 @@ class ToolDispatcher:
         if intent == "RESEARCH" or (intent == "SEARCH" and "summarize" in message.lower()):
             return await self.research_agent.summarize_topic(db, message)
 
-        if intent == "MEETING_PREP" or intent == "CONFLICT":
-            # ConflictAgent handles resolving existing overlaps
-            # ResearchAgent can also be used for meeting briefs
+        if intent == "CONFLICT":
+            conflicts = await self.conflict_agent.analyze_conflicts(db)
+            if not conflicts:
+                return {
+                    "answer": "Checked your calendar. Everything looks clear—no active conflicts detected.",
+                    "status": "success"
+                }
+            
+            # Synthesize conflict results into a readable report
+            report = "I've detected a few calendar overlaps that need attention:\n\n"
+            for c in conflicts:
+                report += f"### {c['type']}\n"
+                report += f"**Details**: {c['details']}\n"
+                report += f"**Aaliyah's Recommendation**: {c['proposal']}\n\n"
+            
+            return {
+                "answer": report,
+                "status": "success",
+                "evidence": conflicts # Passing raw data as evidence for UI/Audit
+            }
+
+        if intent == "MEETING_PREP":
+            # For specific meeting prep, we use ResearchAgent for a deep brief
             return await self.research_agent.summarize_topic(db, f"Upcoming meeting: {message}")
 
         # Default fallback to search if no specific specialization matches
-        from app.agents.aaliyah.core.search_agent import SearchAgent
         search_agent = SearchAgent(db, self.workspace_id, self.brain)
         return await search_agent.execute_search(message)

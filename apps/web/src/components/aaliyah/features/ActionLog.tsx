@@ -1,9 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { Loader2, RefreshCw, Send, Tag, Archive, Clock } from "lucide-react"
+import { Loader2, RefreshCw, Send, Tag, Archive, Clock, Activity } from "lucide-react"
 import { getActions, ActionLogItem } from "@/lib/aaliyah/api"
 import { Button } from "@/components/aaliyah/ui/Button"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { SkeletonCard } from "@/components/ui/Skeleton"
 import { cn } from "@/lib/utils"
 
 export function ActionLog() {
@@ -28,7 +30,22 @@ export function ActionLog() {
         }
     }
 
-    if (loading) return <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-zinc-400" /></div>
+    if (loading) {
+        return (
+            <div className="space-y-4">
+                <div className="flex items-center justify-between mb-2">
+                    <div className="space-y-2">
+                        <div className="h-6 w-32 bg-zinc-200 rounded animate-pulse" />
+                        <div className="h-4 w-48 bg-zinc-100 rounded animate-pulse" />
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    <SkeletonCard lines={2} />
+                    <SkeletonCard lines={2} />
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -37,19 +54,29 @@ export function ActionLog() {
                     <h2 className="text-xl font-bold tracking-tight">Activity Log</h2>
                     <p className="text-sm text-zinc-500 mt-1">Recent autonomous actions performed by Aaliyah.</p>
                 </div>
-                <Button size="sm" variant="ghost" onClick={loadActions}><RefreshCw className="h-4 w-4" /></Button>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={loadActions}
+                    aria-label="Refresh activity log"
+                >
+                    <RefreshCw className="h-4 w-4" />
+                </Button>
             </div>
 
             <div className="space-y-4 relative pl-4 border-l border-zinc-200 ml-2">
                 {actions.map((action, i) => (
                     <div key={action.id} className="relative pl-6 pb-2">
                         {/* Dot */}
-                        <div className={cn(
-                            "absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-white ring-1 ring-zinc-200",
-                            action.type === "auto_send" ? "bg-green-500" :
-                                action.type === "label" ? "bg-violet-500" :
-                                    "bg-zinc-400"
-                        )} />
+                        <div
+                            aria-hidden="true"
+                            className={cn(
+                                "absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-white ring-1 ring-zinc-200",
+                                action.type === "auto_send" ? "bg-green-500" :
+                                    action.type === "label" ? "bg-violet-500" :
+                                        "bg-zinc-400"
+                            )}
+                        />
 
                         <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2 text-sm font-medium">
@@ -84,7 +111,13 @@ export function ActionLog() {
                 ))}
 
                 {actions.length === 0 && (
-                    <div className="text-sm text-zinc-400 italic py-4">No recent autonomous actions.</div>
+                    <div className="rounded-2xl border border-zinc-200/60 bg-white/50 overflow-hidden shadow-sm mt-8">
+                        <EmptyState
+                            icon={Activity}
+                            title="No Recent Activity"
+                            description="Aaliyah hasn't performed any autonomous actions recently."
+                        />
+                    </div>
                 )}
             </div>
             {error && <p className="text-xs text-red-500">{error}</p>}

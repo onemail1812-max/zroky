@@ -43,14 +43,14 @@ async def process_sync_provider(payload: Dict[str, Any]):
                 ).delete()
             deleted_count = await asyncio.to_thread(_delete_removed)
             await asyncio.to_thread(db.commit)
-            orc = AaliyahOrchestrator(workspace_id)
+            orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
             for d_id in deleted_ids:
                 await orc.emit_status("message_deleted", f"Email deleted: {d_id}", {"message_id": d_id})
             logger.info(f"Discovery: Reconciled {deleted_count} remote deletions.")
 
         # Enqueue Triage for each NEW message
         enqueued_count = 0
-        orc = AaliyahOrchestrator(workspace_id)
+        orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
         from sqlalchemy.exc import IntegrityError
         
         for msg in messages:
@@ -141,7 +141,7 @@ async def process_sync_provider(payload: Dict[str, Any]):
         logger.error(f"Discovery failed for workspace={workspace_id}: {e}", exc_info=True)
         # Proactive Alert to User — best-effort, never masks the root cause
         try:
-            orc = AaliyahOrchestrator(workspace_id)
+            orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
             await orc.emit_status(
                 "sync_failed",
                 f"Sync failed for workspace {workspace_id}. Please check your connection.",
@@ -165,7 +165,7 @@ async def process_heartbeat(payload: Dict[str, Any]):
     if not workspace_id: return
     
     logger.info(f"Heartbeat: Flushing communication for workspace={workspace_id}")
-    orc = AaliyahOrchestrator(workspace_id)
+    orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
     await orc.flush_communication()
 
     # Renew any expiring Gmail/Outlook push notification watches
@@ -320,7 +320,7 @@ async def process_ai_triage(payload: Dict[str, Any]):
                 logger.warning(f"Noise auto-archive failed (non-critical): {archive_err}")
 
         # Emit progress via Orchestrator (Conversation-triggering)
-        orc = AaliyahOrchestrator(workspace_id)
+        orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
         await orc.emit_status(
             "thread_updated",
             f"AI classified as {triage.category}",
@@ -434,7 +434,7 @@ async def process_drafting(payload: Dict[str, Any]):
 
     db = SessionLocal()
     try:
-        from app.agents.aaliyah.core.drafting import DraftingAgent
+        from app.agents.aaliyah.core.drafting import DraftingAgent, DraftFailedError
         
         def _get_entry():
             return db.get(TriagedEmail, triaged_id)
@@ -442,7 +442,39 @@ async def process_drafting(payload: Dict[str, Any]):
         if not entry: return
 
         agent = DraftingAgent(db, workspace_id)
-        draft = await agent.generate_draft(entry)
+
+        try:
+            draft = await agent.generate_draft(entry)
+        except DraftFailedError as e:
+            logger.warning(f"Draft generation failed for {triaged_id}: {e.reason}")
+
+            # Store failure status so UI can reflect it
+            def _save_failure():
+                meta = dict(entry.metadata_json or {})
+                meta["draft_status"] = "failed"
+                meta["draft_error"] = e.reason
+                entry.metadata_json = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(entry, "metadata_json")
+                db.commit()
+            await asyncio.to_thread(_save_failure)
+
+            # Notify user via SSE
+            orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
+            await orc.emit_status(
+                "draft_failed",
+                f"I couldn't draft a reply for: {entry.subject[:40]}...",
+                {
+                    "id": triaged_id,
+                    "thread_id": entry.thread_id,
+                    "subject": entry.subject,
+                    "sender": entry.sender,
+                    "reason": e.reason,
+                }
+            )
+            await orc.broadcast_updates(db)
+            logger.info(f"Workflow [3/3] Drafting failed for {triaged_id}. User notified.")
+            return
         
         if draft:
             def _save_draft():
@@ -463,7 +495,7 @@ async def process_drafting(payload: Dict[str, Any]):
             meta = await asyncio.to_thread(_save_draft)
 
             # Final Event: Draft Ready (Triggers "Boss, I've prepared a draft...")
-            orc = AaliyahOrchestrator(workspace_id)
+            orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
             await orc.emit_status(
                 "draft_ready",
                 f"Aaliyah drafted a reply for: {entry.subject[:30]}...",

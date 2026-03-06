@@ -4,7 +4,9 @@ import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Send, Paperclip, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { aaliyahApi } from "@/lib/aaliyah/api";
+import { assistApi } from "@/lib/aaliyah/api";
+
+import { useSystemStore } from "@/lib/aaliyah/store";
 
 interface ComposeModalProps {
     isOpen: boolean;
@@ -20,6 +22,18 @@ export function ComposeModal({ isOpen, onClose }: ComposeModalProps) {
     const [attachments, setAttachments] = React.useState<{ name: string; type: string; data: string }[]>([]);
     const [isSending, setIsSending] = React.useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    const { composeData, openCompose } = useSystemStore();
+
+    React.useEffect(() => {
+        if (composeData && isOpen) {
+            setTo(composeData.to || "");
+            setCc(composeData.cc || "");
+            setBcc(composeData.bcc || "");
+            setSubject(composeData.subject || "");
+            setBody(composeData.body || "");
+        }
+    }, [composeData, isOpen]);
 
     // Stop propagation so clicking inside the modal doesn't close it if we added an overlay click handler
     const handleContentClick = (e: React.MouseEvent) => e.stopPropagation();
@@ -62,12 +76,13 @@ export function ComposeModal({ isOpen, onClose }: ComposeModalProps) {
 
         setIsSending(true);
         try {
-            await aaliyahApi.post("/assist/compose", {
+            await assistApi.post("/compose", {
                 to: to.split(",").map(e => e.trim()).filter(Boolean),
                 cc: cc ? cc.split(",").map(e => e.trim()).filter(Boolean) : [],
                 bcc: bcc ? bcc.split(",").map(e => e.trim()).filter(Boolean) : [],
                 subject: subject.trim(),
                 body: body.trim(),
+                thread_id: composeData?.threadId,
                 attachments: attachments
             });
 

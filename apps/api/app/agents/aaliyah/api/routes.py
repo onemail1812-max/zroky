@@ -23,6 +23,7 @@ from app.config import settings
 from app.database import SessionLocal, get_db
 from app.dependencies import CurrentContext, get_current_context
 from app.security import get_current_user
+from app.services.cache import cached_response, invalidate_cache
 from app.models.audit_log import AuditLog
 from app.models.workspace import Workspace
 from app.models.draft_template import DraftTemplate
@@ -40,18 +41,15 @@ from app.core.queue import queue, JobType
 from app.services.audit_log_service import AuditLogService, AuditAction, AuditEntityType
 from app.agents.aaliyah.core.greeting_service import GreetingService
 router = APIRouter(
-    prefix="/aaliyah",
+    prefix="/api/v1/aaliyah",
     tags=["aaliyah"],
 )
-
-_orchestrator_lock = threading.Lock()
-_orchestrators: dict[str, AaliyahOrchestrator] = {}
 
 _ask_rate_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60)
 _webhook_rate_limiter = InMemoryRateLimiter(max_requests=60, window_seconds=60)
 _sync_rate_limiter = InMemoryRateLimiter(max_requests=5, window_seconds=60)
 _idempotency_store = InMemoryIdempotencyStore(ttl_seconds=3600)
-_LIVE_TOKEN_TTL_SECONDS = 30
+_LIVE_TOKEN_TTL_SECONDS = 3600  # [Bug 3.4] Was 30s → constant SSE reconnections. Now 1 hour.
 
 
 class UserMessage(BaseModel):
@@ -139,7 +137,7 @@ class AaliyahSettingsRequest(BaseModel):
     auto_send_enabled: bool = False
     
     # Approvals & Risk
-    always_require_approval: bool = True
+    always_require_approval: bool = False
     approval_required_topics: list[str] = Field(default_factory=list)
 
     # ── 5-Point Rulebook ──
@@ -219,12 +217,7 @@ class LabelOverrideRequest(BaseModel):
 
 
 def _get_orchestrator(workspace_id: str) -> AaliyahOrchestrator:
-    with _orchestrator_lock:
-        orchestrator = _orchestrators.get(workspace_id)
-        if orchestrator is None:
-            orchestrator = AaliyahOrchestrator(workspace_id=workspace_id)
-            _orchestrators[workspace_id] = orchestrator
-        return orchestrator
+    return AaliyahOrchestrator.get_orchestrator(workspace_id=workspace_id)
 
 
 def _require_workspace_match(optional_workspace_id: Optional[str], context: CurrentContext) -> str:
@@ -291,7 +284,9 @@ def _decode_live_token(stream_token: str) -> dict[str, Any]:
 
 
 @router.get("/status")
+@cached_response(ttl_seconds=30, prefix="aaliyah_status")
 async def get_status(
+    request: Request,
     token_payload: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -319,10 +314,11 @@ async def get_status(
         orchestrator = _get_orchestrator(workspace_id)
         return orchestrator.get_status()
     except Exception as e:
-        import traceback
-        err_msg = f"Aaliyah Status Error: {str(e)}\n{traceback.format_exc()}"
-        logger.error(err_msg)
-        raise HTTPException(status_code=500, detail=f"Status Error: {str(e)}")
+        logger.error(f"Aaliyah Status Error for workspace {workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail="Unable to retrieve status at this time"
+        )
 
 
 # ── Onboarding Gate ──────────────────────────────────────────────────
@@ -370,20 +366,19 @@ async def get_onboarding_status(
 ):
     """Check whether the workspace has completed onboarding."""
     try:
-        workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
-        if not workspace:
-            # Auto-create workspace rather than erroring - this can happen for new users
-            logger.warning(f"Workspace {context.workspace_id} not found in onboarding/status — returning pending")
-            return {"onboarding_status": "pending", "first_name": None}
-
+        # Always resolve first_name regardless of workspace state
         from app.models.user import User
         user = db.query(User).filter(User.id == context.user_id).first()
         
-        # Safe extraction of first name (guard against user being None)
         first_name = None
         if user and user.full_name:
             parts = user.full_name.strip().split()
             first_name = parts[0] if parts else None
+
+        workspace = db.query(Workspace).filter(Workspace.id == context.workspace_id).first()
+        if not workspace:
+            logger.warning(f"Workspace {context.workspace_id} not found in onboarding/status — returning pending")
+            return {"onboarding_status": "pending", "first_name": first_name}
 
         return {
             "onboarding_status": getattr(workspace, "onboarding_status", "pending") or "pending",
@@ -392,9 +387,11 @@ async def get_onboarding_status(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        logger.error(f"Onboarding Status Error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Onboarding Error: {str(e)}")
+        logger.error(f"Onboarding Status Error for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check onboarding status"
+        )
 
 
 @router.post("/onboarding/complete")
@@ -455,6 +452,9 @@ async def complete_onboarding(
     flag_modified(workspace, "settings_json")
     flag_modified(workspace, "onboarding_status")
     db.commit() # Save object changes
+    
+    # Invalidate cache
+    invalidate_cache("aaliyah_status", workspace_id=context.workspace_id)
     
     # FORCE UPDATE via SQL to ensure persistence in SQLite/WAL
     import json
@@ -606,10 +606,11 @@ async def get_stats(
         orchestrator = _get_orchestrator(context.workspace_id)
         return orchestrator.get_stats()
     except Exception as e:
-        import traceback
-        err_msg = f"Aaliyah Stats Error: {str(e)}\n{traceback.format_exc()}"
-        logger.error(err_msg)
-        raise HTTPException(status_code=500, detail=f"Stats Error: {str(e)}")
+        logger.error(f"Aaliyah Stats Error for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve performance statistics"
+        )
 
 
 from fastapi import Response
@@ -680,7 +681,9 @@ async def live_stream(
 
 
 @router.get("/inbox")
+@cached_response(ttl_seconds=30, prefix="aaliyah_inbox")
 async def get_inbox(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     category: Optional[str] = Query(default=None),
     priority: Optional[str] = Query(default=None),
@@ -698,13 +701,17 @@ async def get_inbox(
             include_noise=include_noise,
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Inbox fetch failed: {str(e)}")
+        logger.error(f"Inbox fetch failed for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list inbox items"
+        )
 
 
 @router.get("/counts")
+@cached_response(ttl_seconds=30, prefix="aaliyah_counts")
 async def get_counts(
+    request: Request,
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -714,14 +721,17 @@ async def get_counts(
         stats = orchestrator.get_stats(db)
         return stats
     except Exception as e:
-        import traceback
-        err_msg = f"Aaliyah Counts Error: {str(e)}\n{traceback.format_exc()}"
-        logger.error(err_msg)
-        raise HTTPException(status_code=500, detail=f"Counts Error: {str(e)}")
+        logger.error(f"Aaliyah Counts Error for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve record counts"
+        )
 
 
 @router.get("/threads")
+@cached_response(ttl_seconds=30, prefix="aaliyah_threads")
 async def get_threads(
+    request: Request,
     queue: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     context: CurrentContext = Depends(get_current_context),
@@ -744,7 +754,9 @@ async def get_threads(
 
 
 @router.get("/threads/{message_id}")
+@cached_response(ttl_seconds=60, prefix="aaliyah_thread_item")
 async def get_thread_item(
+    request: Request,
     message_id: str,
     context: CurrentContext = Depends(get_current_context),
     db: Session = Depends(get_db),
@@ -912,7 +924,7 @@ async def send_draft_action(
     # 5. Broadcast live events
     orchestrator = _get_orchestrator(context.workspace_id)
     await orchestrator._emit("draft_sent", "Draft was sent", {"message_id": email_row.id, "thread_id": email_row.thread_id})
-    await orchestrator.get_stats(db) # Triggers counts update
+    await orchestrator.broadcast_updates(db) # Triggers counts update
     
     # 6. Audit Logging
     AuditLogService.log_action(
@@ -1045,18 +1057,26 @@ async def upload_meeting_transcript(
     svc = MeetingSummarizer(db, context.workspace_id)
     try:
         tid = await svc.ingest_transcript(event_id, payload.text, payload.platform)
-        # Trigger processing (async in background typically, but for now we call it directly or just return ID)
-        # Assuming we want immediate results for demo? No, let's trigger it.
-        # Fire and forget task?
-        asyncio.create_task(svc.summarize_transcript(tid))
+        async def _run_summarizer(transcript_id: str, ws_id: str):
+            from app.database import SessionLocal
+            bg_db = SessionLocal()
+            try:
+                bg_svc = MeetingSummarizer(bg_db, ws_id)
+                await bg_svc.summarize_transcript(transcript_id)
+            finally:
+                bg_db.close()
+
+        asyncio.create_task(_run_summarizer(tid, context.workspace_id))
         
         return {"status": "processing", "transcript_id": tid}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to upload transcript: {str(e)}")
+        logger.error(f"Transcript upload failed for workspace {context.workspace_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process transcript upload"
+        )
 
 
 @router.get("/calendar/events/{event_id}/transcript")
@@ -1455,7 +1475,6 @@ async def get_sync_status(
             from app.models.calendar_event_snapshot import CalendarEventSnapshot
             from sqlalchemy import func as sqlfunc
         except ImportError as ie:
-            print(f"CRITICAL: Import failed in get_sync_status: {ie}")
             logger.error(f"Import failed in get_sync_status: {ie}")
             raise HTTPException(status_code=500, detail=f"Import Error: {ie}")
 
@@ -1464,7 +1483,6 @@ async def get_sync_status(
                  TriagedEmail.workspace_id == ws_id
              ).scalar() or 0
         except Exception as dbe:
-             print(f"CRITICAL: Email count query failed: {dbe}")
              logger.error(f"Email count query failed: {dbe}")
              email_count = 0
 
@@ -1473,13 +1491,13 @@ async def get_sync_status(
                  CalendarEventSnapshot.workspace_id == ws_id
              ).scalar() or 0
         except Exception as dbe:
-             print(f"CRITICAL: Calendar count query failed: {dbe}")
              logger.error(f"Calendar count query failed: {dbe}")
              calendar_count = 0
 
         # Orchestrator State Access
         try:
-            orchestrator_state = AaliyahOrchestrator._state.get(ws_id)
+            orchestrator = _get_orchestrator(ws_id)
+            orchestrator_state = orchestrator._get_state()
             # Default to safe empty state if not found
             if not orchestrator_state:
                 # Lazy init state if possible or just use defaults
@@ -1490,7 +1508,6 @@ async def get_sync_status(
                  if last_sync is None: last_sync = {}
                  runtime_status = orchestrator_state.status or "idle"
         except Exception as state_exc:
-             print(f"CRITICAL: Orchestrator state access failed: {state_exc}")
              logger.error(f"Orchestrator state access failed: {state_exc}")
              last_sync = {}
              runtime_status = "idle"
@@ -1527,17 +1544,11 @@ async def get_sync_status(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback_str = traceback.format_exc()
-        print(f"CRITICAL: Sync Status 500: {traceback_str}")
-        try:
-            with open("last_sync_error.txt", "w") as f:
-                f.write(traceback_str)
-        except:
-            pass
-        logger.error(f"Sync Status Error: {str(e)}")
-        # Raise generic 500 but with detail in logs
-        raise HTTPException(status_code=500, detail=f"Sync Status Error: {str(e)}")
+        logger.error(f"Sync Status Error for workspace {ws_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to determine sync status"
+        )
 
 
 @router.get("/labeling/preferences")

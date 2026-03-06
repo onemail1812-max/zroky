@@ -2,14 +2,15 @@
 
 import * as React from "react"
 import { AlertTriangle, Inbox, RefreshCw, FileText, Send, Edit, X } from "lucide-react"
-import { getInbox, getCalendarConflicts, syncInbox, syncCalendar, sendDraft, getUpcomingMeetings, getEventPrep } from "@/lib/aaliyah/api"
+import { getInbox, getCalendarConflicts, syncInbox, syncCalendar, sendDraft, archiveEmail, getUpcomingMeetings, getEventPrep } from "@/lib/aaliyah/api"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/aaliyah/ui/Card"
 import { Button } from "@/components/aaliyah/ui/Button"
 import { Chip } from "@/components/aaliyah/ui/Chip"
 import { cn } from "@/lib/utils"
 import { useSystemStore } from "@/lib/aaliyah/store"
-import { SkeletonEmail } from "@/components/ui/Skeleton"
-
+import { SkeletonEmail, SkeletonCard } from "@/components/ui/Skeleton"
+import { toast } from "react-hot-toast"
+import { EmptyState } from "@/components/ui/EmptyState"
 type InboxFeedItem = {
     id: string
     provider: string
@@ -62,6 +63,7 @@ export function InboxOverview() {
     const [loading, setLoading] = React.useState(true)
     const [syncing, setSyncing] = React.useState(false)
     const [sendingIds, setSendingIds] = React.useState<Set<string>>(new Set())
+    const [discardingIds, setDiscardingIds] = React.useState<Set<string>>(new Set())
     const [generatingPrepIds, setGeneratingPrepIds] = React.useState<Set<string>>(new Set())
 
     const lastSync = useSystemStore(state => state.lastSync)
@@ -108,20 +110,6 @@ export function InboxOverview() {
     async function handleSend(emailId: string) {
         setSendingIds(prev => new Set(prev).add(emailId))
         try {
-            // Assume workspace ID is managed by token or context, or get from first item if needed.
-            // For now, let's assume API client handles workspace context OR we pass undefined to let API resolve.
-            // But sendDraft signature in api.ts requires workspaceId.
-            // We can get it from localStorage or context. InboxFeedItem doesn't enforce it.
-            // Hack: try reading form local storage or pass undefined if api.ts allows.
-            // Checking api.ts sendDraft(workspaceId: string, emailId: string) -> string is mandatory.
-
-            // We need a workspace ID. Let's grab it from local storage via a helper if possible, or assume user context.
-            // The `api.ts` `withAuth` reads it. But the function `sendDraft` asks for it.
-            // Let's pass a known workspace ID if we have it, or empty string and let interceptor handle if API allows.
-            // Actually, let's change sendDraft to accept optional workspace Id in api.ts?
-            // Already modified api.ts. It takes (workspaceId, emailId).
-            // I'll assume we can get it from localStorage if not in component props.
-
             let wsId = ""
             if (typeof window !== "undefined") {
                 wsId = window.localStorage.getItem("workspace_id") || window.localStorage.getItem("x_workspace_id") || "default"
@@ -136,12 +124,34 @@ export function InboxOverview() {
                 }
                 return item
             }))
-
+            toast.success("Draft sent successfully.")
+            useSystemStore.getState().addNotification("Draft sent successfully.", "success")
         } catch (e) {
             console.error("Failed to send draft", e)
-            alert("Failed to send email. Check console.")
+            toast.error("Failed to send email.")
+            useSystemStore.getState().addNotification("Failed to send email.", "error")
         } finally {
             setSendingIds(prev => {
+                const next = new Set(prev)
+                next.delete(emailId)
+                return next
+            })
+        }
+    }
+
+    async function handleDiscard(emailId: string) {
+        setDiscardingIds(prev => new Set(prev).add(emailId))
+        try {
+            await archiveEmail(emailId)
+            setInboxItems(prev => prev.filter(i => i.id !== emailId))
+            toast.success("Draft discarded.")
+            useSystemStore.getState().addNotification("Draft discarded.", "info")
+        } catch (e) {
+            console.error("Failed to discard draft", e)
+            toast.error("Failed to discard draft.")
+            useSystemStore.getState().addNotification("Failed to discard draft.", "error")
+        } finally {
+            setDiscardingIds(prev => {
                 const next = new Set(prev)
                 next.delete(emailId)
                 return next
@@ -163,7 +173,8 @@ export function InboxOverview() {
             }
         } catch (e) {
             console.error("Failed to generate meeting prep", e)
-            alert("Failed to generate meeting prep. Check console.")
+            toast.error("Failed to generate meeting prep.")
+            useSystemStore.getState().addNotification("Failed to generate meeting prep.", "error")
         } finally {
             setGeneratingPrepIds(prev => {
                 const next = new Set(prev)
@@ -179,117 +190,135 @@ export function InboxOverview() {
 
 
             {/* Calendar Conflicts Alert */}
-            {
-                conflicts.length > 0 && (
-                    <Card className="border-amber-200 bg-amber-50/50">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="flex items-center text-amber-800 text-sm">
-                                <AlertTriangle className="mr-2 h-4 w-4" />
-                                {conflicts.length} Calendar Conflicts Detected
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {conflicts.map((c) => (
-                                <div key={c.id} className="text-sm text-amber-900 border-b border-amber-200/50 pb-3 last:border-0 last:pb-0">
-                                    <div className="flex justify-between font-medium">
-                                        <span>{c.explain || "Calendar conflict detected."}</span>
-                                        <span className="opacity-70 text-xs whitespace-nowrap ml-2">
-                                            {typeof c.conflict_minutes === "number" ? `${c.conflict_minutes}m` : ""}
-                                            {c.conflict_type ? ` ${c.conflict_type}` : ""}
-                                        </span>
-                                    </div>
+            {loading && conflicts.length === 0 ? (
+                <Card className="border-borderSubtle">
+                    <CardHeader className="pb-2">
+                        <div className="h-4 w-48 bg-zinc-200 rounded animate-pulse" />
+                    </CardHeader>
+                    <CardContent>
+                        <SkeletonCard lines={2} />
+                    </CardContent>
+                </Card>
+            ) : conflicts.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/50">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center text-amber-800 text-sm">
+                            <AlertTriangle className="mr-2 h-4 w-4" />
+                            {conflicts.length} Calendar Conflicts Detected
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {conflicts.map((c) => (
+                            <div key={c.id} className="text-sm text-amber-900 border-b border-amber-200/50 pb-3 last:border-0 last:pb-0">
+                                <div className="flex justify-between font-medium">
+                                    <span>{c.explain || "Calendar conflict detected."}</span>
+                                    <span className="opacity-70 text-xs whitespace-nowrap ml-2">
+                                        {typeof c.conflict_minutes === "number" ? `${c.conflict_minutes}m` : ""}
+                                        {c.conflict_type ? ` ${c.conflict_type}` : ""}
+                                    </span>
+                                </div>
 
-                                    {c.briefing && (
-                                        <div className="mt-2 text-xs bg-white/60 p-2 rounded border border-amber-100">
-                                            <div className="font-semibold text-amber-800 mb-1">Aaliyah Recommendation:</div>
-                                            <div className="mb-1">{c.briefing.recommendation}</div>
-                                            {c.briefing.talking_points?.length > 0 && (
-                                                <ul className="list-disc list-inside opacity-80 mt-1 space-y-0.5">
-                                                    {c.briefing.talking_points.map((tp, i) => (
-                                                        <li key={i}>{tp}</li>
-                                                    ))}
-                                                </ul>
+                                {c.briefing && (
+                                    <div className="mt-2 text-xs bg-white/60 p-2 rounded border border-amber-100">
+                                        <div className="font-semibold text-amber-800 mb-1">Aaliyah Recommendation:</div>
+                                        <div className="mb-1">{c.briefing.recommendation}</div>
+                                        {c.briefing.talking_points?.length > 0 && (
+                                            <ul className="list-disc list-inside opacity-80 mt-1 space-y-0.5">
+                                                {c.briefing.talking_points.map((tp, i) => (
+                                                    <li key={i}>{tp}</li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )
+            }
+
+            {/* Upcoming Briefings */}
+            {loading && upcoming.length === 0 ? (
+                <Card className="border-borderSubtle">
+                    <CardHeader className="pb-2">
+                        <div className="h-4 w-40 bg-zinc-200 rounded animate-pulse" />
+                    </CardHeader>
+                    <CardContent>
+                        <SkeletonCard lines={2} />
+                        <SkeletonCard lines={2} />
+                    </CardContent>
+                </Card>
+            ) : upcoming.length > 0 && (
+                <Card className="border-blue-200 bg-blue-50/50">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center text-blue-800 text-sm">
+                            <FileText className="mr-2 h-4 w-4" />
+                            Upcoming Meetings
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {upcoming.map((u) => {
+                            const isGenerating = generatingPrepIds.has(u.id);
+                            return (
+                                <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
+                                    <div className="flex justify-between font-medium items-center">
+                                        <span>{u.title}</span>
+                                        <div className="flex items-center gap-2">
+                                            {!u.meeting_prep && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="h-6 text-[10px] text-blue-700 hover:text-blue-900 hover:bg-blue-100 uppercase tracking-wider px-2"
+                                                    onClick={() => handleGeneratePrep(u.id)}
+                                                    disabled={isGenerating}
+                                                    aria-label={isGenerating ? `Preparing briefing for ${u.title}` : `Prepare briefing for ${u.title}`}
+                                                >
+                                                    {isGenerating ? (
+                                                        <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                                                    ) : (
+                                                        <FileText className="mr-1 h-3 w-3" />
+                                                    )}
+                                                    {isGenerating ? "Preparing..." : "Brief Me"}
+                                                </Button>
+                                            )}
+                                            <span className="opacity-70 text-xs whitespace-nowrap ml-2">
+                                                {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
+
+                                    {u.meeting_prep && (
+                                        <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs animate-in fade-in duration-300">
+                                            <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
+                                            <div className="mb-1 italic">{u.meeting_prep.summary}</div>
+
+                                            {u.meeting_prep.recommendation && (
+                                                <div className="mt-2">
+                                                    <span className="font-semibold text-blue-800">Strategy: </span>
+                                                    {u.meeting_prep.recommendation}
+                                                </div>
+                                            )}
+
+                                            {u.meeting_prep.talking_points?.length > 0 && (
+                                                <div className="mt-2">
+                                                    <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
+                                                    <ul className="list-disc list-inside opacity-80 space-y-0.5">
+                                                        {u.meeting_prep.talking_points.map((tp, i) => (
+                                                            <li key={i}>{tp}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
                                             )}
                                         </div>
                                     )}
                                 </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                )
-            }
-
-            {/* Upcoming Briefings */}
-            {
-                upcoming.length > 0 && (
-                    <Card className="border-blue-200 bg-blue-50/50">
-                        <CardHeader className="pb-2">
-                            <CardTitle className="flex items-center text-blue-800 text-sm">
-                                <FileText className="mr-2 h-4 w-4" />
-                                Upcoming Meetings
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {upcoming.map((u) => {
-                                const isGenerating = generatingPrepIds.has(u.id);
-                                return (
-                                    <div key={u.id} className="text-sm text-blue-900 border-b border-blue-200/50 pb-3 last:border-0 last:pb-0">
-                                        <div className="flex justify-between font-medium items-center">
-                                            <span>{u.title}</span>
-                                            <div className="flex items-center gap-2">
-                                                {!u.meeting_prep && (
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        className="h-6 text-[10px] text-blue-700 hover:text-blue-900 hover:bg-blue-100 uppercase tracking-wider px-2"
-                                                        onClick={() => handleGeneratePrep(u.id)}
-                                                        disabled={isGenerating}
-                                                    >
-                                                        {isGenerating ? (
-                                                            <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-                                                        ) : (
-                                                            <FileText className="mr-1 h-3 w-3" />
-                                                        )}
-                                                        {isGenerating ? "Preparing..." : "Brief Me"}
-                                                    </Button>
-                                                )}
-                                                <span className="opacity-70 text-xs whitespace-nowrap ml-2">
-                                                    {new Date(u.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div className="text-xs text-blue-700/80 mb-2">Organizer: {u.organizer || "Unknown"}</div>
-
-                                        {u.meeting_prep && (
-                                            <div className="bg-white/60 p-2 rounded border border-blue-100 text-xs animate-in fade-in duration-300">
-                                                <div className="font-semibold text-blue-800 mb-1">Executive Summary:</div>
-                                                <div className="mb-1 italic">{u.meeting_prep.summary}</div>
-
-                                                {u.meeting_prep.recommendation && (
-                                                    <div className="mt-2">
-                                                        <span className="font-semibold text-blue-800">Strategy: </span>
-                                                        {u.meeting_prep.recommendation}
-                                                    </div>
-                                                )}
-
-                                                {u.meeting_prep.talking_points?.length > 0 && (
-                                                    <div className="mt-2">
-                                                        <div className="font-semibold text-blue-800 mb-0.5">Talking Points:</div>
-                                                        <ul className="list-disc list-inside opacity-80 space-y-0.5">
-                                                            {u.meeting_prep.talking_points.map((tp, i) => (
-                                                                <li key={i}>{tp}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )
-                            })}
-                        </CardContent>
-                    </Card>
-                )
+                            )
+                        })}
+                    </CardContent>
+                </Card>
+            )
             }
 
             {/* Recent Triaged Items */}
@@ -306,9 +335,13 @@ export function InboxOverview() {
                     )}
 
                     {!loading && inboxItems.length === 0 && (
-                        <div className="p-8 text-center text-zinc-400 flex flex-col items-center">
-                            <Inbox className="h-8 w-8 mb-2 opacity-50" />
-                            <p>Inbox Zero. No pending items.</p>
+                        <div className="py-4">
+                            <EmptyState
+                                icon={Inbox}
+                                title="Inbox Zero"
+                                description="No pending items to triage."
+                                className="py-12"
+                            />
                         </div>
                     )}
 
@@ -392,11 +425,35 @@ export function InboxOverview() {
                                             {/* Actions */}
                                             {!isSent && (
                                                 <div className="flex items-center justify-end gap-2 mt-1 border-t border-violet-200/50 pt-3">
-                                                    <Button size="sm" variant="ghost" className="h-7 text-xs text-zinc-500 hover:text-zinc-900">
-                                                        <X className="mr-1.5 h-3 w-3" />
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-7 text-xs text-zinc-500 hover:text-zinc-900"
+                                                        onClick={() => handleDiscard(item.id)}
+                                                        disabled={discardingIds.has(item.id)}
+                                                        title="Discard draft"
+                                                        aria-label="Discard draft"
+                                                    >
+                                                        {discardingIds.has(item.id) ? (
+                                                            <RefreshCw className="mr-1.5 h-3 w-3 animate-spin" />
+                                                        ) : (
+                                                            <X className="mr-1.5 h-3 w-3" />
+                                                        )}
                                                         Discard
                                                     </Button>
-                                                    <Button size="sm" variant="ghost" className="h-7 text-xs text-violet-700 hover:text-violet-900 hover:bg-violet-100">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-7 text-xs text-violet-700 hover:text-violet-900 hover:bg-violet-100"
+                                                        onClick={() => {
+                                                            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                                detail: `Please edit the draft for "${item.subject}":\n`
+                                                            }));
+                                                            toast.success("Ready to edit in chat.");
+                                                        }}
+                                                        title="Edit Draft"
+                                                        aria-label="Edit draft in chat"
+                                                    >
                                                         <Edit className="mr-1.5 h-3 w-3" />
                                                         Edit
                                                     </Button>
@@ -405,6 +462,7 @@ export function InboxOverview() {
                                                         className="h-7 text-xs bg-violet-600 hover:bg-violet-700 text-white"
                                                         onClick={() => handleSend(item.id)}
                                                         disabled={isSending}
+                                                        aria-label={isSending ? "Sending draft..." : "Send draft now"}
                                                     >
                                                         {isSending ? (
                                                             <RefreshCw className="mr-1.5 h-3 w-3 animate-spin" />

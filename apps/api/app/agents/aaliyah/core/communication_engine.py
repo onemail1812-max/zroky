@@ -1,4 +1,5 @@
-from __future__ import annotations
+import asyncio
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import random
@@ -22,45 +23,50 @@ class CommunicationEngine:
     MAX_BATCH_SIZE = 50
 
     def __init__(self):
-        pass
+        self._flush_lock = asyncio.Lock()
+        self._data_lock = threading.Lock()
 
     def add_event(self, state: CommunicationState, event_type: str, payload: Dict[str, Any], urgent: bool = False) -> None:
-        """Queue an event for the next communication batch."""
+        """Queue an event for the next communication batch with thread-safety."""
         event = CommunicationEvent(
             type=event_type,
             payload=payload,
             timestamp=datetime.now(timezone.utc).timestamp(),
             urgent=urgent
         )
-        state.pending_events.append(event)
-        # Prevent indefinite growth if not flushed
-        if len(state.pending_events) > self.MAX_BATCH_SIZE:
-            state.pending_events.pop(0)
+        with self._data_lock:
+            state.pending_events.append(event)
+            # Prevent indefinite growth if not flushed
+            if len(state.pending_events) > self.MAX_BATCH_SIZE:
+                state.pending_events.pop(0)
 
     def should_flush(self, state: CommunicationState) -> bool:
-        """Check if enough time has passed to send a batch."""
-        # If there's an urgent event, speak NOW
-        if any(e.urgent for e in state.pending_events):
-            return True
+        """Check if enough time has passed to send a batch (thread-safe check)."""
+        with self._data_lock:
+            # If there's an urgent event, speak NOW
+            if any(e.urgent for e in state.pending_events):
+                return True
 
-        now = datetime.now(timezone.utc).timestamp()
-        time_since_last = now - state.last_message_at
-        
-        # If we haven't spoken in a while, speak now
-        return time_since_last >= self.MIN_INTERVAL_SECONDS
+            now = datetime.now(timezone.utc).timestamp()
+            time_since_last = now - state.last_message_at
+            
+            # If we haven't spoken in a while, speak now
+            return time_since_last >= self.MIN_INTERVAL_SECONDS
 
     async def flush(self, state: CommunicationState, user_name: str, brain: Any, preferences: Dict[str, Any]) -> Optional[str]:
-        """Aggregate events and generate a human-like message using LLM."""
-        if not self.should_flush(state):
-            return None
+        """Aggregate events and generate a message (Atomic snapshot+clear)."""
+        # [Bug 3.2 / 5.4] Atomic snapshot+clear under lock to prevent race conditions.
+        async with self._flush_lock:
+            if not self.should_flush(state):
+                return None
+                
+            with self._data_lock:
+                events = list(state.pending_events)
+                if not events:
+                    return None
 
-        # Snapshot events and clear queue
-        events = list(state.pending_events)
-        state.pending_events.clear()
-        state.last_message_at = datetime.now(timezone.utc).timestamp()
-
-        if not events:
-            return None
+                state.pending_events.clear()
+                state.last_message_at = datetime.now(timezone.utc).timestamp()
 
         return await self._generate_llm_message(events, user_name, brain, preferences)
 

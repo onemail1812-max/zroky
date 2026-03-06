@@ -19,7 +19,6 @@ from app.agents.aaliyah.core.triage_service import TriageResult
 
 ALLOWED_LABELS = (
     "Urgent",
-    "Newsletter",
     "Meeting",
     "FYI",
     "Awaiting Reply",
@@ -27,7 +26,7 @@ ALLOWED_LABELS = (
     "Actioned",
     "Cleaned",
     "Receipt",
-    "Notification",
+    "Notifications",
     "Money",
     "Legal",
     "Complaint",
@@ -36,7 +35,6 @@ ALLOWED_LABELS = (
 
 DEFAULT_LABELS = [
     "Urgent",
-    "Newsletter",
     "Meeting",
     "FYI",
     "Awaiting Reply",
@@ -44,7 +42,7 @@ DEFAULT_LABELS = [
     "Actioned",
     "Cleaned",
     "Receipt",
-    "Notification",
+    "Notifications",
     "Money",
     "Legal",
     "Complaint",
@@ -359,7 +357,7 @@ class LabelingRulesEngine:
         # 3. Notification Signals
         notif_patterns = [r"no-reply", r"noreply", r"system", r"alert", r"notification", r"automated", r"do-not-reply"]
         if any(re.search(p, sender) or re.search(p, subject) for p in notif_patterns):
-             return "Notification"
+             return "Notifications"
 
         return None
 
@@ -511,31 +509,24 @@ class LabelingRulesEngine:
         if deadline_at:
             add_label("Urgent", f"Automated deadline detection: {deadline_at.strftime('%Y-%m-%d')}")
 
-        custom_topics = None
-        always_require_approval = True
-        if workspace_settings:
-             aaliyah_s = workspace_settings.get("aaliyah", {})
-             custom_topics = _to_list_of_str(aaliyah_s.get("approval_required_topics", []))
-             always_require_approval = aaliyah_s.get("always_require_approval", True)
-
-        risk_category_tuple = self._detect_risk(text_blob, custom_topics=custom_topics)
+        # [v2.3-Lockdown] ABSOLUTE MANUAL MODE
+        # All triaged items that trigger an action MUST be approved by a human.
         requires_approval = False
         approval_reason = None
+
+        if triage.category not in {"Newsletter", "Notifications", "Receipt", "Cleaned"}:
+            requires_approval = True
+            approval_reason = "100% Safety Rule: Outbound actions require mandatory human review."
+
+        risk_category_tuple = self._detect_risk(text_blob, custom_topics=None)
 
         if risk_category_tuple:
             risk_category, trigger_term = risk_category_tuple
             add_label(risk_category, f"Detected high-risk context: {risk_category} (via '{trigger_term}')")
-            # Money/Legal/Payment/Complaint/Hiring route to approvals
             requires_approval = True
             approval_reason = trigger_term.replace(r"", "").title()
             priority_override = "High"
             add_label("High Priority", f"High-risk item ({risk_category}) requiring executive approval.")
-        
-        # If workspace policy is "Always Require Approval", we set it here for all actionable intents
-        if always_require_approval and triage.category not in {"Newsletter", "Notification", "Receipt", "Cleaned"}:
-            requires_approval = True
-            if not approval_reason:
-                approval_reason = "Global policy: Always require approval"
 
 
         overrides = _safe_overrides(preferences["overrides"])

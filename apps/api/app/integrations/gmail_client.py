@@ -1,13 +1,21 @@
-"""Stateless Gmail Client — fetches emails live from Gmail API."""
 from __future__ import annotations
 
 import logging
 import httpx
-from typing import Optional
+from typing import Optional, Any
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, before_sleep_log
 
 logger = logging.getLogger(__name__)
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1"
+
+
+def is_rate_limit_or_network_error(exc: Exception) -> bool:
+    """Check if the exception is a retriable rate limit or network error."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        # 429 = Rate Limit, 5xx = Server issues
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return isinstance(exc, (httpx.NetworkError, httpx.TimeoutException))
 
 
 class GmailClient:
@@ -24,6 +32,26 @@ class GmailClient:
             "Accept": "application/json",
         }
 
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception(is_rate_limit_or_network_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Centralized retriable request helper."""
+        timeout = kwargs.pop("timeout", 15.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.request(
+                method=method,
+                url=f"{GMAIL_API}/{path.lstrip('/')}",
+                headers=self._headers,
+                **kwargs
+            )
+            resp.raise_for_status()
+            return resp
+
     async def list_threads(
         self,
         max_results: int = 50,
@@ -39,58 +67,29 @@ class GmailClient:
         if page_token:
             params["pageToken"] = page_token
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GMAIL_API}/users/me/threads",
-                headers=self._headers,
-                params=params,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", "users/me/threads", params=params)
+        return resp.json()
 
     async def get_thread(self, thread_id: str, format: str = "metadata") -> dict:
         """Get a single thread with messages."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GMAIL_API}/users/me/threads/{thread_id}",
-                headers=self._headers,
-                params={"format": format},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", f"users/me/threads/{thread_id}", params={"format": format})
+        return resp.json()
 
     async def get_message(self, message_id: str, format: str = "full") -> dict:
         """Get a single message."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GMAIL_API}/users/me/messages/{message_id}",
-                headers=self._headers,
-                params={"format": format},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", f"users/me/messages/{message_id}", params={"format": format})
+        return resp.json()
 
     async def archive_message(self, message_id: str) -> bool:
         """Removes the INBOX label to archive."""
         payload = {"removeLabelIds": ["INBOX"]}
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GMAIL_API}/users/me/messages/{message_id}/modify",
-                headers=self._headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            return True
+        await self._request("POST", f"users/me/messages/{message_id}/modify", json=payload)
+        return True
 
     async def trash_message(self, message_id: str) -> bool:
         """Moves the message to trash."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GMAIL_API}/users/me/messages/{message_id}/trash",
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            return True
+        await self._request("POST", f"users/me/messages/{message_id}/trash")
+        return True
 
     async def send_message(self, to: str, subject: str, text: str, cc: Optional[str] = None, bcc: Optional[str] = None, thread_id: Optional[str] = None, attachments: Optional[list] = None) -> dict:
         """Sends an email using the Gmail API, with optional attachments."""
@@ -134,14 +133,8 @@ class GmailClient:
         if thread_id:
             payload["threadId"] = thread_id
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{GMAIL_API}/users/me/messages/send",
-                headers=self._headers,
-                json=payload,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("POST", "users/me/messages/send", json=payload)
+        return resp.json()
 
     async def fetch_inbox(self, max_results: int = 50) -> list[dict]:
         """High-level: fetch inbox threads with parsed metadata.
@@ -164,8 +157,11 @@ class GmailClient:
 
         results = []
         # Fetch metadata for each thread (batch would be better, but this works)
-        for t in thread_list[:max_results]:
+        for i, t in enumerate(thread_list[:max_results]):
             try:
+                if i > 0:
+                    import asyncio
+                    await asyncio.sleep(0.1)  # Throttle: avoid 429s during bulk fetch
                 thread_data = await self.get_thread(t["id"], format="metadata")
                 parsed = self._parse_thread(thread_data)
                 if parsed:
@@ -178,13 +174,18 @@ class GmailClient:
 
     async def get_attachment_data(self, message_id: str, attachment_id: str) -> dict:
         """Fetch raw attachment data bytes from Gmail API."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{GMAIL_API}/users/me/messages/{message_id}/attachments/{attachment_id}",
-                headers=self._headers,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        resp = await self._request("GET", f"users/me/messages/{message_id}/attachments/{attachment_id}")
+        return resp.json()
+
+    async def get_profile(self) -> dict:
+        """Get user's Gmail profile."""
+        resp = await self._request("GET", "users/me/profile")
+        return resp.json()
+
+    async def list_history(self, start_history_id: str) -> dict:
+        """List Gmail history starting from a specific ID."""
+        resp = await self._request("GET", "users/me/history", params={"startHistoryId": start_history_id})
+        return resp.json()
 
     def _parse_thread(self, thread: dict) -> dict | None:
         """Parse a Gmail thread response into a frontend-ready dict."""

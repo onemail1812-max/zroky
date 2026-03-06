@@ -1,75 +1,42 @@
-from sqlalchemy import create_engine, event
+import logging
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from app.db.base_class import Base
 from app.config import settings
+from app.core.compat import apply_database_compat
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.DATABASE_URL
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# Apply compatibility fixes (PGNumeric patch, etc.)
+apply_database_compat(DATABASE_URL)
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=60,
-    pool_recycle=3600,
-)
+# ── Dialect-aware engine configuration ────────────────────────────────
+# SQLite does not support pool_size/max_overflow; use StaticPool instead.
+_is_sqlite = DATABASE_URL.startswith("sqlite")
 
-# =============================================================================
-# FIX: "Unknown PG numeric type: 1043" — systemic SQLAlchemy/psycopg2 issue.
-#
-# Root cause: SQLAlchemy's _PGNumeric.result_processor raises an error when
-# PostgreSQL returns a column with OID 1043 (varchar) where SQLAlchemy expects
-# a numeric type. This happens when PG schema has varchar columns but the
-# SQLAlchemy model says Float/Numeric (schema drift from create_all failures).
-#
-# Fix: Monkey-patch _PGNumeric to gracefully handle varchar OIDs by casting
-# the string value to float instead of raising InvalidRequestError.
-# =============================================================================
-if DATABASE_URL.startswith("postgresql"):
-    try:
-        from sqlalchemy.dialects.postgresql import _psycopg_common
-        
-        _orig_result_processor = _psycopg_common._PsycopgNumeric.result_processor
-        
-        def _patched_result_processor(self, dialect, coltype):
-            # OID 1043 = varchar, OID 25 = text
-            if coltype in (1043, 25):
-                def process(value):
-                    if value is None:
-                        return None
-                    try:
-                        return float(value)
-                    except (ValueError, TypeError):
-                        return value
-                return process
-            return _orig_result_processor(self, dialect, coltype)
-            
-        _psycopg_common._PsycopgNumeric.result_processor = _patched_result_processor
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Failed to patch PGNumeric: {e}")
-
-    # Also register psycopg2 type casters for safety
-    try:
-        import psycopg2
-        import psycopg2.extensions
-        VARCHAR = psycopg2.extensions.new_type((1043,), "VARCHAR", psycopg2.extensions.UNICODE)
-        psycopg2.extensions.register_type(VARCHAR)
-    except Exception:
-        pass
-
+if _is_sqlite:
+    from sqlalchemy.pool import StaticPool
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=20,
+        max_overflow=30,
+        pool_timeout=60,
+        pool_recycle=3600,
+    )
 
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
-
-
-import logging
-logger = logging.getLogger(__name__)
 
 def get_db():
     try:
@@ -81,6 +48,40 @@ def get_db():
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 
+
+# ── Schema Drift Detection ────────────────────────────────────────────
+
+def check_schema_drift() -> list[str]:
+    """
+    Compare SQLAlchemy model metadata against the live database schema.
+    Returns a list of human-readable drift warnings.
+    
+    Called at startup to detect when models have columns that don't exist
+    in the database (common when using create_all in dev but Alembic in prod).
+    """
+    import app.models  # noqa: F401 — ensure all models are imported
+    
+    warnings: list[str] = []
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in existing_tables:
+            warnings.append(f"MISSING TABLE: '{table_name}' exists in models but not in database")
+            continue
+        
+        db_columns = {col["name"] for col in inspector.get_columns(table_name)}
+        model_columns = {col.name for col in table.columns}
+        
+        missing_in_db = model_columns - db_columns
+        extra_in_db = db_columns - model_columns
+        
+        for col in missing_in_db:
+            warnings.append(f"MISSING COLUMN: '{table_name}.{col}' exists in model but not in database")
+        for col in extra_in_db:
+            warnings.append(f"EXTRA COLUMN: '{table_name}.{col}' exists in database but not in model")
+    
+    return warnings

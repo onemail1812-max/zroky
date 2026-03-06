@@ -16,7 +16,7 @@ class SyncWorker:
     def __init__(self, workspace_id: str, user_id: str):
         self.workspace_id = workspace_id
         self.user_id = user_id
-        self.orchestrator = AaliyahOrchestrator(workspace_id)
+        self.orchestrator = AaliyahOrchestrator.get_orchestrator(workspace_id)
         self.is_running = False
 
     async def start(self) -> None:

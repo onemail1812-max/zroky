@@ -52,10 +52,12 @@ export function ComposeModal() {
             })
             toast.success("Email sent successfully!")
             addLog("Email Sent", `Sent email to ${to}: ${subject}`)
+            useSystemStore.getState().addNotification("Email sent successfully!", "success")
             closeCompose()
         } catch (err: any) {
             console.error("Failed to send email", err)
             toast.error(err.message || "Failed to send email")
+            useSystemStore.getState().addNotification(err.message || "Failed to send email", "error")
         } finally {
             setIsSending(false)
         }
@@ -87,6 +89,7 @@ export function ComposeModal() {
                         </div>
                         <button
                             onClick={closeCompose}
+                            aria-label="Close compose modal"
                             className="h-8 w-8 rounded-full hover:bg-zinc-100 flex items-center justify-center text-textMuted transition-colors"
                         >
                             <X className="h-4 w-4" />
@@ -104,10 +107,13 @@ export function ComposeModal() {
                                     value={to}
                                     onChange={(e) => setTo(e.target.value)}
                                     placeholder="recipients@example.com"
+                                    aria-label="To recipients"
                                     className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 py-1.5 text-[14px] outline-none transition-colors"
                                 />
                                 <button
                                     onClick={() => setIsCcBccOpen(!isCcBccOpen)}
+                                    aria-expanded={isCcBccOpen}
+                                    aria-controls="cc-bcc-fields"
                                     className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline px-2 py-1 rounded-md hover:bg-indigo-50 transition-all flex items-center gap-1"
                                 >
                                     <Users className="h-3 w-3" />
@@ -121,6 +127,7 @@ export function ComposeModal() {
                         <AnimatePresence>
                             {isCcBccOpen && (
                                 <motion.div
+                                    id="cc-bcc-fields"
                                     initial={{ height: 0, opacity: 0 }}
                                     animate={{ height: "auto", opacity: 1 }}
                                     exit={{ height: 0, opacity: 0 }}
@@ -133,6 +140,7 @@ export function ComposeModal() {
                                             value={cc}
                                             onChange={(e) => setCc(e.target.value)}
                                             placeholder="carbon-copy@example.com"
+                                            aria-label="CC recipients"
                                             className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 py-1.5 text-[14px] outline-none transition-colors"
                                         />
                                     </div>
@@ -143,6 +151,7 @@ export function ComposeModal() {
                                             value={bcc}
                                             onChange={(e) => setBcc(e.target.value)}
                                             placeholder="blind-copy@example.com"
+                                            aria-label="BCC recipients"
                                             className="flex-1 bg-transparent border-b border-transparent focus:border-indigo-500 py-1.5 text-[14px] outline-none transition-colors"
                                         />
                                     </div>
@@ -160,6 +169,7 @@ export function ComposeModal() {
                                 value={subject}
                                 onChange={(e) => setSubject(e.target.value)}
                                 placeholder="Subject"
+                                aria-label="Email subject"
                                 className="flex-1 bg-transparent py-1.5 text-[14px] font-semibold text-textPrimary outline-none"
                             />
                         </div>

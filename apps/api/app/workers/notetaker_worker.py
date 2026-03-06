@@ -177,7 +177,7 @@ async def _emit_event(workspace_id: str, event_type: str, message: str, payload:
     """Best-effort SSE event emission for real-time UI updates."""
     try:
         from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
-        orc = AaliyahOrchestrator(workspace_id)
+        orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
         await orc.emit_status(event_type, message, payload or {})
     except Exception as e:
         logger.warning("[Notetaker Worker] Failed to emit '%s' event: %s", event_type, e)

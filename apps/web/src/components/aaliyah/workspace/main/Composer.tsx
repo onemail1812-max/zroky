@@ -81,6 +81,7 @@ export function Composer({
             }}
             rows={1}
             placeholder="Review Q3 strategy..."
+            aria-label="Message to Aaliyah"
             data-testid="composer-textarea"
             className="flex-1 max-h-[200px] bg-transparent py-2.5 text-[15px] leading-relaxed text-textPrimary placeholder:text-textMuted/60 focus:outline-none resize-none scrollbar-hide"
           />

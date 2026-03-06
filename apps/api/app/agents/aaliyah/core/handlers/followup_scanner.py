@@ -21,14 +21,21 @@ class FollowupScanner(BaseHandler):
         self._patch_state(status="thinking", active_task="Scanning follow-ups")
         await self._emit("followup_scan_started", "Scanning for unanswered threads")
 
-        threshold = datetime.now(timezone.utc) - timedelta(days=3)
+        from app.models.workspace import Workspace
+        workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        settings = workspace.settings_json or {}
+        aaliyah_settings = settings.get("aaliyah", {})
+        followup_days = float(aaliyah_settings.get("follow_up_days", 3))
+
+        threshold = datetime.now(timezone.utc) - timedelta(days=followup_days)
         threads_to_nudge = (
             db.query(TriagedEmail)
             .filter(
                 TriagedEmail.workspace_id == self.workspace_id,
-                TriagedEmail.category == "OUTBOUND",
+                TriagedEmail.category == "Needs Reply",
+                TriagedEmail.received_at.is_not(None),
                 TriagedEmail.received_at < threshold,
-                TriagedEmail.followup_due_at == None,
+                TriagedEmail.followup_due_at.is_(None),
             )
             .all()
         )

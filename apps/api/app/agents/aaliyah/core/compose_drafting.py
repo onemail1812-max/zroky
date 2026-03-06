@@ -81,8 +81,11 @@ class ComposeDraftingAgent:
 
         # 5. Handle Ambiguity
         if extraction.needs_clarification:
-            for word in extraction.clarification_question.split(" "):
-                yield {"type": "chunk", "content": word + " "}
+            import re
+            tokens = re.split(r'(\s+)', extraction.clarification_question)
+            for token in tokens:
+                if token:
+                    yield {"type": "chunk", "content": token}
             
             # Save interaction so next turn has context
             try:
@@ -145,8 +148,11 @@ class ComposeDraftingAgent:
         }
         
         response_msg = "I've prepared the draft for you. You can review and edit it below before sending."
-        for word in response_msg.split(" "):
-             yield {"type": "chunk", "content": word + " "}
+        import re
+        tokens = re.split(r'(\s+)', response_msg)
+        for token in tokens:
+            if token:
+                yield {"type": "chunk", "content": token}
 
         # Save to memory
         try:

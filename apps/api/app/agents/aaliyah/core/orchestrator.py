@@ -6,11 +6,16 @@ import asyncio
 import logging
 import re
 import threading
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Dict
+import json
+from pathlib import Path
+from collections import OrderedDict
 
 from sqlalchemy import func, cast, Text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from app.database import SessionLocal
 
 from app.models.calendar_event_snapshot import CalendarConflict
@@ -24,6 +29,7 @@ from app.agents.aaliyah.core.communication_engine import CommunicationEngine, Co
 from app.agents.aaliyah.core.tools.tool_dispatcher import ToolDispatcher
 from app.agents.aaliyah.core.intent_service import IntentService
 from app.agents.aaliyah.core.handlers.base import BaseHandler
+from app.agents.aaliyah.core.event_service import EventService
 
 # Import the specialized handlers
 from app.agents.aaliyah.core.handlers.chat_handler import ChatHandler
@@ -56,6 +62,10 @@ class AaliyahOrchestrator:
 
     _state_lock = threading.Lock()
     _state: Dict[str, WorkspaceRuntimeState] = {}
+    _instances: OrderedDict[str, AaliyahOrchestrator] = OrderedDict()
+    _MAX_INSTANCES = 100
+    _MAX_STATES = 500
+    _state_file = Path("data/workspace_states.json")
     _recipient_re = re.compile(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 
     def __init__(self, workspace_id: str, brain: Optional[Brain] = None):
@@ -73,11 +83,94 @@ class AaliyahOrchestrator:
         self.followup_scanner = FollowupScanner(self)
         self.webhook_handler = WebhookHandler(self)
 
+    @classmethod
+    def get_orchestrator(cls, workspace_id: str, brain: Optional[Brain] = None) -> "AaliyahOrchestrator":
+        """Get or create singleton orchestrator for a workspace."""
+        with cls._state_lock:
+            # Check existing
+            instance = cls._instances.get(workspace_id)
+            if instance is not None:
+                # Move to end (LRU behavior)
+                cls._instances.move_to_end(workspace_id)
+                # optionally swap brain if a new one is provided and differs
+                if brain and instance.brain != brain:
+                     instance.brain = brain
+                     instance.triage_classifier.brain = brain
+                     instance.intent_service.brain = brain
+                     instance.dispatcher.brain = brain
+                return instance
+            
+            # Prune if too many
+            if len(cls._instances) >= cls._MAX_INSTANCES:
+                cls._instances.popitem(last=False)
+                
+            # Create new
+            instance = cls(workspace_id, brain)
+            cls._instances[workspace_id] = instance
+            return instance
+
+    def _load_persisted_state(self) -> WorkspaceRuntimeState:
+        try:
+            db = SessionLocal()
+            workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+            if workspace and workspace.settings_json:
+                ws_data = workspace.settings_json.get("_runtime_state", {})
+                valid_keys = WorkspaceRuntimeState.__dataclass_fields__.keys()
+                
+                # Reconstruct CommunicationState if present
+                comm_data = ws_data.get("communication")
+                if comm_data:
+                    from app.agents.aaliyah.core.communication_engine import CommunicationEvent
+                    pending_events_data = comm_data.get("pending_events", [])
+                    pending_events = [CommunicationEvent(**ev) for ev in pending_events_data]
+                    comm_state = CommunicationState(
+                        last_message_at=comm_data.get("last_message_at", 0.0),
+                        pending_events=pending_events
+                    )
+                    ws_data["communication"] = comm_state
+                
+                filtered = {k: v for k, v in ws_data.items() if k in valid_keys}
+                return WorkspaceRuntimeState(**filtered)
+        except Exception as e:
+            logger.error(f"Failed to load state from DB: {e}", exc_info=True)
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+        return WorkspaceRuntimeState()
+
+    def _save_persisted_state(self, state: WorkspaceRuntimeState) -> None:
+        try:
+            db = SessionLocal()
+            workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+            if workspace:
+                settings = workspace.settings_json or {}
+                state_dict = asdict(state)
+                # Ensure communication state is fully included
+                settings["_runtime_state"] = state_dict
+                workspace.settings_json = settings
+                flag_modified(workspace, "settings_json")
+                db.commit()
+        except Exception as e:
+            logger.error(f"Failed to save state to DB: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+
     def _get_state(self) -> WorkspaceRuntimeState:
         with self._state_lock:
             state = self._state.get(self.workspace_id)
             if state is None:
-                state = WorkspaceRuntimeState()
+                # Prune if too many states
+                if len(self._state) >= self._MAX_STATES:
+                    # Remove the first (oldest) item
+                    self._state.pop(next(iter(self._state)), None)
+                
+                state = self._load_persisted_state()
                 self._state[self.workspace_id] = state
             return state
 
@@ -85,12 +178,13 @@ class AaliyahOrchestrator:
         with self._state_lock:
             state = self._state.get(self.workspace_id)
             if state is None:
-                state = WorkspaceRuntimeState()
+                state = self._load_persisted_state()
                 self._state[self.workspace_id] = state
             for key, value in kwargs.items():
                 if hasattr(state, key):
                     setattr(state, key, value)
             state.last_updated_at = datetime.now(timezone.utc).isoformat()
+            self._save_persisted_state(state)
             return state
 
     async def emit_status(self, event_type: str, message: str, payload: Optional[Dict[str, Any]] = None) -> None:
@@ -110,66 +204,8 @@ class AaliyahOrchestrator:
         )
         await event_bus.publish(event)
         
-        # Persist messages and notifications (omitting long persistence logic for brevity as it remains same as monolith)
-        # In a real app we'd keep the persistence logic here or move to an EventManager
-        if event_type in ["assistant_message", "new_email_arrival", "draft_ready"]:
-             from app.models.chat_message import ChatRepository
-             import uuid
-             ws_id = self.workspace_id
-             ev_type = event_type
-             ev_payload = payload
-             ev_message = message
-             def _persist_event():
-                 persist_db = SessionLocal()
-                 try:
-                     repo = ChatRepository(persist_db, ws_id)
-                     if ev_type == "assistant_message":
-                         text = (ev_payload or {}).get("text", ev_message)
-                         repo.add_message(
-                            id=f"proactive_{uuid.uuid4().hex[:12]}",
-                            role="assistant",
-                            content=text,
-                            thread_id=(ev_payload or {}).get("thread_id"),
-                            msg_type="text",
-                            payload=ev_payload,
-                         )
-                     elif ev_type == "new_email_arrival":
-                         p = ev_payload or {}
-                         repo.add_message(
-                            id=f"arrival_{uuid.uuid4().hex[:12]}",
-                            role="assistant",
-                            content=None,
-                            thread_id=None,
-                            msg_type="email_action",
-                            payload={
-                                "sender": p.get("sender_name", p.get("sender", "Unknown")),
-                                "subject": p.get("subject", "No Subject"),
-                                "snippet": p.get("snippet", ""),
-                                "priority": "New",
-                                "actions": p.get("actions", []),
-                            },
-                         )
-                     elif ev_type == "draft_ready":
-                         p = ev_payload or {}
-                         repo.add_message(
-                            id=f"draft_{uuid.uuid4().hex[:12]}",
-                            role="assistant",
-                            content=None,
-                            thread_id=None,
-                            msg_type="email_action",
-                            payload={
-                                "action": "draft_ready",
-                                "sender": p.get("sender", ""),
-                                "subject": p.get("subject", ""),
-                                "snippet": p.get("snippet", ""),
-                                "draft": p.get("draft", {}),
-                            },
-                         )
-                 except Exception as persist_err:
-                     logger.warning(f"Failed to persist {ev_type} event: {persist_err}")
-                 finally:
-                     persist_db.close()
-             await asyncio.to_thread(_persist_event)
+        # Persist messages and notifications via specialized EventService
+        await EventService.persist_event(self.workspace_id, event_type, message, payload)
 
         # CommEngine events
         state = self._get_state()
@@ -192,6 +228,9 @@ class AaliyahOrchestrator:
                 self.comm_engine.add_event(state.communication, "cleaned_done", {"count": p.get("cleaned_count")})
             if p.get("count", 0) > 0:
                 self.comm_engine.add_event(state.communication, "sync_complete", p)
+        
+        # Persist communication state if modified
+        await asyncio.to_thread(self._save_persisted_state, state)
 
         # Flush CommEngine
         if event_type != "assistant_message":
@@ -214,24 +253,46 @@ class AaliyahOrchestrator:
                 preferences = await asyncio.to_thread(_fetch_preferences)
                 user_name = preferences.get("user_name") or preferences.get("first_name") or "there"
                 
+                
                 msg = await self.comm_engine.flush(state.communication, user_name=user_name, brain=self.brain, preferences=preferences)
                 if msg:
+                     # Persist state again after successfully flushing (last_message_at changed and events cleared)
+                     await asyncio.to_thread(self._save_persisted_state, state)
                      await self._emit("assistant_message", msg, {"text": msg, "role": "assistant"})
             except Exception as e:
                 logger.error(f"CommEngine flush failed: {e}", exc_info=True)
 
-    async def broadcast_updates(self, db: Session) -> None:
+    async def broadcast_updates(self, db: Optional[Session] = None) -> None:
         """Fetch and broadcast latest counts and stats (non-blocking)."""
         ws_id = self.workspace_id
+        
+        # Invalidate related response caches
+        try:
+            from app.services.cache import invalidate_cache
+            invalidate_cache("aaliyah_inbox", workspace_id=ws_id)
+            invalidate_cache("aaliyah_counts", workspace_id=ws_id)
+            invalidate_cache("aaliyah_threads", workspace_id=ws_id)
+        except Exception as e:
+            logger.warning(f"Cache invalidation failed: {e}")
         def _fetch_counts():
-            unread = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.is_read == False).count()
-            needs_reply = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.awaiting_reply == True).count()
-            followups = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.category == "followups").count()
-            drafts_count = db.query(TriagedEmail).filter(
-                TriagedEmail.workspace_id == ws_id, 
-                cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
-            ).count()
-            return {"unread": unread, "needs_reply": needs_reply, "followups": followups, "drafts": drafts_count}
+            # Use SessionLocal for thread safety if no db provided or even if provided (safer for to_thread)
+            local_db = SessionLocal()
+            try:
+                # [Bug 3.3] Keys MUST match what the frontend store.ts updateCountsFromPayload expects
+                triaged_count = local_db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.is_read == False).count()
+                priority_count = local_db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.priority == "High").count()
+                queued_count = local_db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.awaiting_reply == True).count()
+                pending_approvals = local_db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.requires_approval == True).count()
+                escalations = local_db.query(TriagedEmail).filter(TriagedEmail.workspace_id == ws_id, TriagedEmail.category == "Follow-ups").count()
+                return {
+                    "triaged_count": triaged_count,
+                    "priority_count": priority_count,
+                    "queued_count": queued_count,
+                    "pending_approvals": pending_approvals,
+                    "escalations": escalations,
+                }
+            finally:
+                local_db.close()
         counts = await asyncio.to_thread(_fetch_counts)
         counts["timestamp"] = datetime.now(timezone.utc).timestamp()
         await self._emit("counts_update", "Updated inbox counts", counts)
@@ -273,8 +334,8 @@ class AaliyahOrchestrator:
         if db:
             try:
                 stats["priority_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.priority == "High").count()
-                stats["needs_reply_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, (TriagedEmail.category == "Needs Reply") | (TriagedEmail.awaiting_reply == True)).count()
-                stats["followups_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.category == "Followups").count()
+                stats["queued_count"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, (TriagedEmail.category == "Needs Reply") | (TriagedEmail.awaiting_reply == True)).count()
+                stats["escalations"] = db.query(TriagedEmail).filter(TriagedEmail.workspace_id == self.workspace_id, TriagedEmail.category == "Follow-ups").count()
                 stats["drafts_count"] = db.query(TriagedEmail).filter(
                     TriagedEmail.workspace_id == self.workspace_id, 
                     cast(TriagedEmail.metadata_json, Text).like('%"draft":%')
@@ -300,3 +361,22 @@ class AaliyahOrchestrator:
     async def handle_chat_stream(self, *args, **kwargs):
         async for chunk in self.chat_handler.handle_chat_stream(*args, **kwargs):
             yield chunk
+
+    @classmethod
+    def get_orchestrator(cls, workspace_id: str, brain: Optional[Brain] = None) -> AaliyahOrchestrator:
+        """Factory method to get or create a cached orchestrator instance."""
+        with cls._state_lock:
+            if workspace_id in cls._instances:
+                # Move to end (most recently used)
+                cls._instances.move_to_end(workspace_id)
+                return cls._instances[workspace_id]
+            
+            # Create new instance
+            instance = cls(workspace_id, brain)
+            cls._instances[workspace_id] = instance
+            
+            # Prune cache if exceeds limit
+            if len(cls._instances) > cls._MAX_INSTANCES:
+                cls._instances.popitem(last=False)
+            
+            return instance

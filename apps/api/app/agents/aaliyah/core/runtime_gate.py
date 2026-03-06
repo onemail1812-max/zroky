@@ -131,24 +131,24 @@ def gate_email(
             policy=policy,
         )
 
-    # Confidence threshold (post-generation should also re-check, but gate can early-block if known low).
-    if float(model_confidence) < 0.65:
+    # [v2.3-Lockdown] ABSOLUTE MANUAL MODE
+    # Non-negotiable human-in-the-loop for ALL outbound actions.
+    if canonical_intent in {"SEND", "ACCEPT_MEETING", "DECLINE_MEETING", "COMMIT_PAYMENT"}:
         outcome = "NEEDS_APPROVAL"
         allow_llm = False
-        explain = _explain(outcome, canonical_intent, risk, policy)
         return GateResult(
-            allowed=policy.allowed,
+            allowed=True,
             outcome=outcome,
             require_approval=True,
             allow_llm=allow_llm,
-            explain_one_liner=explain,
+            explain_one_liner="Absolute Manual Mode: Outbound action parked for human review.",
             intent=canonical_intent,
             risk=risk,
             policy=policy,
         )
 
-    # Policy can still require approval.
-    if policy.require_approval or not policy.allowed:
+    # Policy/Risk thresholds (remaining logic for non-send intents)
+    if policy.require_approval or not policy.allowed or float(model_confidence) < 0.90:
         outcome = "NEEDS_APPROVAL"
         allow_llm = False
         explain = _explain(outcome, canonical_intent, risk, policy)
@@ -170,6 +170,30 @@ def gate_email(
         "MEETING_PREP", "BRIEFING", "STATUS",
         "LABEL", "ARCHIVE", "CREATE_TASK",
     }
+    
+    # [v2.2-Hardening] Zero-Trust Token Filter (Secondary Verification)
+    # Even if LLM is confident, final body content is checked for sensitive patterns.
+    # Note: For DRAFT and SEND, this check is critical.
+    if canonical_intent in {"DRAFT", "SEND"}:
+        blacklist = {
+            "bank account", "iban", "routing number", "ssn", "social security",
+            "password", "secret", "contract", "termination", "severance",
+            "legal action", "lawsuit", "confidential"
+        }
+        found_tokens = [t for t in blacklist if t in body.lower()]
+        if found_tokens:
+            outcome = "NEEDS_APPROVAL"
+            return GateResult(
+                allowed=True,
+                outcome=outcome,
+                require_approval=True,
+                allow_llm=allow_llm,
+                explain_one_liner=f"Zero-Trust Block: Sensitive tokens detected ({', '.join(found_tokens[:2])}).",
+                intent=canonical_intent,
+                risk=risk,
+                policy=policy,
+            )
+
     explain = _explain(outcome, canonical_intent, risk, policy)
     return GateResult(
         allowed=True,
@@ -185,7 +209,7 @@ def gate_email(
 def final_action_gate(
     *,
     action: str,
-    email_row: Any, # TriagedEmail row
+    email_row: Any = None, # Optional TriagedEmail row
     draft: dict,
     settings: dict,
     is_explicit_approval: bool = False
@@ -193,9 +217,10 @@ def final_action_gate(
     """
     Locked Send Gate: Must be called by all send endpoints.
     Enforces that no email can be sent without approval if risks or missing info exist.
+    Supports both triaged replies (email_row present) and "Compose New" (email_row is None).
     """
-    # 1. Thread/Provider safety check
-    if email_row.provider != draft.get("provider", email_row.provider):
+    # 1. Thread/Provider safety check (only if email_row exists)
+    if email_row and email_row.provider != draft.get("provider", email_row.provider):
         raise ValueError("Thread/Provider mismatch detected in Final Action Gate.")
 
     # 2. Block if missing info present
@@ -207,16 +232,40 @@ def final_action_gate(
     if risk_labels and not is_explicit_approval:
         return False
 
-    # 4. Mandatory approval if email was flagged as requiring it
-    if email_row.requires_approval and not is_explicit_approval:
-        return False
+    # 4. Mandatory approval check for triaged items
+    if email_row and email_row.requires_approval and not is_explicit_approval:
+        # [Bug 2.11 Part 2] Unblock legacy drafts stuck with Global Policy labels
+        aaliyah_settings = settings.get("aaliyah", {})
+        auto_send_enabled = aaliyah_settings.get("auto_send_enabled", False)
+        
+        is_just_global_policy = email_row.approval_reason == "Global policy: Always require approval"
+        
+        if auto_send_enabled and is_just_global_policy:
+            pass # Unblock legacy item
+        else:
+            return False
 
-    # 5. Fallback: if not explicit approval, check if global auto-send is enabled
-    # Even then, we only allow it if "Always Require Approval" is OFF.
-    # 5. Mandatory Invariant: Always require human approval for outbound actions.
+    # 5. Zero-Trust Content Filter for brand new "Compose" sends (where no email_row exists)
+    if email_row is None and not is_explicit_approval:
+        body = draft.get("body", "").lower()
+        blacklist = {
+            "bank account", "iban", "routing number", "ssn", "social security",
+            "password", "secret", "contract", "termination", "severance",
+            "legal action", "lawsuit", "confidential"
+        }
+        found_tokens = [t for t in blacklist if t in body]
+        if found_tokens:
+            return False
+
+    # 6. Check if Global Auto-Send is enabled for autonomous drafts
     if not is_explicit_approval:
-        # We ignore any legacy auto_send_enabled setting. 
-        # Human approval is the only way to send.
+        aaliyah_settings = settings.get("aaliyah", {})
+        auto_send_enabled = aaliyah_settings.get("auto_send_enabled", False)
+        
+        if auto_send_enabled:
+            return True
+            
+        # Human approval is the only way to send if auto_send_enabled is False.
         return False
 
     return True

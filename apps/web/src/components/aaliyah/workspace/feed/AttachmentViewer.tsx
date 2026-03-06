@@ -5,6 +5,8 @@ import { X, FileText, Image as ImageIcon, Table, Download, ExternalLink, Chevron
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
 import * as XLSX from "xlsx"
+import toast from "react-hot-toast"
+import { handleUnauthorized } from "@/lib/aaliyah/api"
 
 interface Attachment {
     id: string
@@ -29,6 +31,7 @@ function SpreadsheetRenderer({ url, filename }: { url?: string, filename: string
         async function fetchAndParse() {
             try {
                 const response = await fetch(url as string)
+                if (response.status === 401) { handleUnauthorized(); return }
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
 
                 const arrayBuffer = await response.arrayBuffer()
@@ -217,6 +220,7 @@ export function AttachmentViewer({ attachment, allAttachments = [], onClose, onN
                 {/* Left Arrow */}
                 {hasPrev && (
                     <button
+                        aria-label="Previous attachment"
                         onClick={() => onNavigate?.(allAttachments[currentIndex - 1])}
                         className="absolute left-4 z-20 h-10 w-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
                     >
@@ -227,6 +231,7 @@ export function AttachmentViewer({ attachment, allAttachments = [], onClose, onN
                 {/* Right Arrow */}
                 {hasNext && (
                     <button
+                        aria-label="Next attachment"
                         onClick={() => onNavigate?.(allAttachments[currentIndex + 1])}
                         className="absolute right-4 z-20 h-10 w-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors"
                     >
@@ -250,34 +255,74 @@ export function AttachmentViewer({ attachment, allAttachments = [], onClose, onN
                     {isSpreadsheet ? (
                         <SpreadsheetRenderer url={attachment.url} filename={attachment.filename} />
                     ) : isImage ? (
-                        <div className="flex items-center justify-center">
-                            <div className="bg-zinc-800 rounded-xl p-12 flex flex-col items-center gap-4 shadow-2xl">
-                                <ImageIcon className="h-32 w-32 text-zinc-600" />
-                                <span className="text-zinc-400 font-bold uppercase tracking-widest text-xs">Image Preview</span>
-                                <span className="text-zinc-500 text-xs">1920 × 1080</span>
-                            </div>
+                        <div className="flex items-center justify-center p-4 h-full w-full">
+                            {attachment.url ? (
+                                <img
+                                    src={attachment.url}
+                                    alt={attachment.filename}
+                                    className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+                                />
+                            ) : (
+                                <div className="bg-zinc-800 rounded-xl p-12 flex flex-col items-center gap-4 shadow-2xl">
+                                    <ImageIcon className="h-32 w-32 text-zinc-600" />
+                                    <span className="text-zinc-400 font-bold uppercase tracking-widest text-xs">Image Currently Unavailable</span>
+                                </div>
+                            )}
                         </div>
                     ) : (
-                        /* PDF — scrollable pages */
-                        <div className="flex-1 overflow-auto bg-zinc-200 p-8">
-                            <div className="space-y-8 max-w-2xl mx-auto">
-                                {[1, 2, 3, 4, 5].map(page => (
-                                    <div key={page} className="bg-white shadow-lg border border-zinc-300 rounded-sm p-10 aspect-[1/1.4]">
-                                        <div className="text-[10px] text-zinc-300 font-bold mb-6 text-right">Page {page} of 5</div>
-                                        {page === 1 && <div className="h-7 w-2/3 bg-zinc-200 rounded mb-8" />}
-                                        <div className="space-y-3">
-                                            {Array.from({ length: 8 }).map((_, i) => (
-                                                <div key={i} className={cn("h-3 bg-zinc-100 rounded", i % 3 === 2 ? "w-5/6" : i % 5 === 0 ? "w-4/5" : "w-full")} />
-                                            ))}
-                                            <div className="h-3 w-0" />
-                                            {Array.from({ length: 5 }).map((_, i) => (
-                                                <div key={`b${i}`} className={cn("h-3 bg-zinc-100 rounded", i % 2 === 0 ? "w-full" : "w-3/4")} />
-                                            ))}
+                        /* PDF — render via iframe if URL exists */
+                        <div className="flex-1 w-full h-full bg-zinc-200 flex items-center justify-center">
+                            {attachment.url ? (
+                                <iframe
+                                    src={attachment.url}
+                                    className="w-full h-full border-0"
+                                    title={attachment.filename}
+                                />
+                            ) : (
+                                <div className="space-y-8 max-w-2xl mx-auto p-8 w-full">
+                                    <div className="bg-white shadow-lg border border-zinc-300 rounded-sm p-10 aspect-[1/1.4] flex flex-col items-center justify-center text-center">
+                                        <div className="text-zinc-400 mb-6">
+                                            <FileText className="h-16 w-16 mx-auto mb-4 opacity-70 text-red-500" />
+                                            <p className="text-[15px] font-bold text-zinc-700">{attachment.filename}</p>
+                                            <p className="text-[13px] font-medium mt-1">PDF viewer requires an active network connection.</p>
                                         </div>
-                                        <div className="mt-auto pt-12 h-3 w-8 bg-zinc-200 rounded mx-auto" />
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const token = localStorage.getItem('auth_token') || localStorage.getItem('__session') || ''
+                                                    const wsId = localStorage.getItem('tenant_id') || 'default'
+                                                    const downloadUrl = `/api/v1/inbox/${attachment.id}/attachment`
+                                                    const res = await fetch(downloadUrl, {
+                                                        headers: {
+                                                            'Authorization': `Bearer ${token}`,
+                                                            'x-workspace-id': wsId,
+                                                        }
+                                                    })
+                                                    if (res.status === 401) { handleUnauthorized(); return }
+                                                    if (!res.ok) throw new Error(`Download failed: ${res.status}`)
+                                                    const blob = await res.blob()
+                                                    const blobUrl = URL.createObjectURL(blob)
+                                                    const a = document.createElement('a')
+                                                    a.href = blobUrl
+                                                    a.download = attachment.filename
+                                                    document.body.appendChild(a)
+                                                    a.click()
+                                                    document.body.removeChild(a)
+                                                    URL.revokeObjectURL(blobUrl)
+                                                    toast.success(`Downloaded ${attachment.filename}`)
+                                                } catch (e) {
+                                                    console.error("Download failed", e)
+                                                    toast.error("Download failed. File may not be available.")
+                                                }
+                                            }}
+                                            className="px-6 py-2.5 bg-zinc-900 text-white rounded-xl text-sm font-semibold hover:bg-black transition shadow-md flex items-center gap-2"
+                                        >
+                                            <Download className="h-4 w-4" />
+                                            Download File
+                                        </button>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </motion.div>

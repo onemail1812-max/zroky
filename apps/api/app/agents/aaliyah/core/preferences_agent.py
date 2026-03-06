@@ -76,9 +76,7 @@ Example: {{"vip_senders": ["contact@company.com", "other@domain.com"]}}
             valid_keys = {"enabled_labels", "vip_senders", "internal_domains", "keyword_rules", "auto_label_enabled", "auto_sync_interval_seconds"}
             filtered = {k: v for k, v in updates.items() if k in valid_keys}
             
-            # Mock fallback for dev if empty and query mentions vip
-            if not filtered and "vip" in user_query.lower():
-                 return {"vip_senders": ["contact@mycompany.com"]}
+
 
             return filtered
 

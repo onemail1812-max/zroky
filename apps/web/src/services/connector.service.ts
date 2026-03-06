@@ -7,7 +7,7 @@
 // Connector API base URL.
 // Use empty string to route through Next.js proxy (avoids CORS issues).
 // The Next.js rewrites in next.config.ts handle /api/v1/* → backend.
-import { readLocalStorage } from "@/lib/aaliyah/api";
+import { readLocalStorage, handleUnauthorized } from "@/lib/aaliyah/api";
 
 const CONNECTOR_API_URL = '';
 
@@ -144,6 +144,7 @@ class ConnectorService {
             });
 
             if (!response.ok) {
+                if (response.status === 401) handleUnauthorized();
                 const error = await response.json();
                 throw new Error(error.detail || 'Failed to initiate OAuth');
             }
@@ -250,6 +251,8 @@ class ConnectorService {
                     const data = await retry.json();
                     return Array.isArray(data) ? data : (data.accounts || []);
                 }
+                // Retry also failed — force auth overlay
+                handleUnauthorized();
             }
 
             if (!response.ok) {
@@ -273,6 +276,11 @@ class ConnectorService {
                 method: 'POST',
                 headers: await this.getAuthHeaders()
             });
+            if (!response.ok) {
+                if (response.status === 401) handleUnauthorized();
+                console.error("Failed to revoke account:", await response.text());
+                return false;
+            }
             return response.ok;
         } catch (error) {
             console.error('Failed to revoke account:', error);
@@ -296,14 +304,18 @@ class ConnectorService {
     /**
      * Get detailed health status for all connections
      */
-    async getHealth(): Promise<ConnectionHealthResponse | null> {
+    async getHealth(signal?: AbortSignal): Promise<ConnectionHealthResponse | null> {
         try {
             const response = await fetch(`${this.baseUrl}/health/providers`, {
                 headers: await this.getAuthHeaders(),
-                cache: 'no-store'
+                cache: 'no-store',
+                signal
             });
 
-            if (!response.ok) return null;
+            if (!response.ok) {
+                if (response.status === 401) handleUnauthorized();
+                return null;
+            }
             return await response.json();
         } catch (error) {
             console.error('Failed to get health status:', error);
@@ -330,6 +342,7 @@ class ConnectorService {
             });
 
             if (!response.ok) {
+                if (response.status === 401) handleUnauthorized();
                 console.error("Failed to set primary:", await response.text());
                 return false;
             }

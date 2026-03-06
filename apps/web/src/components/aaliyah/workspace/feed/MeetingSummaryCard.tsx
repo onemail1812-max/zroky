@@ -4,6 +4,7 @@ import * as React from "react"
 import { motion } from "framer-motion"
 import { CheckCircle2, CircleDot, ListChecks, MessageSquare, ChevronDown, ChevronUp, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { toast } from "react-hot-toast"
 
 interface ActionItem {
     owner: string
@@ -28,21 +29,15 @@ interface MeetingSummaryCardProps {
 export function MeetingSummaryCard({ eventTitle, summary, timestamp }: MeetingSummaryCardProps) {
     const [expanded, setExpanded] = React.useState(true)
     const [followUp, setFollowUp] = React.useState("")
-    const [followUpAnswer, setFollowUpAnswer] = React.useState<string | null>(null)
-    const [asking, setAsking] = React.useState(false)
-
     const sentimentColor = summary.sentiment === "positive" ? "text-emerald-600" :
         summary.sentiment === "negative" ? "text-red-500" : "text-zinc-500"
 
-    const handleFollowUp = () => {
+    const handleFollowUp = async () => {
         if (!followUp.trim()) return
-        setAsking(true)
-        // Mock AI follow-up response
-        setTimeout(() => {
-            setFollowUpAnswer(`Based on the meeting notes: ${followUp} — ${summary.executive_summary.slice(0, 100)}...`)
-            setAsking(false)
-            setFollowUp("")
-        }, 1500)
+        window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+            detail: { text: `Regarding the meeting "${eventTitle}": ${followUp}` }
+        }))
+        setFollowUp("")
     }
 
     return (
@@ -115,7 +110,15 @@ export function MeetingSummaryCard({ eventTitle, summary, timestamp }: MeetingSu
                                                 {item.owner} · {item.due_date}
                                             </p>
                                         </div>
-                                        <button className="text-[11px] font-bold text-blue-600 hover:text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 px-2 py-1 rounded-lg hover:bg-blue-50">
+                                        <button
+                                            onClick={() => {
+                                                window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                    detail: `Track action item from "${eventTitle}": "${item.task}" — Owner: ${item.owner}, Due: ${item.due_date}`
+                                                }))
+                                                toast.success(`Action item sent to Aaliyah.`)
+                                            }}
+                                            className="text-[11px] font-bold text-blue-600 hover:text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 px-2 py-1 rounded-lg hover:bg-blue-50"
+                                        >
                                             → Task
                                         </button>
                                     </div>
@@ -135,17 +138,6 @@ export function MeetingSummaryCard({ eventTitle, summary, timestamp }: MeetingSu
                         </div>
                     )}
 
-                    {/* Follow-up AI Response */}
-                    {followUpAnswer && (
-                        <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
-                            <div className="flex items-center gap-2 mb-1">
-                                <Sparkles className="h-3 w-3 text-amber-500" />
-                                <span className="text-[11px] font-bold text-amber-700">Aaliyah</span>
-                            </div>
-                            <p className="text-[13px] text-amber-900/80 font-medium">{followUpAnswer}</p>
-                        </div>
-                    )}
-
                     {/* Follow-up Input */}
                     <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl p-2">
                         <MessageSquare className="h-4 w-4 text-zinc-400 shrink-0 ml-1" />
@@ -155,15 +147,14 @@ export function MeetingSummaryCard({ eventTitle, summary, timestamp }: MeetingSu
                             value={followUp}
                             onChange={e => setFollowUp(e.target.value)}
                             onKeyDown={e => e.key === "Enter" && handleFollowUp()}
-                            disabled={asking}
                             className="flex-1 bg-transparent text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none font-medium"
                         />
                         <button
                             onClick={handleFollowUp}
-                            disabled={asking || !followUp.trim()}
+                            disabled={!followUp.trim()}
                             className="text-[12px] font-bold text-zinc-500 hover:text-zinc-900 disabled:opacity-40 px-2 py-1 transition-colors"
                         >
-                            {asking ? "..." : "Ask"}
+                            Ask
                         </button>
                     </div>
                 </div>

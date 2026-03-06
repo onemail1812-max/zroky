@@ -31,7 +31,7 @@ export default function BookingPage() {
 
     useEffect(() => {
         if (!slug) return;
-        fetch(`http://localhost:8000/booking/${slug}`)
+        fetch(`/booking/${slug}`)
             .then((res) => {
                 if (!res.ok) throw new Error("Booking link not found or expired");
                 return res.json();
@@ -49,7 +49,7 @@ export default function BookingPage() {
     const handleConfirm = async (slot: Slot) => {
         setConfirming(slot);
         try {
-            const res = await fetch(`http://localhost:8000/booking/${slug}/confirm`, {
+            const res = await fetch(`/booking/${slug}/confirm`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({

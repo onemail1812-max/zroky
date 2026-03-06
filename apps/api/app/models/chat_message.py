@@ -36,7 +36,7 @@ class ChatRepository:
         elif thread_id:
             query = query.filter(ChatMessageRow.thread_id == thread_id)
         else:
-            query = query.filter(ChatMessageRow.thread_id == None, ChatMessageRow.email_id == None)
+            query = query.filter(ChatMessageRow.thread_id.is_(None), ChatMessageRow.email_id.is_(None))
             
         return query.order_by(ChatMessageRow.created_at.asc()).limit(limit).all()
 
@@ -64,4 +64,12 @@ class ChatRepository:
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
+        
+        try:
+            from app.services.cache import invalidate_cache
+            invalidate_cache("assist_history", workspace_id=self.workspace_id)
+            invalidate_cache("assist_messages", workspace_id=self.workspace_id)
+        except Exception:
+            pass
+            
         return row

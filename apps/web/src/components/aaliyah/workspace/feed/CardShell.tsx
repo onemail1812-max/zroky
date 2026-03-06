@@ -39,7 +39,11 @@ export function CardShell({
                         )}
                     </div>
                 )}
-                <div className="relative rounded-[32px] border border-zinc-200/60 dark:border-zinc-800/60 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6 md:p-8 shadow-sm">
+                <div
+                    role="region"
+                    aria-label={headerLabel ? `${headerLabel} section` : "AI Output section"}
+                    className="relative rounded-[32px] border border-zinc-200/60 dark:border-zinc-800/60 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6 md:p-8 shadow-sm"
+                >
                     {children}
                 </div>
             </div>

@@ -37,11 +37,13 @@ export interface SyncPayloadData {
   drafts?: number;
   calendar_conflicts?: number;
   by_category?: {
-    priority?: number;
-    fyi?: number;
-    needs_reply?: number;
-    approvals?: number;
-    escalation?: number;
+    // [Audit Fix] Frontend interface now matches Title Case keys from Backend
+    "Priority"?: number;
+    "Notifications"?: number;
+    "Needs Reply"?: number;
+    "Approvals"?: number;
+    "Follow-ups"?: number;
+    [key: string]: number | undefined;
   }
 }
 
@@ -54,6 +56,14 @@ interface ActionLog {
   timestamp: string;
   action: string;
   details: string;
+}
+
+export interface AppNotification {
+  id: string
+  message: string
+  type: "success" | "error" | "info" | "warning"
+  timestamp: number
+  isRead: boolean
 }
 
 
@@ -76,6 +86,7 @@ interface SystemState {
   isSyncing: boolean
   syncError: string | null
   actionLogs: ActionLog[]
+  notifications: AppNotification[]
   // Progressive initial sync state
   syncProgress: {
     phase: "idle" | "queued" | "syncing" | "done" | "partial"
@@ -89,16 +100,18 @@ interface SystemState {
   threadSelection: EmailMessage | null
   unreadQueues: string[]
   isComposeOpen: boolean
-  composeData: { to: string; cc: string; bcc: string; subject: string; body: string } | null
+  composeData: { to: string; cc: string; bcc: string; subject: string; body: string; threadId?: string } | null
+  authError: boolean
+  setAuthError: (val: boolean) => void
   setMainChatFeed: (feed: ChatMessageData[] | ((prev: ChatMessageData[]) => ChatMessageData[])) => void
   checkDailyReset: () => void
   getThreadCached: (threadId: string) => ChatMessageData[] | undefined
   setThreadCache: (threadId: string, data: ChatMessageData[]) => void
-  openCompose: (data?: Partial<{ to: string; cc: string; bcc: string; subject: string; body: string }>) => void
+  openCompose: (data?: Partial<{ to: string; cc: string; bcc: string; subject: string; body: string; threadId: string }>) => void
   closeCompose: () => void
-  fetchStatus: () => Promise<void>
-  fetchInbox: (queue?: string) => Promise<void>
-  fetchHealth: () => Promise<ConnectionHealthData | null>
+  fetchStatus: (signal?: AbortSignal) => Promise<void>
+  fetchInbox: (queue?: string, signal?: AbortSignal) => Promise<void>
+  fetchHealth: (signal?: AbortSignal) => Promise<ConnectionHealthData | null>
   triggerSync: () => Promise<void>
   triggerInitialSync: () => Promise<void>
   runPreflight: () => Promise<{ status: string }>
@@ -108,6 +121,9 @@ interface SystemState {
   setIdle: () => void
   setIsLiveOffline: (val: boolean) => void
   addLog: (action: string, details: string) => void
+  addNotification: (message: string, type: AppNotification["type"]) => void
+  markNotificationRead: (id: string) => void
+  clearAllNotifications: () => void
   setActiveView: (view: "inbox" | "memory" | "action_log") => void
   setActiveTriageQueue: (queue: "priority" | "needs_reply" | "approvals" | "follow_ups" | "cleaned" | "all") => void
   updateCountsFromPayload: (payload: SyncPayloadData) => void
@@ -138,6 +154,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   isSyncing: false,
   syncError: null,
   actionLogs: [],
+  notifications: [],
   syncProgress: {
     phase: "idle",
     inbox: null,
@@ -151,6 +168,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   unreadQueues: [],
   isComposeOpen: false,
   composeData: null,
+  authError: false,
+
+  setAuthError: (val) => set({ authError: val }),
 
   setMainChatFeed: (feed) => set((state) => ({
     mainChatFeed: typeof feed === 'function' ? feed(state.mainChatFeed) : feed
@@ -164,6 +184,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       bcc: data?.bcc || "",
       subject: data?.subject || "",
       body: data?.body || "",
+      threadId: data?.threadId,
     }
   }),
 
@@ -190,9 +211,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     threadCache: { ...state.threadCache, [threadId]: data }
   })),
 
-  fetchHealth: async () => {
+  fetchHealth: async (signal?: AbortSignal) => {
     try {
-      const response = await connectorService.getHealth();
+      const response = await connectorService.getHealth(signal);
       if (response && response.status === 'ok') {
         set({ connectionHealth: response.data, isBackendConnected: true });
         return response.data;
@@ -205,9 +226,9 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     }
   },
 
-  fetchStatus: async () => {
+  fetchStatus: async (signal?: AbortSignal) => {
     try {
-      const [statusData, statsData] = await Promise.all([getStatus(), getCounts()])
+      const [statusData, statsData] = await Promise.all([getStatus(undefined, signal), getCounts(signal)])
       const health = get().connectionHealth
       const status = (!health || !health.email_accessible) ? "idle" : normalizeStatus(statusData?.status)
 
@@ -230,20 +251,20 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       const e = err as Error;
       console.error("Backend fetchStatus failed", e)
       set({ status: "error", isBackendConnected: false })
-      if (!get().isLiveOffline) toast.error(`Status sync failed: ${e.message || 'Server offline'}`)
+      if (!get().isLiveOffline) toast.error("Aaliyah is currently unavailable. Retrying connection...")
     }
   },
 
-  fetchInbox: async (queue?: string) => {
+  fetchInbox: async (queue?: string, signal?: AbortSignal) => {
     try {
-      const data = await getThreads(queue, 30)
+      const data = await getThreads(queue, 30, signal)
       const items = Array.isArray(data?.items) ? (data.items as InboxItem[]) : []
       set({ inboxItems: items, isBackendConnected: true })
     } catch (err: unknown) {
       const e = err as Error;
       console.error("Backend fetchInbox failed", e)
       set({ inboxItems: [], isBackendConnected: false })
-      if (!get().isLiveOffline) toast.error(`Inbox fetch failed: ${e.message || 'API error'}`)
+      if (!get().isLiveOffline) toast.error("Unable to load inbox items. Please check your connection.")
     }
   },
 
@@ -283,7 +304,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       const e = err as Error;
       console.error("Initial sync trigger failed", e)
       set(prev => ({ syncProgress: { ...prev.syncProgress, phase: "done" } }))
-      toast.error(`Sync failed to start: ${e.message}`)
+      toast.error("Initialization failed. Please try again or contact support.")
       return
     }
 
@@ -401,7 +422,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
       const e = err as Error;
       console.error("Sync failed", e);
       set({ isBackendConnected: false, syncError: e.message || "Unknown synchronization error" });
-      toast.error(`Sync error: ${e.message || 'Unknown'}`)
+      toast.error("Synchronization failed. This has been logged for review.")
     } finally {
       await Promise.allSettled([
         get().fetchStatus?.(),
@@ -425,6 +446,30 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     set({ actionLogs: logs.slice(0, 50) });
   },
 
+  addNotification: (message, type) => {
+    const notifs = [...get().notifications];
+    notifs.unshift({
+      id: Date.now().toString() + Math.random().toString(),
+      message,
+      type,
+      timestamp: Date.now(),
+      isRead: false
+    });
+    // Keep only last 50 notifications
+    set({ notifications: notifs.slice(0, 50) });
+  },
+
+  markNotificationRead: (id) => set((state) => ({
+    notifications: state.notifications.map(n => n.id === id ? { ...n, isRead: true } : n)
+  })),
+
+  markAllNotificationsRead: () => set((state) => ({
+    notifications: state.notifications.map(n => ({ ...n, isRead: true }))
+  })),
+
+  clearAllNotifications: () => set({ notifications: [] }),
+
+
   setActiveView: (view) => set({ activeView: view }),
   setActiveTriageQueue: (queue) => {
     set((state) => ({
@@ -441,24 +486,31 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
     const mapping = [
       { key: 'priority', payloadKey: 'priority_count', current: currentState.priorityCount },
-      { key: 'needs_reply', payloadKey: 'queued_count', current: currentState.queuedCount },
+      { key: 'needs_reply', payloadKey: 'needs_reply_count', fallbackKey: 'queued_count', current: currentState.queuedCount },
       { key: 'approvals', payloadKey: 'pending_approvals', current: currentState.pendingApprovals },
-      { key: 'follow_ups', payloadKey: 'escalations', current: currentState.escalations },
+      { key: 'follow_ups', payloadKey: 'followups_count', fallbackKey: 'escalations', current: currentState.escalations },
     ];
 
-    mapping.forEach(({ key, payloadKey, current }) => {
-      const newVal = Number(payload[payloadKey] ?? payload.by_category?.[key] ?? 0);
+    mapping.forEach(({ key, payloadKey, fallbackKey, current }) => {
+      // Check for key in top-level, then by_category, then fallback keys
+      const newVal = Number(
+        payload[payloadKey] ??
+        payload[fallbackKey || ''] ??
+        payload.by_category?.[key] ??
+        payload[key] ?? // e.g. payload.followups
+        0
+      );
       if (newVal > current && currentState.activeTriageQueue !== key && !newUnread.includes(key)) {
         newUnread.push(key);
       }
     });
 
     set({
-      triagedCount: Number(payload.triaged_count ?? payload.by_category?.priority ?? 0),
-      priorityCount: Number(payload.priority_count ?? 0),
-      queuedCount: Number(payload.queued_count ?? payload.needs_reply ?? 0),
-      pendingApprovals: Number(payload.pending_approvals ?? payload.by_category?.approvals ?? 0),
-      escalations: Number(payload.escalations ?? payload.followups ?? 0),
+      triagedCount: Number(payload.triaged_count ?? payload.total_triaged ?? 0),
+      priorityCount: Number(payload.priority_count ?? payload.by_priority?.High ?? 0),
+      queuedCount: Number(payload.needs_reply_count ?? payload.needs_reply ?? payload.queued_count ?? payload.by_category?.['Needs Reply'] ?? 0),
+      pendingApprovals: Number(payload.pending_approvals ?? payload.by_category?.Approvals ?? 0),
+      escalations: Number(payload.followups_count ?? payload.followups ?? payload.escalations ?? payload.by_category?.['Follow-ups'] ?? 0),
       calendarConflicts: Number(payload.calendar_conflicts ?? 0),
       unreadQueues: newUnread
     })

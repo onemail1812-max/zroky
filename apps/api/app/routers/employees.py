@@ -51,8 +51,7 @@ async def list_employees(
     context: CurrentContext = Depends(get_current_context),
 ):
     """List all employees."""
-    # Demo: return mock employees
-    employees = db.query(Employee).all()
+    employees = db.query(Employee).filter(Employee.workspace_id == context.workspace_id).all()
     return employees
 
 
@@ -63,7 +62,10 @@ async def get_employee(
     context: CurrentContext = Depends(get_current_context),
 ):
     """Get employee by ID."""
-    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    employee = db.query(Employee).filter(
+        Employee.id == employee_id,
+        Employee.workspace_id == context.workspace_id
+    ).first()
     if not employee:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Employee not found")

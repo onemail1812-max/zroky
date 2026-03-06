@@ -61,6 +61,16 @@ class GreetingService:
 
         return "there"
 
+    def _get_tod_greeting(self) -> str:
+        """Return a dynamic time-of-day greeting."""
+        hour = datetime.now().hour
+        if hour < 12:
+            return "Good morning"
+        elif hour < 17:
+            return "Good afternoon"
+        else:
+            return "Good evening"
+
     def get_greeting_state(self) -> Dict[str, Any]:
         """Determine the current state and return the appropriate greeting template."""
         
@@ -116,7 +126,7 @@ class GreetingService:
         if email_status == "NOT_CONNECTED" and calendar_status == "NOT_CONNECTED":
             return {
                 "headline": "Welcome to Aaliyah",
-                "greeting": f"Hi {first_name}, I'm Aaliyah — your Executive Assistant.",
+                "greeting": f"{self._get_tod_greeting()}, {first_name}. I'm Aaliyah — your Executive Assistant.",
                 "subtext": "To start, connect your email. Once authorized, I'll sync your inbox, prioritize replies, and prepare drafts.",
                 "cta_label": "Authorize Email", # Frontend should offer both G/Outlook options
                 "cta_action": "connect_email",
@@ -140,7 +150,7 @@ class GreetingService:
         if not has_emails and not has_events:
              return {
                 "headline": "Initial Sync Required",
-                "greeting": f"Hi {first_name}. I'm connected, but I haven't pulled your data yet.",
+                "greeting": f"{self._get_tod_greeting()}, {first_name}. I'm connected, but I haven't pulled your data yet.",
                 "subtext": "I need to perform a deep scan of your inbox and calendar to build your first briefing. This usually takes 30-60 seconds.",
                 "cta_label": "Sync My Workspace",
                 "cta_action": "retry_sync",
@@ -149,9 +159,10 @@ class GreetingService:
 
         # F) Returning + Healthy
         # Default happy path
+        tod = self._get_tod_greeting()
         return {
-            "headline": "Morning Check",
-            "greeting": f"Welcome back, {first_name}.",
+            "headline": "Morning Check" if tod == "Good morning" else "Daily Check",
+            "greeting": f"{tod}, {first_name}.",
             "subtext": "Everything is operational. I've analyzed your latest comms and schedule. View your briefing below.",
             "cta_label": "View Briefing",
             "cta_action": "view_briefing",

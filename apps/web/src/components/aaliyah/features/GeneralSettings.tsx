@@ -11,7 +11,14 @@ export function GeneralSettings() {
     const [loading, setLoading] = React.useState(true)
     const [settings, setSettings] = React.useState<AaliyahSettings | null>(null)
     const [saving, setSaving] = React.useState(false)
+    const [saved, setSaved] = React.useState(false)
     const [error, setError] = React.useState<string | null>(null)
+    const savedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    // Cleanup timeout on unmount
+    React.useEffect(() => {
+        return () => { if (savedTimerRef.current) clearTimeout(savedTimerRef.current) }
+    }, [])
 
     React.useEffect(() => {
         loadSettings()
@@ -32,15 +39,25 @@ export function GeneralSettings() {
 
     async function saveChange(patch: Partial<AaliyahSettings>) {
         if (!settings) return
+        const previousSettings = { ...settings } // Snapshot before change
         const newSettings = { ...settings, ...patch }
         setSettings(newSettings) // Optimistic update
         setSaving(true)
+        setSaved(false)
+        setError(null)
+        // Clear any pending "saved" dismiss timer
+        if (savedTimerRef.current) {
+            clearTimeout(savedTimerRef.current)
+            savedTimerRef.current = null
+        }
         try {
             await updateAaliyahSettings(newSettings)
+            setSaved(true)
+            savedTimerRef.current = setTimeout(() => setSaved(false), 3000)
         } catch (err) {
             console.error(err)
             setError("Failed to save changes.")
-            // Revert? (In complex apps, yes. Here, let's keep it simple)
+            setSettings(previousSettings) // Revert using snapshot, not stale closure
         } finally {
             setSaving(false)
         }
@@ -77,8 +94,8 @@ export function GeneralSettings() {
                         onCheckedChange={(checked) => saveChange({ draft_replies_enabled: checked })}
                     />
                     <ToggleCard
-                        title="Archive Less Important"
-                        description="Automatically archive newsletters and notifications."
+                        title="Intelligent Noise Suppression"
+                        description="Automatically archive low-priority notifications and mass communications to protect your primary inbox focus."
                         checked={settings.archive_less_important}
                         onCheckedChange={(checked) => saveChange({ archive_less_important: checked })}
                     />
@@ -196,10 +213,12 @@ export function GeneralSettings() {
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-zinc-600">Send requires approval always</span>
-                        <span className="text-xs font-bold text-zinc-400 uppercase">Always ON</span>
-                    </div>
+                    <ToggleCard
+                        title="Require Approval Always"
+                        description="Wait for your explicit approval before sending any AI-generated emails."
+                        checked={settings.always_require_approval ?? false}
+                        onCheckedChange={(checked) => saveChange({ always_require_approval: checked })}
+                    />
                 </div>
             </section>
 
@@ -210,7 +229,7 @@ export function GeneralSettings() {
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Saving changes...
                     </div>
-                ) : !error && settings ? (
+                ) : saved ? (
                     <div className="bg-emerald-600 text-white px-4 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         <Check className="h-4 w-4" />
                         All settings saved

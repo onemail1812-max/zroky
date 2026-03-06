@@ -34,7 +34,7 @@ class ShlokOrchestrator:
     # Public API
     # -------------------------
 
-    def generate_reply(
+    async def generate_reply(
         self,
         workspace_id: str,
         thread_messages: List[Dict[str, str]],
@@ -64,23 +64,17 @@ class ShlokOrchestrator:
             conversation_text += f"{role.upper()}: {content}\n"
 
         # Use Brain.think()
-        # Note: Brain.think takes a single prompt string. We combine history.
-        # Ideally we'd pass messages list if supported, but think is prompt-based.
-        # We can pass conversation_text as prompt.
-        
-        # To maintain "system prompt" behavior, we pass it as system_prompt.
-        
-        # However, `Brain.think` is async. `generate_reply` is synchronous.
-        # We need to run it synchronously here or update caller to await.
-        # `threads.py` calls `orchestrator.generate_reply` synchronously?
-        # Let's check `threads.py`.
-        
-        # threads.py line 138: `raw = orchestrator.generate_reply(...)`
-        # It is NOT awaited.
-        # So I must run async loop here or update threads.py to await.
-        # Updating threads.py is better (modern FastAPI).
-        
-        return "Shlok support temporarily disabled during migration to Brain async." 
+        try:
+            response = await self.brain.think(
+                prompt=conversation_text,
+                system_prompt=system_prompt,
+                temperature_override=0.7
+            )
+            return response.content
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Shlok Brain failure: {e}", exc_info=True)
+            return "I'm having trouble thinking clearly right now. Please try again soon."
 
     # -------------------------
     # Internal helpers

@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     OAUTH_ENCRYPTION_KEY: str = Field(..., description="32-byte hex string required for token encryption.")
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "http://zroky.com:3000", "http://zroky.com:8000", "http://34.180.2.4:3000", "http://34.180.2.4:8000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000", "https://zroky.com"]
     CORS_CREDENTIALS: bool = True
     CORS_METHODS: List[str] = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
     CORS_HEADERS: List[str] = [
@@ -152,6 +152,25 @@ class Settings(BaseSettings):
 
         return v
     
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v, info):
+        # Accessing ENV from the data dict being validated
+        env = info.data.get("ENV", "development")
+        if env == "production" and v == "dev-secret-key-change-me":
+            raise ValueError(
+                "SECRET_KEY must be overridden in PRODUCTION. "
+                "The default 'dev-secret-key-change-me' is insecure. "
+                "Set a strong SECRET_KEY in your production .env file."
+            )
+        return v
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: str | List[str]) -> List[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",") if i.strip()]
+        return v
 
 
 # Instantiate global settings

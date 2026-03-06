@@ -123,7 +123,7 @@ def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: 
             raise HTTPException(status_code=500, detail="Missing Google client configuration")
 
         # MOCK FLOW for Dev/Demo
-        if settings.GOOGLE_CLIENT_ID == "mock-google-client":
+        if settings.GOOGLE_CLIENT_ID == "mock-google-client" and settings.ENV != "production":
             # Redirect directly to our own callback with a mock code
             params = {
                 "state": state,
@@ -152,7 +152,7 @@ def _build_auth_url(provider: str, scopes: List[str], redirect_uri: str, state: 
     if not settings.MICROSOFT_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Missing Microsoft client configuration")
 
-    if settings.MICROSOFT_CLIENT_ID == "mock-ms-client":
+    if settings.MICROSOFT_CLIENT_ID == "mock-ms-client" and settings.ENV != "production":
         params = {
             "state": state,
             "code": "mock_microsoft_code_123",
@@ -229,24 +229,25 @@ def _service_type_has_email(service_type: str) -> bool:
 
 def _exchange_code(provider: str, code: str, redirect_uri: str, scopes: List[str]) -> Dict[str, Any]:
     # MOCK TOKEN EXCHANGE
-    if code == "mock_google_code_123":
-        return {
-            "access_token": "mock_google_access_token",
-            "refresh_token": "mock_google_refresh_token",
-            "expires_in": 3600,
-            "scope": " ".join(scopes),
-            "token_type": "Bearer",
-            "expires_at": int(time.time()) + 3600,
-        }
-    if code == "mock_microsoft_code_123":
-        return {
-            "access_token": "mock_microsoft_access_token",
-            "refresh_token": "mock_microsoft_refresh_token",
-            "expires_in": 3600,
-            "scope": " ".join(scopes),
-            "token_type": "Bearer",
-            "expires_at": int(time.time()) + 3600,
-        }
+    if code.startswith("mock_") and settings.ENV != "production":
+        if code == "mock_google_code_123":
+            return {
+                "access_token": "mock_google_access_token",
+                "refresh_token": "mock_google_refresh_token",
+                "expires_in": 3600,
+                "scope": " ".join(scopes),
+                "token_type": "Bearer",
+                "expires_at": int(time.time()) + 3600,
+            }
+        if code == "mock_microsoft_code_123":
+            return {
+                "access_token": "mock_microsoft_access_token",
+                "refresh_token": "mock_microsoft_refresh_token",
+                "expires_in": 3600,
+                "scope": " ".join(scopes),
+                "token_type": "Bearer",
+                "expires_at": int(time.time()) + 3600,
+            }
 
     if provider == "google":
         if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
@@ -449,7 +450,10 @@ async def _handle_oauth_callback(
 
     try:
         if error:
-            return _redirect_with_error(return_url, error)
+            description = None
+            if error == "access_denied":
+                description = "You denied the requested permissions. Aaliyah needs these permissions to manage your email."
+            return _redirect_with_error(return_url, error, description)
 
         if not code or not state:
             return _redirect_with_error(return_url, "missing_params", "Missing code or state")
@@ -595,7 +599,7 @@ async def revoke_account(
         
         # 4. Notify Frontend via Orchestrator to clear caches
         from app.agents.aaliyah.core.orchestrator import AaliyahOrchestrator
-        orc = AaliyahOrchestrator(workspace_id)
+        orc = AaliyahOrchestrator.get_orchestrator(workspace_id)
         await orc.broadcast_updates(db)
         
     except Exception as e:

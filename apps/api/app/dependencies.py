@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 class CurrentContext:
     """Current request context with workspace, user, and role info."""
 
-    def __init__(self, workspace_id: str, user_id: str, role: MembershipRole):
+    def __init__(self, workspace_id: str, user_id: str, role: MembershipRole, is_superuser: bool = False):
         self.workspace_id = workspace_id
         self.user_id = user_id
         self.role = role
+        self.is_superuser = is_superuser
 
     def is_admin(self) -> bool:
-        return self.role == MembershipRole.ADMIN
+        return self.role == MembershipRole.ADMIN or self.is_superuser
 
 
 async def get_current_context(
@@ -44,8 +45,8 @@ async def get_current_context(
                 detail="Missing user identity",
             )
 
-        # Prefer workspace from token or header; fallback to first membership
-        workspace_id = token_payload.get("workspace_id") or request.headers.get("x-workspace-id")
+        # Prefer explicit workspace from header (as UI switches happen instantly); fallback to token
+        workspace_id = request.headers.get("x-workspace-id") or token_payload.get("workspace_id")
         if workspace_id == "default":
             workspace_id = None
 
@@ -123,10 +124,15 @@ async def get_current_context(
                 logger.error(f"Failed to auto-provision workspace: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail="Database error during provisioning")
 
+        # Fetch superuser status
+        user_prof = db.query(User).filter(User.id == user_id).first()
+        is_superuser = user_prof.is_superuser if user_prof else False
+
         return CurrentContext(
             workspace_id=membership.workspace_id,
             user_id=user_id,
             role=membership.role,
+            is_superuser=is_superuser
         )
     except HTTPException:
         raise
@@ -141,5 +147,15 @@ async def enforce_admin(context: CurrentContext = Depends(get_current_context)) 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
+        )
+    return context
+
+
+async def enforce_superuser(context: CurrentContext = Depends(get_current_context)) -> CurrentContext:
+    """Enforce superuser role for sensitive operations or demo tools."""
+    if not context.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superuser access required for this endpoint",
         )
     return context

@@ -9,10 +9,14 @@ from typing import Optional, List, Dict
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
+import re
+
 from app.models.calendar_event_snapshot import CalendarEventSnapshot
 from app.models.meeting_transcript import MeetingTranscript
+from app.models.workspace import Workspace
 from app.services.brain.core import Brain
 from app.services.brain.schemas.models import ModelType
+from app.services.brain.memory import DualStateMemory
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -128,7 +132,6 @@ Return ONLY raw JSON with this structure:
             content = response.content.strip()
             
             # Robust JSON extraction
-            import re
             content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
             
             try:
@@ -160,7 +163,6 @@ Return ONLY raw JSON with this structure:
             
             # --- RAG Integration: Store summary for future recall ---
             try:
-                from app.services.brain.memory import DualStateMemory
                 memory = DualStateMemory(self.db, self.workspace_id)
                 memory.save_interaction(
                     source_type="meeting_summary",

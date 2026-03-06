@@ -4,6 +4,7 @@ import * as React from "react"
 import { EmailMessage, inboxService } from "@/services/inbox.service"
 import { Send, Edit, CheckCircle2, X, Sparkles, RefreshCw, Trash2, Archive, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import toast from "react-hot-toast"
 import { SkeletonEmailBody } from "@/components/ui/Skeleton"
 import { motion, AnimatePresence } from "framer-motion"
 import { InlineAssistantCard } from "./InlineAssistantCard"
@@ -23,6 +24,7 @@ export function ThreadReader({
     const [actionLoading, setActionLoading] = React.useState<'archive' | 'delete' | null>(null)
     const [draftDiscarded, setDraftDiscarded] = React.useState(false)
     const [draftSending, setDraftSending] = React.useState(false)
+    const [clarityInput, setClarityInput] = React.useState("")
 
     // Reset and fetch when thread changes
     React.useEffect(() => {
@@ -54,7 +56,7 @@ export function ThreadReader({
             onAction?.('archived')
         } catch (e) {
             // Error logged via telemetry in production
-            alert("Failed to archive email")
+            toast.error("Failed to archive email")
         } finally {
             setActionLoading(null)
         }
@@ -67,7 +69,7 @@ export function ThreadReader({
             onAction?.('deleted')
         } catch (e) {
             // Error logged via telemetry in production
-            alert("Failed to delete email")
+            toast.error("Failed to delete email")
         } finally {
             setActionLoading(null)
         }
@@ -159,11 +161,8 @@ export function ThreadReader({
                                 {/* Email Body - Pristine Typography */}
                                 <div className="text-[16px] text-zinc-800 leading-[1.8] font-normal tracking-[-0.01em]">
                                     {bodyLoading ? (
-                                        <div className="space-y-4 animate-pulse opacity-60">
-                                            <div className="h-4 bg-zinc-100 rounded w-3/4"></div>
-                                            <div className="h-4 bg-zinc-100 rounded w-full"></div>
-                                            <div className="h-4 bg-zinc-100 rounded w-5/6"></div>
-                                            <div className="h-4 bg-zinc-100 rounded w-1/2 mt-8"></div>
+                                        <div className="py-2 opacity-80">
+                                            <SkeletonEmailBody />
                                         </div>
                                     ) : (
                                         <p className="whitespace-pre-wrap antialiased">
@@ -186,10 +185,34 @@ export function ThreadReader({
                                             <div className="mt-3 flex gap-2">
                                                 <input
                                                     type="text"
+                                                    value={clarityInput}
+                                                    onChange={(e) => setClarityInput(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && clarityInput.trim()) {
+                                                            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                                detail: { text: `Regarding "${thread.subject}": ${clarityInput}` }
+                                                            }))
+                                                            setClarityInput("")
+                                                        }
+                                                    }}
                                                     placeholder="E.g., Yes, approve it."
                                                     className="h-10 px-4 text-[14px] bg-white border border-amber-200/50 rounded-xl flex-1 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all shadow-sm"
                                                 />
-                                                <button className="h-10 px-5 bg-amber-600 text-white text-[13px] font-semibold rounded-xl hover:bg-amber-700 transition-all shadow-sm">
+                                                <button
+                                                    onClick={() => {
+                                                        if (clarityInput.trim()) {
+                                                            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                                detail: { text: `Regarding "${thread.subject}": ${clarityInput}` }
+                                                            }))
+                                                            setClarityInput("")
+                                                        } else {
+                                                            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                                detail: { text: `Draft a reply to: "${thread.subject}"` }
+                                                            }))
+                                                        }
+                                                    }}
+                                                    className="h-10 px-5 bg-amber-600 text-white text-[13px] font-semibold rounded-xl hover:bg-amber-700 transition-all shadow-sm"
+                                                >
                                                     Reply & Draft
                                                 </button>
                                             </div>
@@ -242,12 +265,24 @@ export function ThreadReader({
                                 {!draftDiscarded && thread.draft && (
                                     <InlineAssistantCard
                                         draft={thread.draft}
-                                        onSend={() => {
+                                        onSend={async () => {
                                             setDraftSending(true)
-                                            // TODO: Wire to actual send API
-                                            setTimeout(() => setDraftSending(false), 2000)
+                                            try {
+                                                await inboxService.sendDraft(thread.id)
+                                                onAction?.('archived')
+                                                toast.success("Draft sent successfully")
+                                            } catch (e) {
+                                                toast.error("Failed to send draft")
+                                            } finally {
+                                                setDraftSending(false)
+                                            }
                                         }}
-                                        onEdit={() => { }}
+                                        onEdit={() => {
+                                            window.dispatchEvent(new CustomEvent('aaliyah_chat_input', {
+                                                detail: { text: `Edit my draft reply for "${thread.subject}": ${thread.draft?.body?.slice(0, 200) || ''}` }
+                                            }))
+                                            toast.success("Opened draft in editor")
+                                        }}
                                         onDiscard={() => setDraftDiscarded(true)}
                                         isSending={draftSending}
                                     />

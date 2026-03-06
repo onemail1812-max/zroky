@@ -32,7 +32,6 @@ const LABEL_COLORS: Record<string, string> = {
   "Complaint": "bg-orange-100 text-orange-700 border-orange-200/60",
   "Hiring": "bg-teal-100 text-teal-700 border-teal-200/60",
   "Awaiting Reply": "bg-sky-100 text-sky-700 border-sky-200/60",
-  "Newsletter": "bg-zinc-100 text-zinc-500 border-zinc-200/60",
   "Receipt": "bg-emerald-100 text-emerald-700 border-emerald-200/60",
   "FYI": "bg-indigo-100 text-indigo-600 border-indigo-200/60",
 }
@@ -50,7 +49,7 @@ export function ActiveWorkItem({
   onOpen: (id: string) => void
   buttonRef?: React.Ref<HTMLButtonElement>
 }) {
-  const visibleLabels = (item.labels || []).filter(l => l !== "Actioned" && l !== "Cleaned" && l !== "Notification").slice(0, 3)
+  const visibleLabels = (item.labels || []).filter(l => l !== "Actioned" && l !== "Cleaned" && l !== "Notification" && l !== "Newsletter").slice(0, 3)
 
   return (
     <button

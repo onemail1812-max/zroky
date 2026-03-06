@@ -43,15 +43,12 @@ export function ActionLogView() {
                 <div className="max-w-3xl mx-auto space-y-10">
 
                     {Object.keys(groupedLogs).length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-64 text-center">
-                            <div className="h-16 w-16 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
-                                <Archive className="h-8 w-8 text-zinc-300" />
-                            </div>
-                            <h3 className="text-zinc-900 font-bold text-lg mb-1">No history yet</h3>
-                            <p className="text-[13px] text-zinc-500 max-w-[280px]">
-                                Aaliyah's memory will appear here as she processes your inbox, meetings, and instructions.
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon={Archive}
+                            title="No History Yet"
+                            description="Aaliyah's memory will appear here as she processes your inbox, meetings, and instructions."
+                            className="h-96"
+                        />
                     ) : (
                         Object.entries(groupedLogs).map(([date, logs]) => (
                             <div key={date} className="relative">

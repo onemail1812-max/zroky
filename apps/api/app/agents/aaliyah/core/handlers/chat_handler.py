@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 class ChatHandler(BaseHandler):
     """Handles chat-based interactions and streaming responses."""
 
+    async def _stream_text(self, text: str):
+        """Helper to yield text in chunks while preserving formatting."""
+        if not text:
+            return
+        # Split by whitespace but keep the delimiter for reconstruction
+        # This ensures we don't lose newlines or leading/trailing spaces
+        import re
+        tokens = re.split(r'(\s+)', text)
+        for token in tokens:
+            if token:
+                yield {"type": "chunk", "content": token}
+
     async def _intent_from_message(self, message: str) -> str:
         """Delegates to the decoupled IntentService."""
         return await self.intent_service.get_intent(message)
@@ -141,6 +153,18 @@ class ChatHandler(BaseHandler):
 
         context = memory.recall(augmented_message, top_k=3, thread_id=thread_id)
         related_memories = context["memories"]
+        
+        # [Audit Fix] Persist User Message for history retrieval
+        from app.models.chat_message import ChatRepository
+        chat_repo = ChatRepository(db, self.workspace_id)
+        chat_repo.add_message(
+            id=f"user-{datetime.now(timezone.utc).timestamp()}",
+            role="user",
+            content=message,
+            thread_id=thread_id,
+            email_id=email_id
+        )
+
         intent = await self._intent_from_message(augmented_message)
 
         if thread_id and intent in {"SUMMARY", "DRAFT"}:
@@ -172,7 +196,26 @@ class ChatHandler(BaseHandler):
 
                  await self._emit("clarification_received", "Got it! Re-drafting your reply now...", {"thread_id": thread_id})
                  
-                 draft = await draft_agent.generate_draft(latest_email)
+                 from app.agents.aaliyah.core.drafting import DraftFailedError
+                 try:
+                     draft = await draft_agent.generate_draft(latest_email)
+                 except DraftFailedError as draft_err:
+                     logger.warning(f"Clarification re-draft failed for {latest_email.id}: {draft_err.reason}")
+                     meta = dict(latest_email.metadata_json or {})
+                     meta["draft_status"] = "failed"
+                     meta["draft_error"] = draft_err.reason
+                     latest_email.metadata_json = meta
+                     from sqlalchemy.orm.attributes import flag_modified
+                     flag_modified(latest_email, "metadata_json")
+                     db.commit()
+                     self._patch_state(status="idle", active_task=None)
+                     return {
+                         "reply": f"I wasn't able to update the draft — {draft_err.reason}",
+                         "answer_text": f"Draft generation failed: {draft_err.reason}",
+                         "details": {"action": "draft_failed", "email_id": latest_email.id},
+                         "tool_result": {"status": "draft_failed", "reason": draft_err.reason}
+                     }
+
                  if draft:
                      await draft_agent.save_draft(latest_email.id, draft)
                      await self._emit("draft_updated", f"I've updated the draft using your instructions.", {"thread_id": thread_id, "has_draft": True})
@@ -442,6 +485,19 @@ class ChatHandler(BaseHandler):
             "tool_result": {"status": "ready"},
         }
 
+        # [Audit Fix] Persist Assistant Message for history retrieval
+        chat_repo.add_message(
+            id=f"assistant-{datetime.now(timezone.utc).timestamp()}",
+            role="assistant",
+            content=reply_text,
+            thread_id=thread_id,
+            email_id=email_id,
+            msg_type=decision.get("type", "text"),
+            payload=decision.get("payload")
+        )
+
+        return result
+
     async def handle_chat_stream(
         self, 
         db: Session, 
@@ -463,6 +519,16 @@ class ChatHandler(BaseHandler):
         except Exception as mem_err:
             logger.warning("Memory recall failed (chat will continue without context): %s", mem_err)
             prompt_context = ""
+
+        # [Audit Fix] Persist User Message for history retrieval
+        from app.models.chat_message import ChatRepository
+        chat_repo = ChatRepository(db, self.workspace_id)
+        chat_repo.add_message(
+            id=f"user-{datetime.now(timezone.utc).timestamp()}",
+            role="user",
+            content=message,
+            thread_id=thread_id
+        )
 
         llm_images = []
         if attachments:
@@ -583,8 +649,8 @@ class ChatHandler(BaseHandler):
                     db.commit()
                     
                     reply = "On it! Drafting the reply now. ✍️"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     
                     await queue.enqueue(
                         job_type=JobType.PROCESS_DRAFT.value,
@@ -599,8 +665,8 @@ class ChatHandler(BaseHandler):
                     return
                 else:
                     reply = "Got it. Let me know when you're ready for me to draft the reply!"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     self._patch_state(status="idle", active_task=None)
                     return
 
@@ -615,8 +681,8 @@ class ChatHandler(BaseHandler):
                     db.commit()
                     
                     reply = "Absolutely. I'm preparing that follow-up nudge for you now. ✍️"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     
                     await queue.enqueue(
                         job_type=JobType.PROCESS_DRAFT.value,
@@ -636,8 +702,8 @@ class ChatHandler(BaseHandler):
                     db.commit()
                     
                     reply = "No problem at all. I've snoozed the follow-up and I'll remind you again later if needed! 😊"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     self._patch_state(status="idle", active_task=None)
                     return
             
@@ -658,8 +724,8 @@ class ChatHandler(BaseHandler):
                     
                     next_q = questions[current_idx]
                     reply = f"Got it! Next question:\n\n**{current_idx + 1}. {next_q}**"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     
                     self._patch_state(status="idle", active_task=None)
                     return
@@ -674,8 +740,8 @@ class ChatHandler(BaseHandler):
                     db.commit()
                     
                     reply = "I've sorted out the details! Shall I go ahead and draft the reply?"
-                    for word in reply.split(" "):
-                        yield {"type": "chunk", "content": word + " "}
+                    async for chunk in self._stream_text(reply):
+                        yield chunk
                     
                     self._patch_state(status="idle", active_task=None)
                     return
@@ -711,8 +777,8 @@ class ChatHandler(BaseHandler):
                 f"**Result**: I cannot {action_desc} because your email account is not connected.\n"
                 f"**Next step**: Please go to **Settings > Integrations** and connect your Google or Microsoft account to enable this feature."
             )
-            for word in reply.split(" "):
-                yield {"type": "chunk", "content": word + " "}
+            async for chunk in self._stream_text(reply):
+                yield chunk
             self._patch_state(status="idle", active_task=None)
             return
 
@@ -732,8 +798,8 @@ class ChatHandler(BaseHandler):
 
                 answer = result.get("answer_text") or result.get("answer") or result.get("reply") or "I couldn't find an answer."
                 
-                for word in answer.split(" "):
-                    yield {"type": "chunk", "content": word + " "}
+                async for chunk in self._stream_text(answer):
+                    yield chunk
                 
                 self._patch_state(status="idle", active_task=None)
                 return
@@ -741,6 +807,7 @@ class ChatHandler(BaseHandler):
                 logger.error(f"Intent streaming subagent failed: {e}", exc_info=True)
                 # Fall through to generic LLM on failure
         
+        assembled_reply = ""
         async for chunk in self.brain.think_stream(
             prompt=message,
             system_prompt=system_prompt,
@@ -748,6 +815,17 @@ class ChatHandler(BaseHandler):
             temperature_override=0.4,
             image_data=llm_images if llm_images else None
         ):
-            yield {"type": "chunk", "content": chunk.content}
+            # FIXED: chunk is a string, not a BrainResponse object
+            assembled_reply += chunk
+            yield {"type": "chunk", "content": chunk}
+
+        # [Audit Fix] Persist assembled streaming reply
+        if assembled_reply:
+            chat_repo.add_message(
+                id=f"assistant-{datetime.now(timezone.utc).timestamp()}",
+                role="assistant",
+                content=assembled_reply,
+                thread_id=thread_id
+            )
 
         self._patch_state(status="idle", active_task=None)

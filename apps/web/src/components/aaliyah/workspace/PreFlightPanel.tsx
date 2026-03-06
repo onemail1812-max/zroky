@@ -8,6 +8,7 @@ import { trackEvent, AnalyticsEvents } from "@/lib/analytics"
 import { useSystemStore } from "@/lib/aaliyah/store"
 import { connectorService, ConnectedAccount } from "@/services/connector.service"
 import { getConnectionMessage } from "@/lib/aaliyah/connection-messages"
+import { NotificationCenter } from "@/components/aaliyah/workspace/NotificationCenter"
 import { cn } from "@/lib/utils"
 
 export function PreFlightPanel() {
@@ -41,7 +42,27 @@ export function PreFlightPanel() {
         )
     }
 
-    if (!connectionHealth) return null
+    if (!connectionHealth) {
+        return (
+            <div className="border-b border-borderSubtle bg-surface">
+                <div className="max-w-5xl mx-auto px-4 py-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-zinc-100 animate-pulse" />
+                            <div className="space-y-2">
+                                <div className="h-4 w-32 bg-zinc-100 animate-pulse rounded" />
+                                <div className="h-3 w-48 bg-zinc-100 animate-pulse rounded" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="h-16 bg-zinc-50 animate-pulse rounded-lg border border-zinc-100" />
+                        <div className="h-16 bg-zinc-50 animate-pulse rounded-lg border border-zinc-100" />
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     const emailMsg = getConnectionMessage(connectionHealth.email_health, "Email")
     const calMsg = getConnectionMessage(connectionHealth.calendar_health, "Calendar")
@@ -98,24 +119,27 @@ export function PreFlightPanel() {
                         </div>
                     </div>
 
-                    {/* Primary Selector (Story B3) */}
-                    {accounts.length > 0 && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-textSecondary">Primary Inbox:</span>
-                            <select
-                                className="text-xs border border-borderSubtle rounded px-2 py-1 bg-surface"
-                                disabled
-                                // Disabled for Sprint 1, ensuring user sees we detected it
-                                value={accounts.find(a => a.isPrimary)?.id || accounts[0]?.id}
-                            >
-                                {accounts.map(acc => (
-                                    <option key={acc.id} value={acc.id}>
-                                        {acc.email} ({acc.provider})
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
+                    {/* Primary Selector and Notifications */}
+                    <div className="flex items-center gap-4">
+                        {accounts.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-textSecondary">Primary Inbox:</span>
+                                <select
+                                    className="text-xs border border-borderSubtle rounded px-2 py-1 bg-surface"
+                                    disabled
+                                    // Disabled for Sprint 1, ensuring user sees we detected it
+                                    value={accounts.find(a => a.isPrimary)?.id || accounts[0]?.id}
+                                >
+                                    {accounts.map(acc => (
+                                        <option key={acc.id} value={acc.id}>
+                                            {acc.email} ({acc.provider})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        <NotificationCenter />
+                    </div>
                 </div>
 
                 {/* Rows */}
@@ -181,6 +205,7 @@ function StatusCard({ icon, label, item, msg, onAction, loading }: any) {
                 <button
                     onClick={() => onAction(msg.ctaAction)}
                     disabled={loading}
+                    aria-label={`${msg.ctaLabel} for ${label} connection`}
                     className={cn(
                         "text-xs font-medium px-3 py-1.5 rounded transition-colors",
                         isError ? "bg-red-100 text-red-700 hover:bg-red-200" :

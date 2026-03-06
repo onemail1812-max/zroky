@@ -251,12 +251,16 @@ class WebhookHandler(BaseHandler):
                         logger.info(f"Renewing Gmail watch for workspace {self.workspace_id}")
                         result = await self.setup_gmail_watch(db, user_id=user_id)
                         results["google"] = result
+                        if result.get("status") == "error":
+                            await self._emit("alert", f"Gmail push renewal failed: {result.get('detail')}", {"provider": "google"})
                 elif watch_info.get("setup_at"):
                     # Watch exists but no expiration tracked — renew proactively
                     setup_at = datetime.fromisoformat(watch_info["setup_at"])
                     if (now - setup_at).days >= GMAIL_WATCH_RENEWAL_DAYS:
                         result = await self.setup_gmail_watch(db, user_id=user_id)
                         results["google"] = result
+                        if result.get("status") == "error":
+                            await self._emit("alert", f"Gmail push renewal failed: {result.get('detail')}", {"provider": "google"})
 
             # Graph subscription renewal
             if "microsoft" in provider or "outlook" in provider:
@@ -272,10 +276,14 @@ class WebhookHandler(BaseHandler):
                             logger.info(f"Renewing Graph subscription for workspace {self.workspace_id}")
                             result = await self.setup_graph_subscription(db, user_id=user_id)
                             results["microsoft"] = result
+                            if result.get("status") == "error":
+                                await self._emit("alert", f"Outlook push renewal failed: {result.get('detail')}", {"provider": "microsoft"})
                     except (ValueError, TypeError):
                         # Invalid date, just renew
                         result = await self.setup_graph_subscription(db, user_id=user_id)
                         results["microsoft"] = result
+                        if result.get("status") == "error":
+                            await self._emit("alert", f"Outlook push renewal failed: {result.get('detail')}", {"provider": "microsoft"})
 
         return results
 
