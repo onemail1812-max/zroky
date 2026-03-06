@@ -1,6 +1,4 @@
 """Calendar API — manages events, availability, and booking links."""
-from __future__ import annotations
-
 import logging
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone

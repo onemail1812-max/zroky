@@ -3,7 +3,6 @@
 Primary source: triaged_emails table (populated by background sync).
 Fallback: live fetch from Gmail/Outlook if no triaged data exists.
 """
-from __future__ import annotations
 import base64
 import logging
 import re

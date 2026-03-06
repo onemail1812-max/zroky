@@ -29,6 +29,7 @@ class BrainConfig(BaseModel):
 
 class BrainRequest(BaseModel):
     """Input contract for Brain.think."""
+    model_config = ConfigDict(protected_namespaces=())
 
     prompt: str = Field(min_length=1, max_length=12_000)
     system_prompt: str = Field(min_length=1, max_length=4_000)

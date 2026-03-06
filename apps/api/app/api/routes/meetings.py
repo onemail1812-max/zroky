@@ -1,6 +1,4 @@
 """Meetings API — transcript upload, summarization, and chat integration."""
-from __future__ import annotations
-
 import logging
 from typing import Optional
 
