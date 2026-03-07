@@ -23,6 +23,9 @@ class FollowupScanner(BaseHandler):
 
         from app.models.workspace import Workspace
         workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
+        if not workspace:
+            self._patch_state(status="idle", active_task=None)
+            return {"count": 0}
         settings = workspace.settings_json or {}
         aaliyah_settings = settings.get("aaliyah", {})
         followup_days = float(aaliyah_settings.get("follow_up_days", 3))

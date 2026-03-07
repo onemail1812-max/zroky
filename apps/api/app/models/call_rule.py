@@ -18,8 +18,8 @@ class CallRule(Base):
     max_calls_per_day = Column(Integer, default=100, nullable=False)
     approval_required = Column(Boolean, default=False, nullable=False)
     recording_enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<CallRule(employee_id={self.employee_id})>"

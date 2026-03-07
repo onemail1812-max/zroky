@@ -361,22 +361,3 @@ class AaliyahOrchestrator:
     async def handle_chat_stream(self, *args, **kwargs):
         async for chunk in self.chat_handler.handle_chat_stream(*args, **kwargs):
             yield chunk
-
-    @classmethod
-    def get_orchestrator(cls, workspace_id: str, brain: Optional[Brain] = None) -> AaliyahOrchestrator:
-        """Factory method to get or create a cached orchestrator instance."""
-        with cls._state_lock:
-            if workspace_id in cls._instances:
-                # Move to end (most recently used)
-                cls._instances.move_to_end(workspace_id)
-                return cls._instances[workspace_id]
-            
-            # Create new instance
-            instance = cls(workspace_id, brain)
-            cls._instances[workspace_id] = instance
-            
-            # Prune cache if exceeds limit
-            if len(cls._instances) > cls._MAX_INSTANCES:
-                cls._instances.popitem(last=False)
-            
-            return instance

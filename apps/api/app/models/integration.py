@@ -1,6 +1,6 @@
 """Integration model - provider connections (placeholders)."""
 from sqlalchemy import Column, String, DateTime, Text, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -44,8 +44,8 @@ class Integration(Base):
     scopes_json = Column(Text, nullable=True)  # JSON list of scopes
     token_encrypted = Column(Text, nullable=True)  # Encrypted token placeholder
     config_json = Column(Text, nullable=True)  # Provider-specific config
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<Integration(provider={self.provider}, status={self.status})>"

@@ -1,6 +1,6 @@
 """Workspace model."""
 from sqlalchemy import Column, String, DateTime
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import Base
 from app.db_types import SafeJSON
@@ -16,8 +16,8 @@ class Workspace(Base):
     slug = Column(String, unique=True, index=True, nullable=False)
     description = Column(String)
     owner_id = Column(String, index=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     settings_json = Column(SafeJSON(), nullable=True)
     style_profile_json = Column(SafeJSON(), nullable=True)
     onboarding_status = Column(String, default="pending", nullable=False)

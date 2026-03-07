@@ -1,6 +1,6 @@
 """Artifact model - generated outputs (posts, articles, leads, etc)."""
 from sqlalchemy import Column, String, DateTime, Text, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -44,8 +44,8 @@ class Artifact(Base):
     status = Column(SQLEnum(ArtifactStatus, native_enum=False), default=ArtifactStatus.DRAFT, nullable=False)
     title = Column(String, nullable=True)
     content_json = Column(Text, nullable=False)  # JSON serialized
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<Artifact(type={self.type}, status={self.status})>"

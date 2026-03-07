@@ -2,7 +2,7 @@
 from sqlalchemy import Column, String, DateTime, Text, Boolean
 from app.database import Base
 from app.db_types import SafeJSON
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 class BookingLink(Base):
@@ -22,5 +22,5 @@ class BookingLink(Base):
     status = Column(String, default="active") # active, booked, expired
     booked_slot = Column(SafeJSON(), nullable=True) # The slot that was picked
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, nullable=True)

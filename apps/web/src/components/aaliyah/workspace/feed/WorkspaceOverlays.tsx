@@ -35,6 +35,8 @@ export function WorkspaceOverlays({
     diagnosticsLogs,
 }: WorkspaceOverlaysProps) {
     const [isMounted, setIsMounted] = React.useState(false)
+    const isComposeOpen = useSystemStore(state => state.isComposeOpen)
+    const closeCompose = React.useCallback(() => useSystemStore.getState().closeCompose(), [])
 
     React.useEffect(() => {
         setIsMounted(true)
@@ -53,8 +55,8 @@ export function WorkspaceOverlays({
             />
             <DiagnosticsOverlay isOpen={diagnosticsOpen} onClose={onCloseDiagnostics} logs={diagnosticsLogs} />
             <ComposeModal
-                isOpen={useSystemStore(state => state.isComposeOpen)}
-                onClose={() => useSystemStore.getState().closeCompose()}
+                isOpen={isComposeOpen}
+                onClose={closeCompose}
             />
         </React.Suspense>,
         document.body

@@ -1,7 +1,7 @@
 
 """Meeting transcript and summary storage."""
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import Base
 from app.db_types import SafeJSON
@@ -22,5 +22,5 @@ class MeetingTranscript(Base):
     status = Column(String, default="pending", index=True) # pending, processing, completed, failed
     platform = Column(String, nullable=True) # zoom, teams, meet, manual
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)

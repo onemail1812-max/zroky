@@ -38,6 +38,8 @@ export async function authFetch(
     if (workspaceId && !headers.has("x-workspace-id")) {
         headers.set("x-workspace-id", workspaceId)
     }
+    // CSRF protection: custom header required by the API middleware
+    headers.set("X-Zroky-CSRF", "1")
 
     // 2. Execute request
     const response = await fetch(input, { ...init, headers })

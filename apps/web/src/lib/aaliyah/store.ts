@@ -123,6 +123,7 @@ interface SystemState {
   addLog: (action: string, details: string) => void
   addNotification: (message: string, type: AppNotification["type"]) => void
   markNotificationRead: (id: string) => void
+  markAllNotificationsRead: () => void
   clearAllNotifications: () => void
   setActiveView: (view: "inbox" | "memory" | "action_log") => void
   setActiveTriageQueue: (queue: "priority" | "needs_reply" | "approvals" | "follow_ups" | "cleaned" | "all") => void
@@ -246,12 +247,16 @@ export const useSystemStore = create<SystemState>((set, get) => ({
         escalations: Number(statsData?.escalations || 0),
         calendarConflicts: Number(statsData?.calendar_conflicts || 0),
         isBackendConnected: true,
+        isLiveOffline: false,
       })
     } catch (err: unknown) {
       const e = err as Error;
       console.error("Backend fetchStatus failed", e)
       set({ status: "error", isBackendConnected: false })
-      if (!get().isLiveOffline) toast.error("Aaliyah is currently unavailable. Retrying connection...")
+      if (!get().isLiveOffline) {
+        toast.error("Aaliyah is currently unavailable. Retrying connection...")
+        set({ isLiveOffline: true })
+      }
     }
   },
 

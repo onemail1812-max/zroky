@@ -51,6 +51,11 @@ class Settings(BaseSettings):
         "Authorization",
         "X-Requested-With",
         "X-Forwarded-For",
+        "X-Zroky-CSRF",
+        "Cache-Control",
+        "Last-Event-ID",
+        "Pragma",
+        "Connection",
     ]
     FRONTEND_BASE_URL: str = "http://localhost:3000"
     

@@ -1,6 +1,6 @@
 """Call session model - telephony stubs."""
 from sqlalchemy import Column, String, DateTime, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -53,7 +53,7 @@ class CallSession(Base):
     recording_status = Column(
         SQLEnum(RecordingStatus, native_enum=False), default=RecordingStatus.NONE, nullable=False
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
     def __repr__(self) -> str:
         return f"<CallSession(direction={self.direction}, status={self.status})>"

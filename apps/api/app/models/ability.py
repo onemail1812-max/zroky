@@ -1,6 +1,6 @@
 """Ability model - employee abilities and permissions."""
 from sqlalchemy import Column, String, DateTime, Text
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import Base
 
@@ -16,8 +16,8 @@ class Ability(Base):
     toggles_json = Column(Text, nullable=False)  # Feature toggles (e.g. draft_emails, record_calls)
     labels_json = Column(Text, nullable=True)  # Labels taxonomy
     tool_permissions_json = Column(Text, nullable=True)  # Read/write approvals per tool
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<Ability(employee_id={self.employee_id})>"

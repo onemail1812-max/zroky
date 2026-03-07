@@ -437,7 +437,7 @@ class ChatHandler(BaseHandler):
             try:
                 prompt_context = context.get("prompt_context", "")
                 workspace = db.query(Workspace).filter(Workspace.id == self.workspace_id).first()
-                ws_settings = workspace.settings_json or {}
+                ws_settings = (workspace.settings_json or {}) if workspace else {}
                 aaliyah_settings = ws_settings.get("aaliyah", {})
                 user_name = aaliyah_settings.get("user_name") or aaliyah_settings.get("first_name") or "there"
 
@@ -476,16 +476,8 @@ class ChatHandler(BaseHandler):
             metadata={"intent": intent, "draft": (draft.model_dump() if hasattr(draft, 'model_dump') else asdict(draft)) if draft else None, "critic": critic},
             explain="Generated chat response artifact",
         )
-        return {
-            "status": "found",
-            "answer_text": reply_text,
-            "reply": reply_text,
-            "evidence": [],
-            "details": decision,
-            "tool_result": {"status": "ready"},
-        }
 
-        # [Audit Fix] Persist Assistant Message for history retrieval
+        # Persist Assistant Message for history retrieval (was dead code after return)
         chat_repo.add_message(
             id=f"assistant-{datetime.now(timezone.utc).timestamp()}",
             role="assistant",
@@ -496,7 +488,14 @@ class ChatHandler(BaseHandler):
             payload=decision.get("payload")
         )
 
-        return result
+        return {
+            "status": "found",
+            "answer_text": reply_text,
+            "reply": reply_text,
+            "evidence": [],
+            "details": decision,
+            "tool_result": {"status": "ready"},
+        }
 
     async def handle_chat_stream(
         self, 

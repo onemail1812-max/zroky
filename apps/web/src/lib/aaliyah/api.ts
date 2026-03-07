@@ -49,6 +49,13 @@ async function withAuth(config: InternalAxiosRequestConfig): Promise<InternalAxi
     }
   }
 
+  // CSRF protection: custom header required by the API middleware
+  if (typeof config.headers.set === "function") {
+    config.headers.set("X-Zroky-CSRF", "1")
+  } else {
+    config.headers["X-Zroky-CSRF"] = "1"
+  }
+
   return config
 }
 

@@ -1,6 +1,6 @@
 """SendToken model for persistent action idempotency in v2.1."""
 from sqlalchemy import Column, String, DateTime, Index
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 
 class SendToken(Base):
@@ -18,7 +18,7 @@ class SendToken(Base):
     
     action_type = Column(String, nullable=False) # e.g., "SEND_REPLY"
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     expires_at = Column(DateTime, nullable=False)
 
     __table_args__ = (

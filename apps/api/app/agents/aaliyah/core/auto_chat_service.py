@@ -54,7 +54,7 @@ class AutoChatService:
         self.workspace_id = workspace_id
         self.brain = Brain()
         self.triage = SmartTriageClassifier(self.brain)
-        self.memory = DualStateMemory()
+        self.memory = None # Assigned when db is available
         
     async def trigger_auto_chat(
         self, 
@@ -64,6 +64,7 @@ class AutoChatService:
         trigger: ConversationTrigger, 
         context: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
+        self.memory = DualStateMemory(db, self.workspace_id)
         context = context or {}
         
         if trigger == ConversationTrigger.NEW_EMAIL:

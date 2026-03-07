@@ -1,6 +1,6 @@
 """Approval model - approval workflow for high-risk actions."""
 from sqlalchemy import Column, String, DateTime, Text, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -32,7 +32,7 @@ class Approval(Base):
     decision = Column(SQLEnum(ApprovalDecision, native_enum=False), default=ApprovalDecision.PENDING, nullable=False)
     reason = Column(Text, nullable=True) # Notes or explanation
     
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     resolved_at = Column(DateTime, nullable=True) # Alias for decided_at
     decided_at = Column(DateTime, nullable=True)
 

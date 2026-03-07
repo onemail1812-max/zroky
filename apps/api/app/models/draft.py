@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Integer
 from app.database import Base
 from app.db_types import SafeJSON
@@ -33,8 +33,8 @@ class Draft(Base):
     missing_info = Column(SafeJSON(), nullable=True)
     version = Column(Integer, default=1, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self):
         return f"<Draft {self.id} for msg={self.email_message_id}>"

@@ -22,8 +22,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
             return await call_next(request)
 
-        # 2. Skip for public webhooks if any (e.g., Stripe, Clerk)
-        if request.url.path.startswith("/api/webhooks"):
+        # 2. Skip for public webhooks, booking, and OAuth callbacks
+        if any(request.url.path.startswith(prefix) for prefix in (
+            "/api/webhooks",
+            "/booking",
+            "/oauth",
+        )):
             return await call_next(request)
 
         # 3. Check for custom CSRF header

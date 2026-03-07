@@ -1,6 +1,6 @@
 """Call script model - call scripts and greetings."""
 from sqlalchemy import Column, String, DateTime, Text
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import Base
 
@@ -16,8 +16,8 @@ class CallScript(Base):
     greeting = Column(Text, nullable=False)
     general_instructions = Column(Text, nullable=True)
     end_call_conditions = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<CallScript(employee_id={self.employee_id})>"

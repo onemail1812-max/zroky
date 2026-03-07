@@ -1,6 +1,6 @@
 """Action model - state machine for external operations."""
 from sqlalchemy import Column, String, DateTime, Text, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -57,8 +57,8 @@ class Action(Base):
     target_id = Column(String, nullable=True)
     input_json = Column(Text, nullable=True)  # JSON serialized input
     result_json = Column(Text, nullable=True)  # JSON serialized result
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     def __repr__(self) -> str:
         return f"<Action(type={self.type}, state={self.state})>"

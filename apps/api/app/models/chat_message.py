@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import Column, DateTime, String, Text, ForeignKey, Index
@@ -20,7 +20,7 @@ class ChatMessageRow(Base):
     content = Column(Text, nullable=True)
     msg_type = Column(String, default="text") # 'text' or 'email_action'
     payload = Column(SafeJSON(), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
 class ChatRepository:
     def __init__(self, db: Session, workspace_id: str):

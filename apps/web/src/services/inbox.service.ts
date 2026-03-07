@@ -45,12 +45,23 @@ export interface InboxResponse {
 const API_URL = '';
 
 export class InboxService {
-    private getHeaders() {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('__session') || '';
+    private async getHeaders(): Promise<Record<string, string>> {
+        // Dynamically fetch fresh Clerk token (matches aaliyahApi pattern)
+        let token: string | null = null;
+        if (typeof window !== "undefined" && (window as any).Clerk?.session) {
+            try {
+                token = await (window as any).Clerk.session.getToken();
+            } catch { /* fallback below */ }
+        }
+        if (!token) {
+            token = localStorage.getItem('auth_token') || localStorage.getItem('__session') || '';
+        }
+
         return {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
-            'x-workspace-id': localStorage.getItem('tenant_id') || 'default',
+            'x-workspace-id': localStorage.getItem('workspace_id') || localStorage.getItem('tenant_id') || 'default',
+            'X-Zroky-CSRF': '1',
         };
     }
 
@@ -65,7 +76,7 @@ export class InboxService {
         }
 
         const res = await fetch(`${API_URL}/api/v1/inbox/threads?${params.toString()}`, {
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
             signal
         });
 
@@ -142,7 +153,7 @@ export class InboxService {
     async syncInbox(): Promise<void> {
         const res = await fetch(`${API_URL}/api/v1/inbox/sync`, {
             method: 'POST',
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
         });
         if (!res.ok) {
             if (res.status === 401) handleUnauthorized();
@@ -153,7 +164,7 @@ export class InboxService {
     async archiveEmail(messageId: string, signal?: AbortSignal): Promise<void> {
         const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/archive`, {
             method: 'POST',
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
             signal
         });
         if (!res.ok) {
@@ -165,7 +176,7 @@ export class InboxService {
     async deleteEmail(messageId: string, signal?: AbortSignal): Promise<void> {
         const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/trash`, {
             method: 'POST',
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
             signal
         });
         if (!res.ok) {
@@ -177,7 +188,7 @@ export class InboxService {
     async sendDraft(emailId: string): Promise<void> {
         const res = await fetch(`${API_URL}/api/v1/aaliyah/drafts/send`, {
             method: 'POST',
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
             body: JSON.stringify({ email_id: emailId })
         });
         if (!res.ok) {
@@ -188,7 +199,7 @@ export class InboxService {
 
     async getEmailBody(messageId: string, signal?: AbortSignal): Promise<string> {
         const res = await fetch(`${API_URL}/api/v1/inbox/${messageId}/body`, {
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
             signal
         });
         if (!res.ok) {
@@ -203,7 +214,7 @@ export class InboxService {
 
     async getSummary(emailId: string): Promise<string[]> {
         const res = await fetch(`${API_URL}/api/v1/inbox/${emailId}/summary`, {
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
         });
         if (!res.ok) throw new Error('Failed to fetch summary');
         const data = await res.json();
@@ -212,7 +223,7 @@ export class InboxService {
 
     async checkProviders(): Promise<Record<string, string>> {
         const res = await fetch(`${API_URL}/health/providers`, {
-            headers: this.getHeaders(),
+            headers: await this.getHeaders(),
         });
         if (!res.ok) throw new Error('Health check failed');
         const data = await res.json();
@@ -222,7 +233,7 @@ export class InboxService {
     async getCounts(): Promise<Record<string, number>> {
         try {
             const res = await fetch(`${API_URL}/api/v1/inbox/counts`, {
-                headers: this.getHeaders(),
+                headers: await this.getHeaders(),
             });
             if (!res.ok) return { priority: 0, fyi: 0, needs_reply: 0, total: 0 };
             return res.json();

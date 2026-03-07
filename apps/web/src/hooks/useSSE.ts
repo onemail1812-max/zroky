@@ -28,7 +28,12 @@ export function useSSE() {
                 if (!alive) return
 
                 const lastId = window.sessionStorage.getItem("aaliyah_last_event_id")
-                const url = `/aaliyah/live/stream?stream_token=${token}` + (lastId ? `&last_event_id=${lastId}` : "")
+
+                // SSE must connect directly to the API backend — Next.js rewrites don't support streaming
+                const apiBase = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                    ? 'http://localhost:8000'
+                    : ''
+                const url = `${apiBase}/api/v1/aaliyah/live/stream?stream_token=${token}` + (lastId ? `&last_event_id=${lastId}` : "")
 
                 es = new EventSource(url)
 

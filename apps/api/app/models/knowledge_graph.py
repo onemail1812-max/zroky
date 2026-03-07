@@ -8,7 +8,7 @@ Provides structured fact storage so Aaliyah can track things like:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Float, String, Text, Index
 
@@ -29,8 +29,8 @@ class KnowledgeEntity(Base):
     source_type = Column(String(64), nullable=True)  # email, chat, calendar
     source_id = Column(String(256), nullable=True)
     confidence = Column(String, default="1.0", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     __table_args__ = (
         Index("ix_kg_entity_ws_name", "workspace_id", "name"),
@@ -52,8 +52,8 @@ class KnowledgeRelationship(Base):
     confidence = Column(String, default="1.0", nullable=False)
     source_type = Column(String(64), nullable=True)
     source_id = Column(String(256), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     __table_args__ = (
         Index("ix_kg_rel_ws_source", "workspace_id", "source_entity_id"),

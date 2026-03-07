@@ -92,7 +92,14 @@ export function useFeedSSE({
 
                 resetWatchdog() // Start watchdog on connect attempt
 
-                await fetchEventSource(`/api/v1/aaliyah/live/stream`, {
+                // SSE must connect directly to the API backend — Next.js rewrites don't support streaming
+                const apiBase = typeof window !== 'undefined'
+                    ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                        ? 'http://localhost:8000'
+                        : '' // In production, the rewrite/Traefik handles it
+                    : ''
+
+                await fetchEventSource(`${apiBase}/api/v1/aaliyah/live/stream`, {
                     method: 'GET',
                     headers,
                     signal: controller.signal,

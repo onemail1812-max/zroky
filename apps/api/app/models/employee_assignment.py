@@ -1,6 +1,6 @@
 """Employee assignment model - admin assigns employees to users."""
 from sqlalchemy import Column, String, Boolean, DateTime
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import Base
 
@@ -15,7 +15,7 @@ class EmployeeAssignment(Base):
     employee_id = Column(String, index=True, nullable=False)
     user_id = Column(String, index=True, nullable=False)
     is_enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     def __repr__(self) -> str:
         return f"<EmployeeAssignment(employee_id={self.employee_id}, user_id={self.user_id})>"

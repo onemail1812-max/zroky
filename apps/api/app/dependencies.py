@@ -65,8 +65,6 @@ async def get_current_context(
         # throwing a 403 here violently disrupts the DB `yield` sequence in FastAPI, causing a 500 proxy crash. 
         # Instead, we seamlessly auto-provision a default workspace.
         if not membership:
-            from app.models.workspace import Workspace
-            from app.models.user import User
             
             try:
                 # 1. Ensure User exists

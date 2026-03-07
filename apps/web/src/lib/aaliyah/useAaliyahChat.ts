@@ -76,7 +76,7 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
             try {
                 const emailParam = emailId ? `&email_id=${emailId}` : "";
                 const threadParam = threadId ? `thread_id=${threadId}` : "";
-                const url = `/assist/history?${threadParam}${emailParam}`;
+                const url = `/api/v1/assist/history?${threadParam}${emailParam}`;
 
                 // [Audit Fix] Fetch auth token dynamically for history calls to ensure Clerk compatibility
                 let authHeaders: Record<string, string> = { "Content-Type": "application/json" };
@@ -199,7 +199,10 @@ export function useAaliyahChat(options?: UseAaliyahChatOptions) {
                 abortRef.current = new AbortController();
 
                 // Get auth token dynamically for direct API calls
-                let authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+                let authHeaders: Record<string, string> = {
+                    "Content-Type": "application/json",
+                    "X-Zroky-CSRF": "1" // satisfy backend CSRF protection for POST requests
+                };
                 if (typeof window !== "undefined" && (window as any).Clerk?.session) {
                     try {
                         const token = await (window as any).Clerk.session.getToken();

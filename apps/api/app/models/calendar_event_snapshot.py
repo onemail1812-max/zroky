@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, DateTime, Boolean, Text
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db.base_class import Base
 from app.db_types import SafeJSON
 
@@ -18,7 +18,7 @@ class CalendarEventSnapshot(Base):
     attendees = Column(SafeJSON(), nullable=True)
     is_cancelled = Column(Boolean, default=False)
     metadata_json = Column(SafeJSON(), nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 class CalendarConflict(Base):
     """Persisted calendar conflicts."""
@@ -31,4 +31,4 @@ class CalendarConflict(Base):
     conflict_minutes = Column(String, nullable=True)
     explain = Column(Text, nullable=True)
     metadata_json = Column(SafeJSON(), nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

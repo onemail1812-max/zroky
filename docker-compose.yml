@@ -74,7 +74,6 @@ networks:
   aaliyah-net:
     driver: bridge
   default:
-    external: true
     name: zroky_default
 
 volumes:

@@ -82,6 +82,7 @@ class ConnectorService {
         const headers: Record<string, string> = {
             'x-workspace-id': this.getWorkspaceId(),
             'x-user-id': this.getUserId(),
+            'X-Zroky-CSRF': '1',
         };
 
         if (token) headers.Authorization = `Bearer ${token}`;
@@ -237,12 +238,9 @@ class ConnectorService {
             });
 
             if (response.status === 401) {
-                console.warn("Auth token invalid (401), clearing and retrying accounts fetch...");
-                localStorage.removeItem('auth_token');
-                localStorage.removeItem('clerk_token');
-                localStorage.removeItem('__session');
+                console.warn("Auth token invalid (401), retrying accounts fetch with fresh token...");
 
-                // Retry once without token
+                // Retry once with fresh headers (getAuthHeaders will try Clerk first)
                 const retry = await fetch(`${this.baseUrl}/api/v1/connectors/accounts`, {
                     headers: await this.getAuthHeaders(),
                     cache: 'no-store'

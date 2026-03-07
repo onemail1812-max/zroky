@@ -6,6 +6,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, case
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.dependencies import get_current_context, CurrentContext
@@ -85,6 +88,9 @@ async def search(
                 "total_found": 0,
                 "need_clarification": True
             }
+
+        # Escape SQL wildcards to prevent wildcard abuse
+        safe_query = query.replace("%", "\\%").replace("_", "\\_")
             
         now = datetime.now(timezone.utc)
         min_date = None
@@ -104,7 +110,7 @@ async def search(
         
         if pf in ["all", "gmail", "outlook", "email"]:
             q = db.query(EmailIndex).filter(EmailIndex.workspace_id == workspace_id)
-            q = q.filter(EmailIndex.searchable_text.ilike(f"%{query}%"))
+            q = q.filter(EmailIndex.searchable_text.ilike(f"%{safe_query}%"))
             
             if pf in ["gmail", "outlook"]:
                  q = q.filter(EmailIndex.provider == pf)
@@ -123,7 +129,7 @@ async def search(
         results_cal = []
         if pf in ["all", "calendar"]:
             q = db.query(CalendarIndex).filter(CalendarIndex.workspace_id == workspace_id)
-            q = q.filter(CalendarIndex.searchable_text.ilike(f"%{query}%"))
+            q = q.filter(CalendarIndex.searchable_text.ilike(f"%{safe_query}%"))
             
             if min_date:
                  q = q.filter(CalendarIndex.start_at >= min_date)
@@ -351,10 +357,6 @@ async def answer_stream(
     """
     workspace_id = payload.workspace_id or context.workspace_id
 
-    # Initialize Brain
-    from app.services.brain.core import Brain
-    brain = Brain()
-    
     # Initialize Orchestrator
     orchestrator = AaliyahOrchestrator.get_orchestrator(workspace_id=workspace_id)
     
@@ -411,24 +413,12 @@ async def chat(
     # Initialize Orchestrator
     orchestrator = AaliyahOrchestrator.get_orchestrator(workspace_id=workspace_id)
     
-    # PERSISTENCE: Save User Message
-    from app.models.chat_message import ChatRepository
+    # NOTE: User message persistence is handled inside handle_chat_stream.
+    # Do NOT duplicate it here — it was causing double entries in chat history.
     import uuid
     import json
-    
+    from app.models.chat_message import ChatRepository
     repo = ChatRepository(db, workspace_id)
-    
-    # 1. Save user message first if there's a new one
-    # Note: frontend sends full history, we only want to process the LAST message if it's from user
-    if payload.messages and payload.messages[-1].role == "user":
-        user_msg = payload.messages[-1]
-        repo.add_message(
-            id=f"user_{uuid.uuid4().hex[:12]}",
-            role="user",
-            content=user_msg.content,
-            thread_id=payload.thread_id,
-            email_id=payload.email_id
-        )
 
     async def stream_generator():
         current_db = db  # Reuse the injected session

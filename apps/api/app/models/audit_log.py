@@ -1,6 +1,6 @@
 import enum
 from sqlalchemy import Column, String, DateTime, Text
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
 from app.db_types import SafeJSON
 
@@ -34,4 +34,4 @@ class AuditLog(Base):
     explain_one_liner = Column(String, nullable=True)
     status = Column(String, default=AuditStatus.APPLIED.value, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

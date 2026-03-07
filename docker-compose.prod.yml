@@ -57,10 +57,11 @@ services:
       - redis
     labels:
       - "traefik.enable=true"
-      # Explicit route to pass SSE streaming requests to API natively without buffering
-      - "traefik.http.routers.api.rule=Host(`zroky.com`, `www.zroky.com`) && PathPrefix(`/aaliyah/live/`)"
+      # Route ALL API paths to the backend (matches docker-compose.yml dev config)
+      - "traefik.http.routers.api.rule=Host(`zroky.com`, `www.zroky.com`) && PathPrefix(`/api/v1`, `/aaliyah/`, `/assist`, `/oauth`, `/health`, `/me`, `/booking`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.api.priority=100"
       - "traefik.http.services.api.loadbalancer.server.port=8000"
 
   db:

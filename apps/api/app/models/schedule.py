@@ -1,6 +1,6 @@
 """Schedule model - publish/send schedule for artifacts."""
 from sqlalchemy import Column, String, DateTime, Enum as SQLEnum
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 
 from app.database import Base
@@ -26,7 +26,7 @@ class Schedule(Base):
     artifact_id = Column(String, index=True, nullable=False)
     scheduled_for = Column(DateTime, nullable=False, index=True)
     status = Column(SQLEnum(ScheduleStatus, native_enum=False), default=ScheduleStatus.SCHEDULED, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     def __repr__(self) -> str:
         return f"<Schedule(artifact_id={self.artifact_id}, status={self.status})>"
